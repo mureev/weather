@@ -1,0 +1,32 @@
+[project]
+name = "cm-weather"
+version = "1.0.0"
+description = "Self-hosted, ad-free weather PWA with three independent sources"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+  "E501",    # long lines: the prose in module docstrings is deliberate
+  "RUF001",  # ambiguous unicode: this codebase is *about* Cyrillic and U+2212
+  "RUF002",
+  "RUF003",
+  "B008",    # FastAPI's Query() in a default is the documented idiom
+  "SIM108",  # ternaries are not always clearer than an if
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011", "SIM117"]
+# Diagnostics are mounted into the running image and have to fix sys.path
+# before they can import the app they are diagnosing.
+"tools/route_probe.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+filterwarnings = ["ignore::DeprecationWarning"]

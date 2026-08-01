@@ -1,0 +1,117 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  # The parsers read someone else's HTML. Nothing here fetches the network --
+  # the fixtures are committed -- but a weekly run means a dependency that
+  # breaks the parse gets noticed on a Monday rather than on the morning you
+  # actually wanted the forecast.
+  schedule:
+    - cron: "0 6 * * 1"
+
+# A second push supersedes the first. Three jobs times a rapid-fire afternoon
+# is a queue nobody reads.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  test:
+    name: lint + unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt pytest ruff
+      - name: lint
+        run: ruff check .
+      - name: unit + parser + routing tests
+        # No network required or wanted: the fixtures are the ground truth.
+        # test_ui.py is excluded here and has a job of its own, but it is still
+        # *collected* -- test_docs.py asserts the README's test count, and that
+        # number has to mean the same thing in every environment.
+        #
+        # `-p no:randomly --strict-markers` and a zero-skip rule: a skipped test
+        # is not a passing test. Four of these sat skipped for want of a fixture
+        # and one of them was asserting a provenance key that does not exist --
+        # it could never have passed, and nobody could tell, because it had
+        # never run. Everything outside the browser suite has its inputs
+        # committed and must therefore execute.
+        run: |
+          pytest -q --ignore=tests/test_ui.py -rs | tee /tmp/unit.log
+          if grep -qE '[0-9]+ skipped' /tmp/unit.log; then
+            echo "::error::tests were skipped -- a skipped test is not a passing test"
+            exit 1
+          fi
+
+  ui:
+    name: browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt pytest playwright
+      - run: python -m playwright install --with-deps chromium
+      - name: browser tests
+        run: pytest -q tests/test_ui.py
+      - name: fail if they all skipped
+        # These tests skip themselves when Chromium is missing, which is right
+        # on a laptop and a silent green tick here. A job that cannot fail is
+        # not testing anything.
+        run: |
+          pytest -q tests/test_ui.py 2>&1 | tee /tmp/ui.log
+          grep -qE '[0-9]+ passed' /tmp/ui.log || {
+            echo "::error::the browser suite ran nothing"; exit 1; }
+
+  image:
+    name: image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Builds for the platform the VPS actually runs, because a Dockerfile
+      # that only works on the arch you happen to be sitting at is a deploy-day
+      # surprise -- and this repo has already had one (`exec format error`).
+      # Not pushed: `make deploy` does that, deliberately and by hand.
+      - name: build amd64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: false
+          build-args: |
+            APP_BUILD=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Not part of the pull-request gate: this one talks to the live internet and
+  # to the live VPS, so a red tick here can mean "the box is rebooting" as
+  # easily as "Yandex redesigned". It runs on the schedule because the suite
+  # tests committed fixtures and is therefore structurally incapable of
+  # noticing that the real pages have moved.
+  canary:
+    name: upstreams unchanged
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: has an upstream changed under us?
+        # Gismeteo is tolerated as missing: it blocks by IP, and a GitHub
+        # runner is not the address that matters. `make routes-remote` is the
+        # tool for that question.
+        run: python3 tools/canary.py --allow-missing gismeteo

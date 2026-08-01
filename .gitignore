@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+screenshots/
+.ruff_cache/
+
+# Scratch from assistant-driven updates: superseded files and staging dirs.
+# Kept on disk so you can inspect or restore; never part of the history.
+_to_delete/
+.stage*/
+
+# macOS
+.DS_Store

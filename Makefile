@@ -1,0 +1,218 @@
+# CM Weather — the whole loop from a terminal.
+#
+#   make test          the full suite (no network needed)
+#   make check         lint + test -- what CI runs
+#   make run           run locally on :8080 against live upstreams
+#   make push          build for amd64 and push to GHCR
+#   make deploy        push, then pull + restart on the VPS, then check health
+#   make health        what the live box thinks of itself
+#   make logs          tail the container on the VPS
+#   make fixtures      re-record test fixtures from the box that does the fetching
+#   make fixtures-gm   re-record the Gismeteo pages from whichever host answers
+#   make probe         diagnose a source that is refusing us
+#   make canary        has an upstream changed under us? (live, not fixtures)
+#   make routes        which way in to Gismeteo works from here
+#   make routes-remote ...and from the VPS, which is the one that matters
+#
+# Override anything on the command line:
+#   make deploy HOST=me@myhost SUDO=sudo
+
+IMAGE      ?= ghcr.io/mureev/cm-weather:latest
+HOST       ?= user@your-vps
+REMOTE_DIR ?= /srv/docker
+SERVICE    ?= cm-weather
+
+# nginx-proxy has no container_name on vps, so compose names it after the
+# project -- which is the directory, /srv/docker. It is NOT `nginx-proxy`.
+PROXY      ?= docker-nginx-proxy-1
+
+# Set SUDO=sudo if you ssh in as a non-root user:  make deploy SUDO=sudo
+SUDO       ?=
+PORT       ?= 8080
+SITE       ?= https://mureev.com/weather
+CITY       ?= yoshkar-ola
+
+# The Gismeteo page the fixtures are recorded from. `meteofor.lv` is the same
+# service under its export brand and answers addresses `gismeteo.ru` refuses,
+# so it is the default; point GM_URL at either and set GM_PREFIX to match.
+GM_URL     ?= https://meteofor.lv/ru/weather-yoshkar-ola-11975
+GM_PREFIX  ?= mf
+UA         ?= Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
+
+# Your Mac is arm64 and the VPS is amd64. Every image that ships is built for
+# the target explicitly -- a plain `docker build` here produces an arm64 image,
+# pushes without complaint, and dies on the VPS with `exec format error`.
+PLATFORM   ?= linux/amd64
+
+# Stamped into the image so `make health` can tell you what is actually running.
+# Stamped into the image and shown by `make health`, so "is my change actually
+# deployed?" has an answer. A git SHA when there is one -- it identifies the
+# *code* -- and otherwise the build time, which at least identifies the build.
+#
+# It used to fall back to the literal string "dev", and this repo has no
+# commits, so every image ever built was stamped `dev` and the field answered
+# nothing at all. A constant fallback is worse than no field: it looks like
+# information.
+BUILD      ?= $(shell git rev-parse --short HEAD 2>/dev/null || date -u +b%Y%m%d-%H%M)
+BUILT_AT   ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILDARGS   = --build-arg APP_BUILD=$(BUILD) --build-arg APP_BUILT_AT=$(BUILT_AT)
+
+SSH = ssh $(HOST)
+COMPOSE = cd $(REMOTE_DIR) && $(SUDO) docker compose
+
+.PHONY: help test test-fast lint fmt check run mock shots build push deploy \
+        restart reload-nginx sync-config health logs ps fixtures fixtures-gm \
+        selftest probe routes routes-remote canary clean
+
+help:
+	@grep -E '^#   make' $(MAKEFILE_LIST) | sed 's/^#   /  /'
+
+# --- local ------------------------------------------------------------------
+
+test:
+	python3 -m pytest -q
+
+# Everything except the browser tests, which need chromium.
+test-fast:
+	python3 -m pytest -q --ignore=tests/test_ui.py
+
+lint:
+	ruff check .
+
+fmt:
+	ruff check --fix .
+
+check: lint test
+
+# Native arch, so it starts fast. For looking at it, not for shipping.
+run:
+	docker build -t $(SERVICE):dev .
+	docker run --rm -p $(PORT):8080 -e DEBUG_TOKEN=local $(SERVICE):dev
+
+# Offline, against the recorded fixtures. YW_MOCK=winter|degraded|down
+mock:
+	python3 -m tests.mock_server
+
+shots:
+	python3 -m tools.shoot ok degraded
+
+# --- ship -------------------------------------------------------------------
+
+build:
+	docker buildx build --platform $(PLATFORM) $(BUILDARGS) -t $(IMAGE) .
+
+push:
+	docker buildx build --platform $(PLATFORM) $(BUILDARGS) -t $(IMAGE) --push .
+
+deploy: push restart health
+
+restart:
+	$(SSH) '$(COMPOSE) pull $(SERVICE) && $(COMPOSE) up -d $(SERVICE)'
+
+# nginx-proxy only re-reads vhost.d on reload. Needed after changing the
+# /weather route, not after a plain image bump.
+reload-nginx:
+	$(SSH) '$(SUDO) docker exec $(PROXY) nginx -t && \
+	        $(SUDO) docker exec $(PROXY) nginx -s reload'
+
+# Copy the compose file and vhost snippet up. Ansible pulls images but does not
+# sync these -- they are yours to put in place.
+sync-config:
+	scp ../infra/docker-compose/vps/docker-compose.yml \
+	    $(HOST):$(REMOTE_DIR)/
+	scp ../infra/nginx/vhost/mureev.com \
+	    $(HOST):$(REMOTE_DIR)/nginx/vhost/
+
+# --- look at it -------------------------------------------------------------
+
+# Retries, because `deploy` calls this the instant `up -d` returns and two
+# things are still catching up: the app's own start-up, and nginx's
+# `resolver ... valid=10s` still holding the previous container's IP. A 502
+# in the first few seconds after a deploy means neither has settled -- not
+# that anything is broken.
+health:
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+	  if curl -fsS $(SITE)/api/health > /tmp/cmw-health.json 2>/dev/null; then \
+	    jq '{status, selected, divergence_c, \
+	         build, sources: (.sources | map_values({available, reason, temp_c}))}' \
+	      < /tmp/cmw-health.json; exit 0; \
+	  fi; \
+	  printf 'waiting for %s (%s/10)\n' "$(SERVICE)" "$$i"; sleep 3; \
+	done; \
+	echo "still failing after 30s -- try: make logs"; exit 1
+
+logs:
+	$(SSH) '$(SUDO) docker logs -f --tail 100 $(SERVICE)'
+
+ps:
+	$(SSH) '$(COMPOSE) ps'
+
+# --- maintenance ------------------------------------------------------------
+
+# The loop this project is designed around. Re-record from the box that
+# actually does the fetching, then let the tests say what moved.
+# Needs DEBUG_TOKEN set in the container's environment and exported here.
+fixtures:
+	@test -n "$(DEBUG_TOKEN)" || (echo "set DEBUG_TOKEN=... first" && exit 1)
+	curl -fsS -H "X-Debug-Token: $(DEBUG_TOKEN)" \
+	  "$(SITE)/api/debug/raw?city=$(CITY)" > tests/fixtures/current.html
+	@$(MAKE) test
+
+# Record the Gismeteo pages from whichever host currently answers. Run it where
+# the fetch actually happens -- a fixture recorded on a machine that is not
+# blocked proves nothing about the machine that is.
+#     make fixtures-gm
+#     make fixtures-gm GM_URL=https://www.gismeteo.ru/weather-yoshkar-ola-11975 GM_PREFIX=gm
+fixtures-gm:
+	curl -fsS --compressed -A '$(UA)' '$(GM_URL)/' \
+	  > tests/fixtures/$(GM_PREFIX)-current.html
+	curl -fsS --compressed -A '$(UA)' '$(GM_URL)/hourly/' \
+	  > tests/fixtures/$(GM_PREFIX)-hourly.html
+	curl -fsS --compressed -A '$(UA)' '$(GM_URL)/10-days/' \
+	  > tests/fixtures/$(GM_PREFIX)-10days.html
+	@wc -c tests/fixtures/$(GM_PREFIX)-*.html
+	@# Recording succeeded above. Running the suite is the *next* step, not part
+	@# of this one -- and it needs pytest, which the machine that can reach the
+	@# site may well not have. Failing the whole target there threw away a good
+	@# capture and read as "the fixtures did not work".
+	@python3 -c "import pytest" 2>/dev/null && $(MAKE) test || \
+	  echo "\n  Fixtures recorded. pytest is not installed here -- run \`make test\`\n  where it is, or \`pip3 install pytest\` first.\n"
+
+# The test suite runs against committed fixtures and therefore cannot notice
+# that the real pages have moved. This reads the live /api/health and fails if
+# any source has slipped to a lower extraction tier -- the early warning, on a
+# calm day, rather than on the morning the forecast mattered. Stdlib only.
+#     make canary
+#     make canary SITE=http://localhost:8080/weather
+#     make canary CANARY_ARGS='--allow-missing gismeteo'
+canary:
+	@python3 tools/canary.py --site '$(SITE)' $(CANARY_ARGS)
+
+selftest:
+	@test -n "$(DEBUG_TOKEN)" || (echo "set DEBUG_TOKEN=... first" && exit 1)
+	@curl -fsS -H "X-Debug-Token: $(DEBUG_TOKEN)" "$(SITE)/api/debug/selftest" | jq
+
+# Six-row matrix: three header sets against HTTP/1.1 and HTTP/2. Tells you
+# whether a 403 is the headers, the transport, or the TLS fingerprint.
+probe:
+	docker run --rm -i -v "$(CURDIR)/tools/probe403.py:/probe.py:ro" $(IMAGE) python /probe.py
+
+# Every (host, egress) pair the app would try, in order, with what each one
+# actually returns. Pass candidate proxies to test them before committing one:
+#     make routes ARGS='http://1.2.3.4:8080 http://5.6.7.8:3128'
+routes:
+	docker run --rm -i -v "$(CURDIR)/tools/route_probe.py:/probe.py:ro" \
+	  -e GISMETEO_HOSTS -e GISMETEO_PROXY -e UPSTREAM_PROXY \
+	  $(IMAGE) python /probe.py $(ARGS)
+
+# The same probe on the box that actually does the fetching -- which is the
+# only machine whose answer counts, since the whole problem is that a block
+# depends on the address you arrive from. Streams the script in over ssh, so
+# nothing has to be checked out on the VPS.
+#     make routes-remote ARGS='http://1.2.3.4:8080'
+routes-remote:
+	$(SSH) "$(SUDO) docker run --rm -i $(IMAGE) python - $(ARGS)" < tools/route_probe.py
+
+clean:
+	rm -rf .pytest_cache screenshots
+	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
