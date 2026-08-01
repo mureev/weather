@@ -28,7 +28,6 @@ from .config import settings
 from .models import Status
 from .service import ORDER, cache_stats, client, get_weather, invalidate
 from .sources import geocode
-from .splash import DEVICES, gradient_png
 from .version import BUILD, BUILT_AT, SHELL, info
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), 20),
@@ -271,32 +270,6 @@ async def manifest():
              "type": "image/png", "purpose": "maskable"},
         ],
     }, media_type="application/manifest+json")
-
-
-# Every size we will ever draw, precomputed as a set. Bounding this is not
-# tidiness: `gradient_png` allocates width x height x 3 bytes before
-# compressing, so an open-ended size parameter is a memory-exhaustion
-# primitive that costs one curl to fire. Only sizes a real iPhone asks for.
-_SPLASH_SIZES = {(w * dpr, h * dpr) for w, h, dpr in DEVICES}
-
-
-@api.get("/splash/{name}.png")
-async def splash(name: str):
-    """The iOS launch image, drawn as the sky the app is about to paint.
-
-    The splash itself cannot be disabled -- it is the operating system's
-    app-launch screen. What it *contains* is ours, and an image identical to
-    the first frame makes the handover invisible. See `splash.py`.
-    """
-    try:
-        size, scheme = name.rsplit("-", 1)
-        width, height = (int(n) for n in size.split("x"))
-    except ValueError:
-        raise HTTPException(status_code=404, detail="no such splash") from None
-    if (width, height) not in _SPLASH_SIZES or scheme not in ("dark", "light"):
-        raise HTTPException(status_code=404, detail="no such splash")
-    return Response(gradient_png(width, height, scheme), media_type="image/png",
-                    headers={"Cache-Control": "public, max-age=604800"})
 
 
 @api.get("/sw.js")
