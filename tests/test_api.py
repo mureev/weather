@@ -448,6 +448,79 @@ class TestTheLaunchIsOneContinuousColour:
             "/weather/index.html").text, re.S).group(0)
         assert not re.search(r"[0-9]", boot)
 
+    def test_the_launch_image_is_the_gradient_the_app_paints(self, client_):
+        """The splash cannot be turned off -- it is the OS app-launch screen.
+        So it holds a picture of the app instead of announcing one, and the
+        picture has to be the *same* picture: top pixel equal to `--sky1`."""
+        import struct
+        import zlib
+
+        png = client_.get("/weather/splash/1179x2556-dark.png").content
+        assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+        pos, idat, width = 8, b"", None
+        while pos < len(png):
+            n = struct.unpack(">I", png[pos:pos + 4])[0]
+            kind, data = png[pos + 4:pos + 8], png[pos + 8:pos + 8 + n]
+            if kind == b"IHDR":
+                width, height = struct.unpack(">II", data[:8])
+            if kind == b"IDAT":
+                idat += data
+            pos += 12 + n
+        assert (width, height) == (1179, 2556)
+
+        raw = zlib.decompress(idat)
+        first = raw[1:4]                     # filter byte, then the first pixel
+        html = client_.get("/weather/index.html").text
+        import re
+        sky1 = re.search(r":root\{--sky1:#([0-9a-f]{6})", html).group(1)
+        assert tuple(first) == tuple(int(sky1[i:i + 2], 16) for i in (0, 2, 4)), \
+            "the launch image starts on a different colour than the app does"
+
+    def test_only_real_device_sizes_are_drawn(self, client_):
+        """`gradient_png` allocates width x height x 3 bytes before
+        compressing, so an open-ended size parameter is a memory-exhaustion
+        primitive that costs one curl to fire."""
+        assert client_.get("/weather/splash/9000x9000-dark.png").status_code == 404
+        assert client_.get("/weather/splash/1179x2556-mauve.png").status_code == 404
+        assert client_.get("/weather/splash/notasize-dark.png").status_code == 404
+
+    def test_the_link_tags_match_the_generator(self, client_):
+        """The tags are written into the static shell, so they can drift from
+        the device list they came from. They cannot drift silently."""
+        from app.splash import link_tags
+        html = client_.get("/weather/index.html").text
+        for tag in link_tags("").replace('href="/splash/', 'href="splash/').split("\n"):
+            assert tag in html, f"missing or stale startup image link:\n  {tag}"
+
+    def test_a_launch_image_is_small(self, client_):
+        """Every scanline is one colour, so the Up filter turns the whole
+        picture into runs of zeros. If one of these is ever hundreds of
+        kilobytes, the filter or the palette has changed."""
+        png = client_.get("/weather/splash/1179x2556-dark.png").content
+        assert len(png) < 60_000, f"{len(png)} bytes for a vertical gradient"
+
+    def test_the_app_fades_in_rather_than_snapping(self, client_):
+        html = client_.get("/weather/index.html").text
+        assert "materialise" in html
+        assert "prefers-reduced-motion" in html
+
+    def test_the_fade_cannot_leave_the_page_blank(self, client_):
+        """`both` fill mode, and no JavaScript involved. A fade-in gated on a
+        script is a blank page for anyone whose script fails -- the classic way
+        to make a site worse while trying to make it feel faster."""
+        html = client_.get("/weather/index.html").text
+        assert "animation:materialise .22s ease-out both" in html
+        assert "to{opacity:1" in html
+
+    def test_the_fade_is_not_on_the_element_that_rerenders(self, client_):
+        """`#content` is replaced on every refresh; an animation there would
+        replay every ten minutes, which is a tic rather than a transition."""
+        import re
+        html = client_.get("/weather/index.html").text
+        content_rule = re.search(r"#content\{[^}]*\}", html)
+        assert not content_rule or "animation" not in content_rule.group(0)
+
     def test_the_loading_state_is_announced(self, client_):
         """The skeleton is aria-hidden, so something has to speak."""
         html = client_.get("/weather/index.html").text

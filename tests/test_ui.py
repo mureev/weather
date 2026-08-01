@@ -324,6 +324,33 @@ class TestPlaceSheet:
         assert page.evaluate(
             "document.getElementById('theme-color').content") == before
 
+    def test_no_ancestor_of_the_sheet_has_a_transform(self, page):
+        """A transformed ancestor becomes the containing block for its
+        `position: fixed` descendants, so the sheet stops being positioned
+        against the viewport and lands somewhere arbitrary.
+
+        This is not hypothetical: a 4px rise was added to the load animation on
+        `.wrap`, which is the sheet's ancestor, and it broke exactly this for
+        the 220 ms the animation ran. Long enough for a test to catch and short
+        enough that a person never would. The same applies to `filter`,
+        `perspective`, `backdrop-filter` and `contain: paint`.
+        """
+        offenders = page.evaluate("""() => {
+          const bad = [];
+          for (let el = document.querySelector('.sheet').parentElement;
+               el; el = el.parentElement) {
+            const s = getComputedStyle(el);
+            for (const prop of ['transform', 'filter', 'perspective', 'backdropFilter']) {
+              if (s[prop] && s[prop] !== 'none') {
+                bad.push(el.className + ' has ' + prop + ': ' + s[prop]);
+              }
+            }
+          }
+          return bad;
+        }""")
+        assert offenders == [], (
+            f"the sheet's fixed positioning is broken by an ancestor: {offenders}")
+
     def test_picking_a_city_changes_the_page(self, page):
         page.click("#btn-place")
         page.wait_for_selector(".sheet.open")
