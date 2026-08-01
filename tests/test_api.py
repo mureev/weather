@@ -285,3 +285,88 @@ class TestFrontEndHygiene:
             encoding="utf-8")
         assert "url.origin !== self.location.origin" in sw
         assert "403" in sw
+
+
+class TestItIsCheapToLoad:
+    """Bytes on the wire, as a budget rather than a hope.
+
+    A weather app is opened for four seconds on a phone that is often on a
+    train. The whole of it -- shell, script, service worker, first payload --
+    should arrive in less than a photograph.
+
+    These are regression guards, not aspirations. Every number here was
+    measured, and the budgets sit just above the measurement, so the test that
+    fails is the one where somebody adds a charting library.
+    """
+
+    SHELL = ("index.html", "app.js", "sw.js")
+
+    @staticmethod
+    def wire_bytes(response) -> int:
+        """What actually crossed the network.
+
+        Not `len(response.content)`: the test client decompresses gzip
+        transparently, so reading the body measures the file on disk and the
+        budget silently becomes three times what you wrote. The first version
+        of this test reported 82 kB for a 26 kB load and I nearly raised the
+        limit to match. `Content-Length` is set by the compression middleware
+        after compressing, so it is the real figure.
+        """
+        return int(response.headers["content-length"])
+
+    def test_the_api_is_compressed(self, client_):
+        """22.8 kB of very repetitive JSON compresses to 2.5 kB. Nothing in
+        front of the app was doing this: the nginx location block for /weather/
+        has no gzip directive, so every byte went out raw."""
+        r = client_.get("/weather/api/weather", headers={"Accept-Encoding": "gzip"})
+        assert r.status_code == 200
+        assert r.headers.get("content-encoding") == "gzip"
+
+    def test_the_shell_is_compressed(self, client_):
+        for name in self.SHELL:
+            r = client_.get(f"/weather/{name}", headers={"Accept-Encoding": "gzip"})
+            assert r.headers.get("content-encoding") == "gzip", name
+            assert self.wire_bytes(r) < len(r.content), name
+
+    def test_it_varies_on_accept_encoding(self, client_):
+        """Without `Vary`, a shared cache can hand a gzipped body to a client
+        that never asked for one. There is a CDN-shaped hole here even though
+        there is no CDN today."""
+        r = client_.get("/weather/app.js", headers={"Accept-Encoding": "gzip"})
+        assert "accept-encoding" in r.headers.get("vary", "").lower()
+
+    def test_a_client_that_cannot_decompress_still_gets_the_file(self, client_):
+        r = client_.get("/weather/app.js", headers={"Accept-Encoding": "identity"})
+        assert r.status_code == 200 and "content-encoding" not in r.headers
+
+    def test_a_cold_load_fits_in_a_budget(self, client_):
+        """Shell plus first payload, compressed, as a phone would fetch it."""
+        total = 0
+        for path in (*self.SHELL, "api/weather"):
+            r = client_.get(f"/weather/{path}", headers={"Accept-Encoding": "gzip"})
+            total += self.wire_bytes(r)
+        assert total < 32_000, (
+            f"a cold load is now {total/1000:.1f} kB compressed; it was 26 kB. "
+            f"Something sizeable joined the shell -- check before raising this.")
+
+    def test_the_uncompressed_shell_has_not_ballooned_either(self, client_):
+        """Compression can hide a lot of growth. Watch the source too."""
+        raw = sum(len(client_.get(f"/weather/{n}").content) for n in self.SHELL)
+        assert raw < 80_000, f"the shell source is now {raw/1000:.1f} kB"
+
+    def test_static_assets_say_how_long_they_may_be_kept(self, client_):
+        """Unhashed shell files must revalidate -- a cached copy that never
+        checks is a device pinned to an old build for ever, which is the bug
+        the derived service-worker version exists to prevent. Icons are content
+        and may be kept."""
+        for name in self.SHELL:
+            assert client_.get(f"/weather/{name}").headers["cache-control"] == "no-cache"
+        icon = client_.get("/weather/icons/icon-192.png")
+        assert "max-age=" in icon.headers["cache-control"]
+
+    def test_nothing_in_the_shell_is_fetched_from_elsewhere(self, client_):
+        """Restated here as a *performance* claim rather than a privacy one:
+        every extra origin is a DNS lookup, a TCP handshake and a TLS
+        negotiation before a single byte arrives."""
+        html = client_.get("/weather/index.html").text
+        assert "http://" not in html.replace("http://www.w3.org", "")

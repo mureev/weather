@@ -12,7 +12,10 @@ tests/
 screenshots/
 docs/
 deploy/
+tools/
 _to_delete/
+.stage*/
+*.tar.gz
 
 __pycache__/
 *.py[cod]

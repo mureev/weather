@@ -195,3 +195,51 @@ class TestDayValidation:
         rep = V.Report()
         V.validate_days([Day(date="2026-07-31", temp_max_c=20.0)], rep)
         assert any("survived validation" in w for w in rep.warnings)
+
+
+class TestTheCacheIsBounded:
+    """Keyed by place slug, and a slug is whatever the URL can express.
+
+    Every searchable city is one key; every distinct GPS fix is another, and
+    coordinates are rounded to two decimals -- roughly a kilometre -- so over a
+    country that is a great many. Nothing ever removed anything, so each one
+    left a whole `Weather` object resident for the life of the process. Not a
+    leak in the classic sense: every entry was once legitimately wanted. Just a
+    set that only ever grew, on a box with a fixed amount of memory.
+    """
+
+    def test_it_stops_growing(self):
+        from app.cache import TTLCache
+        c = TTLCache(ttl_s=600, grace_s=3600, max_entries=5)
+        for i in range(500):
+            c.put(f"place-{i}", i)
+        assert len(c.keys()) == 5
+
+    def test_it_keeps_the_newest(self):
+        """Eviction by age, so the city you actually use survives a burst of
+        one-off lookups."""
+        from app.cache import TTLCache
+        c = TTLCache(ttl_s=600, grace_s=3600, max_entries=3)
+        for i in range(10):
+            c.put(f"place-{i}", i)
+        assert sorted(c.keys()) == ["place-7", "place-8", "place-9"]
+
+    def test_entries_past_the_grace_window_go_first(self):
+        """They can never be served again -- `get_stale` refuses them -- so
+        holding them is pure cost."""
+        import time
+
+        from app.cache import TTLCache
+        c = TTLCache(ttl_s=1, grace_s=0, max_entries=100)
+        c.put("old", 1)
+        time.sleep(0.01)
+        c.put("new", 2)
+        assert c.keys() == ["new"]
+
+    def test_a_fresh_value_is_still_served(self):
+        """The bound must not break the thing the cache is for."""
+        from app.cache import TTLCache
+        c = TTLCache(ttl_s=600, grace_s=3600, max_entries=64)
+        c.put("yoshkar-ola", "payload")
+        got = c.get_fresh("yoshkar-ola")
+        assert got is not None and got.value == "payload"

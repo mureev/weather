@@ -111,6 +111,10 @@ class Settings:
     # --- behaviour -----------------------------------------------------------
     cache_ttl_s: int = field(default_factory=lambda: _i("CACHE_TTL_S", 600))
     stale_grace_s: int = field(default_factory=lambda: _i("STALE_GRACE_S", 6 * 3600))
+    # How many places may sit in the cache at once. Keys are place slugs, and
+    # a slug is whatever the URL can express -- every searchable city, plus one
+    # per distinct GPS fix. Unbounded, that is a set that only ever grows.
+    cache_max_entries: int = field(default_factory=lambda: _i("CACHE_MAX_ENTRIES", 64))
     upstream_timeout_s: float = field(default_factory=lambda: _f("UPSTREAM_TIMEOUT_S", 12.0))
 
     # How far apart two sources must land before the gap is worth recording in

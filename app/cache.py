@@ -27,9 +27,28 @@ class Entry(Generic[T]):
 
 
 class TTLCache(Generic[T]):
-    def __init__(self, ttl_s: int, grace_s: int) -> None:
+    """Bounded, because the keys are not.
+
+    Entries are keyed by place slug, and a slug is whatever the URL can
+    express: every city the text search can name, plus one per distinct GPS
+    fix -- coordinates rounded to two decimals, so about a kilometre apart,
+    which over a country is a great many. Nothing here ever removed anything,
+    so each one left a whole `Weather` object resident for the life of the
+    process. Not a leak in the classic sense, since every entry was once
+    legitimately wanted; just a set that only ever grows, on a box with a
+    fixed amount of memory.
+
+    Two rules, in order. Anything past the grace window is dropped -- it can
+    never be served again, so keeping it is pure cost. If that leaves more than
+    `max_entries`, the oldest go. `max_entries` is generous next to the handful
+    of cities anyone actually uses; it exists to bound the pathological case,
+    not to ration the ordinary one.
+    """
+
+    def __init__(self, ttl_s: int, grace_s: int, max_entries: int = 64) -> None:
         self.ttl_s = ttl_s
         self.grace_s = grace_s
+        self.max_entries = max_entries
         self._d: dict[str, Entry[T]] = {}
         self._lock = threading.Lock()
 
@@ -52,7 +71,27 @@ class TTLCache(Generic[T]):
 
     def put(self, key: str, value: T) -> None:
         with self._lock:
-            self._d[key] = Entry(value=value, stored_at=time.time())
+            now = time.time()
+            self._d[key] = Entry(value=value, stored_at=now)
+            self._evict(now)
+
+    def _evict(self, now: float) -> None:
+        """Caller holds the lock.
+
+        `now` is passed in rather than read again, and the comparison is
+        strict. Both matter at `grace_s=0`: reading the clock a second time
+        puts the cutoff a few microseconds *after* the entry that was just
+        stored, so the value you just wrote is evicted before it is ever
+        served. A configuration nobody would choose on purpose, found by the
+        test that was written to check the opposite thing.
+        """
+        cutoff = now - self.grace_s
+        for k in [k for k, e in self._d.items() if e.stored_at < cutoff]:
+            del self._d[k]
+        if len(self._d) > self.max_entries:
+            oldest = sorted(self._d.items(), key=lambda kv: kv[1].stored_at)
+            for k, _ in oldest[: len(self._d) - self.max_entries]:
+                del self._d[k]
 
     def drop(self, key: str) -> None:
         with self._lock:

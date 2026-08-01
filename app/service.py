@@ -59,7 +59,8 @@ from .validation import (
 
 log = logging.getLogger(__name__)
 
-_cache: TTLCache[Weather] = TTLCache(settings.cache_ttl_s, settings.stale_grace_s)
+_cache: TTLCache[Weather] = TTLCache(settings.cache_ttl_s, settings.stale_grace_s,
+                                     settings.cache_max_entries)
 _locks: dict[str, asyncio.Lock] = {}
 
 # Preference order. The first available one is what a fresh install shows;

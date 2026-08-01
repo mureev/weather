@@ -21,6 +21,7 @@ from pathlib import Path
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 
 from . import cities
 from .config import settings
@@ -37,6 +38,22 @@ STATIC = Path(__file__).resolve().parent.parent / "static"
 BASE = settings.base_path
 
 app = FastAPI(title="CM Weather", docs_url=None, redoc_url=None, openapi_url=None)
+
+# Compression, and it is not a micro-optimisation. Measured on the real
+# payloads: the weather JSON goes 22.8 kB -> 2.5 kB (89% -- it is a very
+# repetitive document), the shell HTML 32 kB -> 11 kB, the script 29 kB ->
+# 11 kB. A cold load drops from about 103 kB to about 28 kB, which on a phone
+# on mobile data is the difference between "instant" and "loading".
+#
+# Nothing in front of us was doing it: nginx-proxy's vhost block for /weather/
+# has no gzip directive, so every byte was going out raw.
+#
+# `minimum_size` because compressing a 200-byte 304 or a short error costs more
+# than it saves, and BREACH is not a concern here for the usual reason: the
+# responses contain no secret to extract. There is no session, no CSRF token
+# and no auth material anywhere in the payload.
+app.add_middleware(GZipMiddleware, minimum_size=800, compresslevel=6)
+
 api = APIRouter()
 
 CSP = (
@@ -283,6 +300,36 @@ async def config_js():
 async def index():
     return FileResponse(STATIC / "index.html",
                         headers={"Cache-Control": "no-cache"})
+
+
+# How long a browser may keep each kind of asset without asking again.
+#
+# The shell revalidates every time: it is unhashed, so a cached copy that never
+# checks is a device pinned to an old build for ever -- the exact bug the
+# derived service-worker version exists to prevent, reintroduced one layer up.
+# Revalidation is cheap: an unchanged file answers 304 in a couple of hundred
+# bytes, and the service worker means it usually is not asked at all.
+#
+# Icons are different. They are content, not code, they change roughly never,
+# and nothing depends on them being current. A week costs one request a week.
+_CACHE_BY_SUFFIX = {
+    ".png": "public, max-age=604800",
+    ".ico": "public, max-age=604800",
+    ".svg": "public, max-age=604800",
+    ".woff2": "public, max-age=604800, immutable",
+}
+
+
+@app.middleware("http")
+async def cache_headers(request: Request, call_next):
+    """Starlette's StaticFiles sends ETag and Last-Modified but no
+    Cache-Control, which leaves the decision to browser heuristics. Being
+    explicit is free and makes the behaviour the same everywhere."""
+    response = await call_next(request)
+    if "cache-control" not in response.headers:
+        suffix = Path(request.url.path).suffix
+        response.headers["Cache-Control"] = _CACHE_BY_SUFFIX.get(suffix, "no-cache")
+    return response
 
 
 app.include_router(api, prefix=BASE)

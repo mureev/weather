@@ -622,7 +622,93 @@ back empty" would have caught the precipitation bug without anyone squinting.
 
 ---
 
-## 18. Things deliberately not built
+## 18. Cheap to load, cheap to run — measured, not assumed
+
+Every number below was measured before and after. The point of writing them
+down is that the next session can tell whether it made things worse.
+
+### Bytes on the wire
+
+Nothing was compressed. Not by the app, and not by nginx-proxy — the `/weather/`
+location block has no `gzip` directive, so every byte went out raw. One line of
+middleware:
+
+```
+/api/weather   22.8 kB -> 2.5 kB   (89%; it is a very repetitive document)
+index.html     32.2 kB -> 10.9 kB  (66%)
+app.js         29.2 kB -> 11.3 kB  (61%)
+sw.js           3.5 kB -> 1.7 kB   (52%)
+cold load     ~103 kB  -> ~26 kB
+```
+
+There is no BREACH concern, for the usual reason: the responses contain no
+secret to extract — no session, no CSRF token, no auth material anywhere.
+
+Static assets now also state how long they may be kept. The shell revalidates
+every time, deliberately: it is unhashed, and a cached copy that never checks
+is a device pinned to an old build for ever — the exact failure the derived
+service-worker version exists to prevent, reintroduced one layer up.
+Revalidation costs a 304. Icons are content rather than code and get a week.
+
+### The image
+
+`uvicorn[standard]` was pulling **19 MB** of packages unreachable from this
+app: uvloop (14 MB), websockets, watchfiles and PyYAML. There are no
+websockets, nothing reloads in production, no YAML is ever parsed, and uvloop
+optimises an event loop that spends its life waiting on three upstream HTTP
+requests. Shipped dependencies went **53 MB → 34 MB**. `httptools` stayed: 2 MB,
+and it does help.
+
+The build is now two-stage. Today that saves little, because the only thing
+left behind is pip's working state. It is worth the four lines for the day a
+dependency stops shipping a wheel and needs a compiler — which then lands in
+the builder and never reaches the image facing the internet. Structuring for
+that in advance is free; retrofitting it during an outage is not.
+
+**Considered and rejected:** dropping FastAPI for bare Starlette to shed
+pydantic (~12 MB). The app uses dataclasses and never touches a pydantic model,
+so it is dead weight — but it is dead weight in exchange for the most
+conventional web framework in the language, and legibility to the next session
+is worth more here than twelve megabytes. Alpine was rejected too: lxml has no
+musl wheels, so it would mean compiling lxml on every build.
+
+### Memory
+
+**The cache was unbounded.** Keyed by place slug, and a slug is whatever the URL
+can express: every city the search can name, plus one per distinct GPS fix —
+coordinates rounded to two decimals, so about a kilometre apart, which over a
+country is a great many. Nothing ever removed anything, so each one left a whole
+`Weather` object resident for the life of the process. Not a leak in the classic
+sense, since every entry was once legitimately wanted; just a set that only ever
+grew, on a box with a fixed amount of memory. It is now bounded — past-grace
+entries first, then oldest — with `CACHE_MAX_ENTRIES` at 64, which is generous
+beside the handful of cities anyone uses.
+
+`--limit-concurrency 64` bounds the other direction: each in-flight request can
+hold three parsed lxml trees, and refusing the 65th with a 503 is a better
+failure than the OOM killer taking the container down for everyone.
+
+### The budget is a test
+
+`TestItIsCheapToLoad` asserts the compressed cold load stays under 32 kB and the
+shell source under 80 kB. The budgets sit just above the measurements, so the
+test that fails is the one where somebody adds a charting library.
+
+Two of these tests were wrong when first written, in the way this file keeps
+recording. The byte budget read `len(response.content)` — and the test client
+decompresses transparently, so it measured the file on disk and reported 82 kB
+for a 26 kB load; `Content-Length` is the real figure. And the cache-eviction
+test found that at `grace_s=0` the new implementation evicted the entry it had
+just written, because the cutoff read the clock a second time. **Measure the
+thing that leaves the machine, not the thing you have in hand.**
+
+**What would change it.** A second user. Everything here is sized for one phone
+and one small VPS; none of it would survive contact with real traffic, and all
+of it would be the wrong thing to optimise for it.
+
+---
+
+## 19. Things deliberately not built
 
 **Push notifications.** Possible without a Developer account (standard Web Push,
 your own VAPID keypair), but every push on iOS must show a visible notification,

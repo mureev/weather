@@ -1,4 +1,15 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-httpx[http2]>=0.27
-lxml>=5.2
+# Runtime only. Everything here is imported by the app on a normal request
+# path; nothing is here "in case".
+fastapi>=0.115          # routing, DI, the security-header plumbing
+uvicorn>=0.30           # ASGI server
+httptools>=0.6          # C HTTP parser for uvicorn -- measurable, 2 MB
+httpx[http2]>=0.27      # upstream fetches; [http2] pulls h2, which we use
+lxml>=5.2               # the parsers. The one genuinely large dependency, 12 MB
+
+# Deliberately NOT `uvicorn[standard]`. That extra pulls uvloop (14 MB),
+# websockets, watchfiles and PyYAML -- 19 MB measured, none of it reachable
+# from this app. There are no websockets, nothing reloads in production, no
+# YAML is ever parsed, and uvloop optimises an event loop whose time is spent
+# waiting on three upstream HTTP requests. Buying 14 MB of resident image to
+# speed up the part that was never the bottleneck is the wrong trade for a box
+# this small; httptools is kept because it is 2 MB and does help.

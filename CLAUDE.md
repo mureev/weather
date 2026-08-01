@@ -60,15 +60,18 @@ Everything below follows from that.
 7. **No build step.** No bundler, no framework, no `node_modules`. Three static
    files a browser reads directly. This is the single biggest reason the thing
    still runs in five years.
-8. **A value that must exist in two languages is read back, never restated.**
+8. **Every cache and queue is bounded.** Keys here come from URLs — city
+   searches and GPS fixes — so the key space is effectively infinite and an
+   unbounded store is a set that only ever grows.
+9. **A value that must exist in two languages is read back, never restated.**
    CSS owns `--hour-w` and `--scrim`; JS reads them. This has bitten three
    times; the tests assert the *agreement*, not either value.
-9. **Two fields that describe the same instant must agree.** The dangerous
+10. **Two fields that describe the same instant must agree.** The dangerous
    failure here is never a bad value — it is a right value describing the wrong
    thing: the wrong city, the wrong hour, the wrong cell. Bounds-checking sees
    none of them. `validation.check_coherence` is the layer for it; add to it
    when you add a field that has a sibling.
-10. **A parser given the same bytes returns the same answer forever.** No
+11. **A parser given the same bytes returns the same answer forever.** No
    function reads the clock; a date is passed in as `today=`, and the clock may
    only be that argument's default. The page's stated date beats our guess
    about what day it is.
@@ -120,6 +123,9 @@ Full list at the bottom of `DECISIONS.md`. The ones that recur:
   that edge — a *colour*, so gradients are invisible to it, and only at first
   render, so JavaScript cannot change it. `.edge-top` / `.edge-bot` exist
   solely to be sampled; keep them fixed, full width, ≥6px, no border.
+- **Measure the thing that leaves the machine.** The byte-budget test read
+  `len(response.content)`; the test client decompresses transparently, so it
+  measured the file on disk and reported 82 kB for a 26 kB load.
 - **A skipped test is not a passing test, and one that has never run may be
   asserting nonsense.** Four tests waited on a fixture for weeks; the moment one
   existed, one of them failed on an assertion that could never have been true.
