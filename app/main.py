@@ -252,8 +252,14 @@ async def manifest():
         "start_url": f"{BASE}/",
         "scope": f"{BASE}/",
         "display": "standalone",
-        "background_color": "#0b1220",
-        "theme_color": "#0b1220",
+        # Both must equal the critical-CSS colour at the top of index.html and
+        # `--sky1`'s default. iOS generates the standalone launch screen from
+        # `background_color`, so any disagreement here is a visible flash
+        # between the splash and the app. It was #0b1220 against a first paint
+        # of #0d1630 -- close enough to look like a bug rather than a choice,
+        # and dark enough to read as plain black on a phone.
+        "background_color": "#0d1630",
+        "theme_color": "#0d1630",
         "lang": "ru",
         "icons": [
             {"src": f"{BASE}/icons/icon-192.png", "sizes": "192x192",

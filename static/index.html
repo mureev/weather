@@ -5,6 +5,21 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Погода</title>
 
+<!-- The first frame, and it is deliberately the first thing in the document.
+     Everything below this -- the manifest link, the icons, 30 kB of stylesheet
+     -- has to be parsed before the browser knows what colour the page is, and
+     until it does it paints its own default, which is white. That is the flash
+     between the splash disappearing and the app appearing.
+
+     Three lines, so there is nothing to parse. The colour must equal `--sky1`'s
+     default further down *and* the manifest's `background_color`, so that the
+     launch screen, the first paint and the loaded app are one continuous
+     colour and the transition between them is invisible. Written in three
+     places because each is read by a different consumer at a different moment;
+     a test asserts all three agree. -->
+<style>html{background:#0d1630}
+@media (prefers-color-scheme:light){html{background:#3f6ba6}}</style>
+
 <!-- ==========================================================================
      NO preconnect. NO dns-prefetch. NO preload. NO third-party anything.
 
@@ -430,7 +445,42 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .notes.show{display:block}
 .notes ul{margin:5px 0 0;padding-left:17px}
 .hide{display:none}
+/* ---- the skeleton -------------------------------------------------------
+ * What you see for the fraction of a second before the cached payload
+ * renders, and for longer on a cold install. It used to be the hero at 30%
+ * opacity showing "—°", which reads as a broken app rather than a loading
+ * one.
+ *
+ * Now it is the *shape* of the answer: the icon, the temperature, the source
+ * strip, two cards. Nothing pretends to be data -- there are no fake numbers
+ * anywhere, which is the same rule the rest of this codebase follows about
+ * plausible wrong values. It is furniture, and furniture is honest.
+ */
+/* Announced, not shown. The skeleton is `aria-hidden` -- a screen reader has
+   no use for the shape of a card -- so something has to say what is going on,
+   and "Загружаем погоду…" is that thing. */
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+    clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .skel{opacity:.3}
+.boot{padding:2px 0 0}
+.boot i{display:block;border-radius:14px;
+        background:linear-gradient(90deg,
+          rgba(255,255,255,.10) 0%, rgba(255,255,255,.18) 50%,
+          rgba(255,255,255,.10) 100%);
+        background-size:200% 100%;
+        animation:sheen 1.6s ease-in-out infinite}
+.boot .ic{width:84px;height:84px;border-radius:50%;margin:6px auto 14px}
+.boot .t{width:184px;height:76px;margin:0 auto 14px;border-radius:18px}
+.boot .c{width:150px;height:20px;margin:0 auto 26px}
+.boot .strip{height:56px;border-radius:16px;margin:0 0 10px}
+.boot .card{height:150px;border-radius:var(--r);margin:0 0 10px}
+.boot .card.tall{height:300px}
+@keyframes sheen{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@media (prefers-reduced-motion: reduce){
+  /* The pulse is the only thing saying "working"; without motion, a steady
+     block says the same thing quietly rather than not at all. */
+  .boot i{animation:none;background:rgba(255,255,255,.13)}
+}
 .err{text-align:center;padding:26px 16px;color:var(--dim)}
 .build{text-align:center;margin-top:10px;font-size:10.5px;color:var(--faint);
        opacity:.5;font-variant-numeric:tabular-nums;letter-spacing:.04em}
@@ -488,7 +538,11 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
   </div>
 
   <div id="content">
-    <div class="hero skel"><div class="t">—°</div></div>
+    <div class="boot" aria-hidden="true">
+      <i class="ic"></i><i class="t"></i><i class="c"></i>
+      <i class="strip"></i><i class="card"></i><i class="card tall"></i>
+    </div>
+    <p class="sr">Загружаем погоду…</p>
   </div>
 
   <!-- Below the weather, on request. It began above it on the reasoning that a

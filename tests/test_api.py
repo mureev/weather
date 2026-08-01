@@ -370,3 +370,85 @@ class TestItIsCheapToLoad:
         negotiation before a single byte arrives."""
         html = client_.get("/weather/index.html").text
         assert "http://" not in html.replace("http://www.w3.org", "")
+
+
+class TestTheLaunchIsOneContinuousColour:
+    """Tap to first paint, with nothing flashing in between.
+
+    Three separate things decide what the screen shows in the first half
+    second, each read by a different consumer at a different moment:
+
+      manifest background_color   iOS, to draw the standalone launch screen
+      the critical <style>        the browser, for the first paint
+      --sky1's default            the browser again, once 30 kB of CSS is read
+
+    They were #0b1220, nothing, and #0d1630. So the splash was near-black, the
+    gap before the stylesheet parsed was the WebView's own white, and the app
+    then arrived in a third colour. Three transitions where there should be
+    none.
+
+    They are written in three places because nothing can read all three, so
+    this asserts they agree instead.
+    """
+
+    @staticmethod
+    def _critical_colour(html: str, scheme: str = "dark") -> str:
+        import re
+        head = html.split("</style>", 1)[0]
+        assert "html{background:" in head, \
+            "the critical style block is gone -- the first paint is white again"
+        if scheme == "light":
+            head = head.split("prefers-color-scheme:light", 1)[1]
+        return re.search(r"html\{background:(#[0-9a-f]{6})", head).group(1)
+
+    def test_the_critical_block_comes_before_the_stylesheet(self, client_):
+        """It exists to be parsed first. Anywhere else and it is decoration."""
+        html = client_.get("/weather/index.html").text
+        assert html.index("html{background:") < html.index("Layout priorities")
+
+    def test_the_splash_and_the_first_paint_are_the_same_colour(self, client_):
+        html = client_.get("/weather/index.html").text
+        manifest = client_.get("/weather/manifest.webmanifest").json()
+        assert manifest["background_color"] == self._critical_colour(html)
+
+    def test_the_first_paint_matches_the_sky_it_becomes(self, client_):
+        """`--sky1` is the top of the gradient the app settles on. If the first
+        paint is a different colour there is a step change on load, which is
+        the flash this all exists to remove."""
+        import re
+        html = client_.get("/weather/index.html").text
+        dark = re.search(r":root\{--sky1:(#[0-9a-f]{6})", html).group(1)
+        assert self._critical_colour(html) == dark
+
+    def test_light_mode_gets_its_own_first_paint(self, client_):
+        """A dark first paint under a light sky is the same flash, inverted."""
+        html = client_.get("/weather/index.html").text
+        light = self._critical_colour(html, "light")
+        assert light != self._critical_colour(html)
+        assert f"--sky1:{light}" in html
+
+    def test_the_theme_colour_agrees_too(self, client_):
+        html = client_.get("/weather/index.html").text
+        manifest = client_.get("/weather/manifest.webmanifest").json()
+        assert manifest["theme_color"] == manifest["background_color"]
+        assert f'content="{manifest["theme_color"]}" id="theme-color"' in html
+
+    def test_there_is_a_skeleton_shaped_like_the_app(self, client_):
+        """Not a dimmed full stop. On a cold install this is the app for a
+        second or two, and it should look like the app."""
+        html = client_.get("/weather/index.html").text
+        assert 'class="boot"' in html
+        assert html.count("<i class=") >= 5
+
+    def test_the_skeleton_invents_no_data(self, client_):
+        """Same rule as everywhere else here: never show a plausible number
+        that is not real. Furniture is honest; a fake temperature is not."""
+        import re
+        boot = re.search(r'<div class="boot".*?</div>', client_.get(
+            "/weather/index.html").text, re.S).group(0)
+        assert not re.search(r"[0-9]", boot)
+
+    def test_the_loading_state_is_announced(self, client_):
+        """The skeleton is aria-hidden, so something has to speak."""
+        html = client_.get("/weather/index.html").text
+        assert 'class="sr"' in html and "Загружаем" in html

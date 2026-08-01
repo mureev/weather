@@ -16,7 +16,7 @@ holds a bounded cache; both are asserted by tests rather than hoped for.
 
 ```bash
 make            # list every command
-make check      # lint + 377 tests, no network required
+make check      # lint + 385 tests, no network required
 make run        # localhost:8080 against live upstreams
 make deploy     # build amd64, push to GHCR, restart on the VPS, check health
 ```
@@ -28,7 +28,7 @@ make deploy     # build amd64, push to GHCR, restart on the VPS, check health
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 377 tests, no
+1. **`make check` must pass before you believe anything.** 385 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -329,7 +329,7 @@ app/
     openmeteo.py     no key, no quota
     geocode.py       text city search
 static/              index.html, app.js, sw.js, icons — no build step
-tests/               377 tests: parsers, degradation, invariants, docs, API, browser
+tests/               385 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 deploy/              nginx-proxy vhost snippet + compose service block
 ```

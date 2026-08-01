@@ -708,7 +708,57 @@ of it would be the wrong thing to optimise for it.
 
 ---
 
-## 19. Things deliberately not built
+## 19. The launch is one colour, from tap to loaded
+
+Reported as "black splash, then a white flash, then the app". All three frames
+were ours, and all three disagreed:
+
+| moment | what decided it | what it was |
+|---|---|---|
+| launch screen | manifest `background_color` | `#0b1220` — reads as black |
+| before the CSS parses | nothing | the WebView's own **white** |
+| loaded | `--sky1` | `#0d1630` |
+
+iOS builds the standalone launch screen from `background_color`, so the splash
+was a near-black of our own choosing. Then the browser had 30 kB of stylesheet
+to read before it knew what colour the page was, and until it did it painted
+its default. Three transitions where there should be none.
+
+**The fix is three lines at the very top of `<head>`** — a stylesheet
+containing nothing but `html{background:…}` and its light-mode counterpart.
+There is nothing to parse, so it governs the first paint; the full sky replaces
+it a few milliseconds later by source order. The manifest colour was changed to
+match.
+
+The colour is now written in three places, which is exactly the duplication
+this file has an entry against — but nothing can read all three, since one is
+consumed by iOS at install time, one by the parser at first paint, and one by
+the cascade afterwards. So it follows the established rule instead: **a test
+asserts the three agree**, and the failure message says which one drifted.
+
+**The skeleton became furniture.** It was the hero at 30% opacity showing
+"—°", which reads as a broken app rather than a loading one. It is now the
+*shape* of the answer: icon, temperature, condition, source strip, two cards.
+Deliberately no fake numbers anywhere — the same rule the parsers follow about
+plausible wrong values, applied to the loading state. A test asserts the
+skeleton contains no digits, and the loading state is announced for screen
+readers since the shapes are `aria-hidden`.
+
+**Known imperfection.** A manifest carries one `background_color`, and iOS uses
+it whatever the appearance setting. Light mode therefore still steps once,
+from a dark splash to a lighter sky. Fixing it needs per-scheme manifest
+colours, which iOS does not honour.
+
+**What would change it.** Making the first paint the *last* sky rather than the
+default — the app would open on the exact gradient it closed with. That needs
+JavaScript running before first paint, which means an inline script, which the
+CSP forbids (`script-src 'self'`, no `unsafe-inline`). Doable with a
+server-computed hash in the CSP header; not worth it for the remaining few
+milliseconds.
+
+---
+
+## 20. Things deliberately not built
 
 **Push notifications.** Possible without a Developer account (standard Web Push,
 your own VAPID keypair), but every push on iOS must show a visible notification,

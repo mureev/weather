@@ -7,9 +7,10 @@ screenshots/
 .ruff_cache/
 
 # Scratch from assistant-driven updates: superseded files and staging dirs.
-# Kept on disk so you can inspect or restore; never part of the history.
+# Kept on disk so they can be inspected or restored; never part of history.
 _to_delete/
 .stage*/
+*.tar.gz
 
 # macOS
 .DS_Store
