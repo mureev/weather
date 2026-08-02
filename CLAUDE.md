@@ -171,11 +171,12 @@ Full list at the bottom of `DECISIONS.md`. The ones that recur:
 - **A source's absence can be a reading.** Gismeteo prints «штиль» and no number
   at all for a calm part of the day. Gating the cell on the speed dropped the
   one value that said something.
-- **`position: fixed` is sized by the *large* viewport.** On iOS Safari that
-  includes the strip behind the auto-hiding toolbar, so `inset: 0` on a
-  full-screen panel puts the bottom of its scroll container under that bar --
-  content cut off that you cannot scroll to. Size such a panel in `dvh`.
-  Identical in a standalone PWA, so it costs nothing to be right.
+- **`100dvh` is short by the top inset in a standalone iOS web app.** With
+  `viewport-fit=cover` and a translucent status bar, iOS measures `vh`/`dvh`
+  against the *safe* area, not the display. A panel at `top: 0; height: 100dvh`
+  therefore ends 59pt above the bottom on an iPhone 15 Pro and slices its
+  content off. Pin full-screen panels with `inset: 0`. This was tried the other
+  way round first, on a theory about Safari's toolbar, and made the bug worse.
 - **`overflow-x: auto` does not leave the other axis alone.** When one axis is
   not `visible`, a `visible` on the other computes to `auto`. Two pixels of
   overflow made the hourly strip its own vertical scroller, so dragging the

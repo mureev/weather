@@ -908,24 +908,28 @@ class TestTheDayScreenSitsWhereTheForecastDoes:
                                 ".lastElementChild.getBoundingClientRect().width")
         assert content == column
 
-    def test_the_screen_is_sized_to_the_visible_viewport(self, page):
-        """`position: fixed` resolves against the *large* viewport on iOS
-        Safari — the one including the area behind the auto-hiding toolbar — so
-        `inset: 0` put the bottom of a scroll container underneath that bar.
-        The symptom was content cut off that you could not scroll to.
+    def test_the_screen_is_pinned_to_the_edges_not_to_a_viewport_unit(self, page):
+        """`height: 100dvh` was tried here and made things worse.
 
-        Chromium here has no such toolbar, so this asserts the *mechanism*: the
-        screen is sized in dynamic viewport units, which track the visible area
-        on the browser that does.
+        In a standalone web app with `viewport-fit=cover` and a translucent
+        status bar, iOS measures `vh`/`dvh` against the *safe* area rather than
+        the display. On an iPhone 15 Pro — 852pt tall, 59pt top inset — the
+        screen came out 793pt and sliced the last card off with a hard edge.
+        852 − 793 = 59, which is how the cause was identified from a photograph
+        rather than from a theory.
+
+        `inset: 0` pins to the real edges. Chromium cannot reproduce the inset,
+        so this asserts the rule rather than the rendering — which is honest
+        about what a desktop browser can and cannot tell you about a phone.
         """
         css = page.request.get(
             page.url.replace("/weather/", "/weather/index.html")).text()
         rule = css[css.index(".screen{"):css.index(".screen.open")]
-        assert "dvh" in rule, \
-            "the pushed screen is not sized in dynamic viewport units"
-        assert "inset:0" not in rule.replace(" ", ""), \
-            "inset:0 sizes it to the large viewport, behind Safari's toolbar"
-        # ...and it still covers the viewport where there is no chrome.
+        assert "inset:0" in rule.replace(" ", ""), \
+            "the pushed screen is not pinned to the viewport edges"
+        assert "dvh" not in rule, (
+            "dvh is short by the top safe-area inset in a standalone iOS web "
+            "app; it cut the bottom off the day screen once already")
         box = page.locator(".screen").bounding_box()
         assert box["height"] >= page.viewport_size["height"] - 1
 

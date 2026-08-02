@@ -312,18 +312,19 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
  * a 4px rise on `.wrap` broke the old sheet, and sliding the page under the
  * screen would put that trap back. Nothing moves but the screen itself.
  */
-/* `height: 100dvh`, not `inset: 0`, and the difference is invisible until you
-   open this in a browser tab rather than from the home screen.
-   `position: fixed` resolves against the **large** viewport -- the one that
-   includes the area behind Safari's auto-hiding toolbar -- so `bottom: 0` put
-   the last forty-odd pixels of a scroll container underneath that toolbar.
-   The symptom is not a gap: it is content cut off at the bottom that you
-   cannot scroll to, with a bar sitting over it. The dynamic viewport unit
-   tracks the visible area instead, and is identical in a standalone PWA where
-   there is no toolbar to hide. `.sky` has always done this; the screen was
-   written later and did not. */
-.screen{position:fixed;left:0;right:0;top:0;height:100vh;height:100dvh;
-  z-index:60;display:flex;flex-direction:column;
+/* `inset: 0`, and **not** `height: 100dvh`. That was tried, on the reasoning
+   that a fixed element is sized by the large viewport and would therefore sit
+   under Safari's auto-hiding toolbar. It made things worse, and the screenshot
+   that proved it is worth writing down: on an iPhone 15 Pro (393x852pt, top
+   inset 59pt) the screen ended at 793pt with the last card sliced off by a
+   hard edge, and 852 - 793 is exactly 59.
+   In a standalone web app with `viewport-fit=cover` and a translucent status
+   bar, iOS measures `vh`/`dvh` against the *safe* area, not the display -- so
+   `100dvh` is short by the top inset and an element pinned to `top: 0` falls
+   that far short of the bottom. `inset: 0` pins to the real edges, which is
+   what a full-screen panel wants. There is no toolbar to hide from here: this
+   is only ever opened from the home screen. */
+.screen{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;
   background-color:var(--sky1);background-image:var(--skygrad);
   visibility:hidden;transform:translateX(100%);
   transition:transform var(--push-ms) var(--push-ease),
@@ -356,15 +357,19 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .navbar .t small{display:block;font-size:12px;font-weight:500;
   color:var(--faint);letter-spacing:.02em}
-/* The bottom padding is the home-indicator inset and *nothing else*. It used
-   to carry a 28px floor, which on a phone became 34px of safe area plus the
-   last card's own 10px margin -- forty-odd pixels of empty sky under every
-   day screen, which reads as a tab bar that forgot to draw itself. The
-   forecast page never showed it because its footer fills that space.
-   Scrollable content may pass under the indicator; only controls may not. */
+/* No bottom padding at all, and the last card carries no bottom margin, so the
+   content runs to the edge of the display.
+
+   It used to have a 28px floor, which on a phone became 34px of safe area plus
+   the card's own 10px margin: forty-odd pixels of empty sky under every day
+   screen, reported as "a tab bar that forgot to draw itself". The forecast
+   page never showed it because its footer fills that space. Reserving the
+   home-indicator inset instead still left 34px of nothing, which is the same
+   complaint one third smaller.
+   Scrollable content is allowed to pass under the home indicator -- only
+   controls are not -- and this screen is a list of numbers. */
 .screen .body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
-  overscroll-behavior:contain;padding-top:2px;
-  padding-bottom:env(safe-area-inset-bottom);
+  overscroll-behavior:contain;padding-top:2px;padding-bottom:0;
   padding-right:max(14px,env(safe-area-inset-right),calc((100% - var(--col))/2));
   padding-left:max(14px,env(safe-area-inset-left),calc((100% - var(--col))/2))}
 .screen .body > :last-child{margin-bottom:0}
