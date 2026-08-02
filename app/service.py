@@ -42,11 +42,11 @@ import httpx
 from .cache import TTLCache
 from .config import settings
 from .http import client
-from .models import Health, ParseError, Place, SourceView, Status, Weather
+from .models import Day, Health, ParseError, Place, SourceView, Status, Weather
 from .routing import fetch_gismeteo, label_route, sticky_route
 from .series import align_to_now
-from .sources import openmeteo, yandex_html
-from .sun import hour_times, is_night, local_now, nightify
+from .sources import openmeteo, yandex_day, yandex_html
+from .sun import hour_times, is_night, local_now, nightify, zone
 from .validation import (
     Report,
     check_coherence,
@@ -121,7 +121,38 @@ def _sunlit(weather: Weather) -> Weather:
                 if stamp is not None:
                     hour.icon = nightify(
                         hour.icon, is_night(place.lat, place.lon, stamp))
+        for day in sv.daily:
+            _sunlit_parts(day, place)
     return weather
+
+
+# The hour each named part of a day is centred on. Yandex's own boundaries --
+# ночь 00-06, утро 06-12, день 12-18, вечер 18-24 -- so these are the midpoints
+# of the blocks the source is describing, not a guess about when morning is.
+_PART_HOUR = {"ночь": 3, "утро": 9, "день": 15, "вечер": 21}
+
+
+def _sunlit_parts(day: Day, place: Place) -> None:
+    """A night part gets a night icon.
+
+    The «ночь» row was drawing a sun behind a cloud, because `nightify` was
+    applied to the current reading and the hourly strip and nothing else.
+
+    Resolved by solar position rather than by "ночь means dark", for the same
+    reason `sun.py` exists at all: this is Yoshkar-Ola, where «вечер» is dark by
+    four in December and bright at ten in June, and a rule keyed on the word
+    would be wrong for half the year in one direction or the other.
+    """
+    try:
+        date = dt.date.fromisoformat(day.date)
+    except (TypeError, ValueError):
+        return
+    for part in day.parts:
+        hour = _PART_HOUR.get(part.name)
+        if hour is None:
+            continue
+        when = dt.datetime.combine(date, dt.time(hour), tzinfo=zone(place.tz))
+        part.icon = nightify(part.icon, is_night(place.lat, place.lon, when))
 
 
 async def _build(place: Place, key: str) -> Weather:
@@ -148,7 +179,7 @@ async def _build(place: Place, key: str) -> Weather:
 
     weather.sources["yandex"] = _view_from_scrape("yandex", ya, previous, place.tz)
     weather.sources["gismeteo"] = _view_from_scrape("gismeteo", gm, previous, place.tz)
-    weather.sources["openmeteo"] = _view_from_openmeteo(om_raw)
+    weather.sources["openmeteo"] = _view_from_openmeteo(om_raw, place.tz)
 
     # Which door actually opened. Never rendered; it is the first thing you
     # want when Gismeteo is fine on your laptop and disabled on the server.
@@ -280,7 +311,7 @@ def _reason(error: str | None) -> str:
     return error if len(error) < 22 else "недоступен"
 
 
-def _view_from_openmeteo(raw) -> SourceView:
+def _view_from_openmeteo(raw, tz: str = "UTC") -> SourceView:
     sv = SourceView(key="openmeteo", label=LABELS["openmeteo"])
     if not raw:
         sv.available = False
@@ -295,7 +326,16 @@ def _view_from_openmeteo(raw) -> SourceView:
     rep = Report()
     sv.current = validate_current(cur, rep)
     sv.daily = validate_days(openmeteo.to_daily(raw), rep)
-    sv.hourly = check_series(openmeteo.to_hourly(raw), rep)
+    # Aligned like the other two. This source returns whole calendar days, so
+    # before the timestamps existed its strip opened at midnight -- meaning the
+    # same row of columns meant "the rest of today" on two tabs and "since
+    # midnight" on the third. `align_to_now` was written for exactly this and
+    # simply could not be applied here until `Hour.at` was populated: without an
+    # instant to align to it returns the list untouched, which is why adding the
+    # call alone would have looked like it worked and changed nothing.
+    hours = check_series(openmeteo.to_hourly(raw), rep)
+    sv.hourly = align_to_now(hours, sv.current,
+                             sv.current.observed_epoch if sv.current else None, tz)
     sv.available = sv.current is not None and sv.current.temp_c is not None
     sv.reason = None if sv.available else "нет данных"
     sv.dropped_fields = rep.dropped
@@ -339,6 +379,59 @@ def _all_down(w: Weather, previous) -> Weather:
     return w
 
 
+# --- one day, on demand -----------------------------------------------------
+
+# Its own cache, and four times the entries: the key is (place, date) rather
+# than place, so ten days of one city fills ten slots. Bounded like everything
+# else here -- the key space is city searches crossed with dates, which is the
+# usual "effectively infinite" shape.
+_days: TTLCache[Day] = TTLCache(settings.cache_ttl_s, settings.stale_grace_s,
+                                settings.cache_max_entries * 4)
+
+
+async def get_day(place: Place, want: dt.date) -> Day | None:
+    """The deep detail for one day, fetched when somebody opens it.
+
+    Returns None rather than raising when the day simply has no page -- a GPS
+    fix has no slug to address, and a date outside the ten is not an error, it
+    is a question with no answer. A *failed* fetch also returns None: the day
+    screen already has the four parts of day from the main payload, and losing
+    an upgrade should cost detail rather than break the screen.
+    """
+    key = f"{place.slug}|{want.isoformat()}"
+    fresh = _days.get_fresh(key)
+    if fresh is not None:
+        return _sunlit_hours(fresh.value, place)
+
+    async with _lock("day:" + key):
+        fresh = _days.get_fresh(key)
+        if fresh is not None:
+            return _sunlit_hours(fresh.value, place)
+        try:
+            async with client() as c:
+                day = await yandex_day.load(
+                    c, place, want, today=local_now(place.tz).date())
+        except Exception as e:
+            log.info("day detail %s unavailable: %s", key, e)
+            return None
+        # Only the hours need checking: everything else this page carries is
+        # prose -- sunrise, sunset, day length -- and `check_series` now applies
+        # the per-hour contracts as well as looking at the series' shape.
+        day.hours = check_series(day.hours, Report())
+        _days.put(key, day)
+        return _sunlit_hours(day, place)
+
+
+def _sunlit_hours(day: Day, place: Place) -> Day:
+    """Night icons for a day's own hours. Idempotent, like `_sunlit`."""
+    for hour in day.hours:
+        if hour.at is None:
+            continue
+        when = dt.datetime.fromtimestamp(hour.at, tz=zone(place.tz))
+        hour.icon = nightify(hour.icon, is_night(place.lat, place.lon, when))
+    return day
+
+
 def cache_stats() -> dict:
     return _cache.stats()
 
@@ -349,3 +442,8 @@ def invalidate(key: str | None = None) -> None:
     else:
         for k in _cache:
             _cache.drop(k)
+    # The per-day cache too, always. It is keyed by place *and* date, so there
+    # is no single key to drop -- and a test that clears one cache and not the
+    # other passes for a reason nobody chose.
+    for k in list(_days):
+        _days.drop(k)

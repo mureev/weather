@@ -49,6 +49,7 @@ right unit, smooth, and close to what we saw twenty minutes ago.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from dataclasses import dataclass, field
 from itertools import pairwise
@@ -67,6 +68,22 @@ RANGES: dict[str, tuple[float, float, str]] = {
     "wind_ms": (0.0, 80.0, "м/с"),
     "uv_index": (0.0, 15.0, "UV"),
     "water_temp_c": (-2.0, 45.0, "°C"),
+    # The Kp index is defined on a 0-9 scale and cannot be anything else, which
+    # makes it the tightest contract in the table: a cell misread into it fails
+    # almost every time.
+    "kp_index": (0.0, 9.0, "Kp"),
+    # A day, not an hour. The wettest days on record are a few hundred
+    # millimetres; the bound is there to catch a pressure or a timestamp
+    # arriving in this field, not to have an opinion about monsoons.
+    "precip_mm": (0.0, 500.0, "мм"),
+    "snow_cm": (0.0, 200.0, "см"),
+    "snow_depth_cm": (0.0, 1000.0, "см"),
+    # This one was found by the test that asserts every numeric field on a
+    # `Day` has a contract, on the first run of that test. `precip_prob` has
+    # been on the model since the beginning and had never been checked -- a
+    # source reporting a fraction (0.4 for 40%) or a millimetre count in it
+    # would have gone straight to the screen.
+    "precip_prob": (0.0, 100.0, "%"),
 }
 
 
@@ -113,14 +130,22 @@ def unit_signature(field_name: str, value: float) -> str | None:
     return None
 
 
-def check_value(field_name: str, value: float | None,
-                rep: Report, where: str = "") -> float | None:
-    """Range contract plus unit signature. Returns the value or None."""
+def check_value(field_name: str, value: float | None, rep: Report,
+                where: str = "", contract: str | None = None) -> float | None:
+    """Range contract plus unit signature. Returns the value or None.
+
+    `contract` names the rule to apply when it differs from the field being
+    checked: a day's `feels_max_c` is a feels-like temperature and should be
+    judged as one, but a report saying `feels_like_c: 743` when the field is
+    called `feels_max_c` sends the next reader to the wrong line. The rule and
+    the label are two different things and this keeps them apart.
+    """
     if value is None:
         return None
     label = f"{where}{field_name}" if where else field_name
-    bounds = RANGES.get(field_name)
-    sig = unit_signature(field_name, value)
+    rule = contract or field_name
+    bounds = RANGES.get(rule)
+    sig = unit_signature(rule, value)
     if bounds is not None:
         low, high, unit = bounds
         if not (low <= value <= high):
@@ -141,20 +166,57 @@ def validate_current(cur: Current | None, rep: Report) -> Current | None:
     return cur
 
 
+# Every numeric field on a `Day`, against the contract it has to satisfy. A
+# table rather than twenty lines of `check_value`, because the failure mode
+# being guarded against is *forgetting an entry* -- and a list is something you
+# can read against the dataclass in one glance, which twenty scattered calls
+# are not. `tests/test_invariants.py` asserts the two stay in step.
+DAY_CONTRACTS: tuple[tuple[str, str], ...] = (
+    ("temp_min_c", "temp_c"), ("temp_max_c", "temp_c"),
+    ("feels_min_c", "feels_like_c"), ("feels_max_c", "feels_like_c"),
+    ("avg_temp_c", "temp_c"), ("water_temp_c", "water_temp_c"),
+    ("humidity_pct", "humidity_pct"),
+    ("pressure_min_mmhg", "pressure_mmhg"), ("pressure_max_mmhg", "pressure_mmhg"),
+    ("wind_ms", "wind_ms"), ("wind_gust_ms", "wind_ms"),
+    ("precip_mm", "precip_mm"), ("snow_cm", "snow_cm"),
+    ("snow_depth_cm", "snow_depth_cm"),
+    ("uv_index", "uv_index"), ("kp_index", "kp_index"),
+    ("precip_prob", "precip_prob"),
+)
+
+# The same idea for a part of a day. Separate table because the fields are not
+# the same shape -- a part carries one temperature where a day carries a range
+# -- and because a `DayPart` is validated four times per day per source, so
+# what it checks is worth being able to read on its own.
+PART_CONTRACTS: tuple[tuple[str, str], ...] = (
+    ("temp_c", "temp_c"), ("feels_like_c", "feels_like_c"),
+    ("humidity_pct", "humidity_pct"), ("pressure_mmhg", "pressure_mmhg"),
+    ("wind_ms", "wind_ms"), ("wind_gust_ms", "wind_ms"),
+    ("precip_mm", "precip_mm"),
+)
+
+# And for one hour. Same argument a third time: a numeric field with no entry
+# here is served unchecked, and `tests/test_invariants.py` walks all three
+# dataclasses against all three tables so adding a field to any of them without
+# a contract fails rather than passes quietly.
+HOUR_CONTRACTS: tuple[tuple[str, str], ...] = (
+    ("temp_c", "temp_c"), ("feels_like_c", "feels_like_c"),
+    ("precip_mm", "precip_mm"), ("precip_prob", "precip_prob"),
+    ("wind_ms", "wind_ms"), ("wind_gust_ms", "wind_ms"),
+)
+
+
 def validate_days(days: list[Day], rep: Report) -> list[Day]:
     out: list[Day] = []
     for d in days:
-        for f in ("temp_min_c", "temp_max_c"):
-            v = getattr(d, f)
-            setattr(d, f, check_value("temp_c", v, rep, where=f"{d.date} "))
-        d.uv_index = check_value("uv_index", d.uv_index, rep, where=f"{d.date} ")
-        d.water_temp_c = check_value("water_temp_c", d.water_temp_c, rep,
-                                     where=f"{d.date} ")
+        for name, contract in DAY_CONTRACTS:
+            setattr(d, name, check_value(name, getattr(d, name), rep,
+                                         where=f"{d.date} ", contract=contract))
         for p in d.parts:
-            for f in ("temp_c", "feels_like_c", "pressure_mmhg",
-                      "humidity_pct", "wind_ms"):
-                setattr(p, f, check_value(f, getattr(p, f), rep,
-                                          where=f"{d.date}/{p.name} "))
+            for name, contract in PART_CONTRACTS:
+                setattr(p, name, check_value(name, getattr(p, name), rep,
+                                             where=f"{d.date}/{p.name} ",
+                                             contract=contract))
         if d.parts or d.temp_max_c is not None:
             out.append(d)
     # Fewer than three days is a parse failure dressed as a short list.
@@ -167,6 +229,11 @@ def validate_days(days: list[Day], rep: Report) -> list[Day]:
 
 def check_series(hours: list[Hour], rep: Report,
                  max_step_c: float = 8.0) -> list[Hour]:
+    for h in hours:
+        for name, contract in HOUR_CONTRACTS:
+            setattr(h, name, check_value(name, getattr(h, name), rep,
+                                         where=f"{h.time} ", contract=contract))
+
     temps = [h.temp_c for h in hours if h.temp_c is not None]
     if len(temps) >= 6:
         if len(set(temps)) == 1:
@@ -188,6 +255,20 @@ def check_daily_series(days: list[Day], rep: Report) -> None:
     maxes = [d.temp_max_c for d in days if d.temp_max_c is not None]
     if len(maxes) >= 5 and len(set(maxes)) == 1:
         rep.warn(f"daily degeneracy: every day has the same high ({maxes[0]}°)")
+
+    # A ten-day forecast is ten *consecutive* days, and the failure this
+    # catches has no other symptom: dates that repeat or jump mean some columns
+    # were dated from their own label and the rest were counted from our clock,
+    # so a row is showing one day's weather under another day's heading. Every
+    # number in it is real, which is why nothing else here would object.
+    dates = [d.date for d in days if d.date]
+    if len(dates) >= 2:
+        gaps = {(dt.date.fromisoformat(b) - dt.date.fromisoformat(a)).days
+                for a, b in pairwise(dates)}
+        if gaps - {1}:
+            rep.warn(
+                f"daily dates are not consecutive ({sorted(gaps)} day steps) -- "
+                f"some columns were dated from the page and some from the clock")
 
 
 # --- 4. continuity ---------------------------------------------------------
@@ -278,7 +359,7 @@ COHERENCE_DAY_SLACK_C = 4.0
 # not about what is happening.
 _FAMILIES: tuple[tuple[str, ...], ...] = (
     ("clear", "clear-night"),
-    ("partly", "partly-night", "cloudy"),
+    ("partly", "partly-night", "cloudy", "cloudy-night"),
     ("overcast", "fog"),
     ("drizzle", "rain-light", "rain", "rain-heavy"),
     ("snow-light", "snow", "snow-heavy", "sleet", "hail"),

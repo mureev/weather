@@ -37,11 +37,38 @@ const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен',
              'окт', 'ноя', 'дек'];
 
-function dayLabel(iso, i) {
+/** Today, as the *city* reckons it: `yyyy-mm-dd`. (`en-CA` formats that way.) */
+function cityToday() {
+  const tz = state.data && state.data.place && state.data.place.tz;
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: tz || undefined });
+  } catch {
+    return new Date().toLocaleDateString('en-CA');
+  }
+}
+
+/** Whole days from today to `iso`, in the city's clock. */
+function daysFromToday(iso) {
+  // Both ends parsed as UTC noon, so the answer is a count of calendar days
+  // and no daylight-saving transition can round it to the wrong one.
+  return Math.round((Date.parse(iso + 'T12:00:00Z')
+                     - Date.parse(cityToday() + 'T12:00:00Z')) / 86400000);
+}
+
+/* This used to take the row's *index* -- 0 was "Сегодня", 1 was "Завтра" --
+ * and it was wrong in a way that only shows when you put two sources side by
+ * side. The three do not agree on where their ten days start: Gismeteo's list
+ * began on the 1st and Open-Meteo's on the 31st, so one screen called the 2nd
+ * of August «Завтра» and the other called the same date «вс». Which of them
+ * you believed depended on which tab you had open.
+ *
+ * The date is a fact and the position in an array is not. Same species as the
+ * bug where the headline read the strip's first column and called it now. */
+function dayLabel(iso) {
   const d = new Date(iso + 'T12:00:00');
-  if (i === 0) return { a: 'Сегодня', b: `${d.getDate()} ${MON[d.getMonth()]}` };
-  if (i === 1) return { a: 'Завтра', b: `${d.getDate()} ${MON[d.getMonth()]}` };
-  return { a: DOW[d.getDay()], b: `${d.getDate()} ${MON[d.getMonth()]}` };
+  const away = daysFromToday(iso);
+  const when = away === 0 ? 'Сегодня' : away === 1 ? 'Завтра' : DOW[d.getDay()];
+  return { a: when, b: `${d.getDate()} ${MON[d.getMonth()]}` };
 }
 
 function ago(iso) {
@@ -78,7 +105,8 @@ const shortDir = (d) => SHORT_DIR[d] || d || '';
 const SKY_OF = {
   'clear': 'clear-day', 'clear-night': 'clear-night',
   'partly': 'cloudy-day', 'partly-night': 'cloudy-night',
-  'cloudy': 'cloudy-day', 'overcast': 'overcast', 'fog': 'overcast',
+  'cloudy': 'cloudy-day', 'cloudy-night': 'cloudy-night',
+  'overcast': 'overcast', 'fog': 'overcast',
   'drizzle': 'rain', 'rain-light': 'rain', 'rain': 'rain',
   'rain-heavy': 'rain', 'thunder': 'rain', 'hail': 'rain',
   'snow-light': 'snow', 'snow': 'snow', 'snow-heavy': 'snow', 'sleet': 'snow',
@@ -123,6 +151,11 @@ function setSky(iconKey) {
 }
 
 /* --------------------------------------------------------------- rendering */
+
+function chooseSource(key) {
+  state.source = key;
+  try { localStorage.setItem(LS.source, key); } catch (e) { /* private mode */ }
+}
 
 function pickSource(d) {
   const order = window.YW_SOURCES || ['yandex', 'gismeteo', 'openmeteo'];
@@ -183,10 +216,17 @@ function hourWidth() {
   return w > 0 ? w : 58;
 }
 
-function hourlyBlock(hours, nowcast) {
+function hourlyBlock(hours, nowcast, opts) {
+  // `markNow` is false on a day-detail screen for any day but today. Without
+  // it the strip labels 14:00 next Thursday "сейчас", because the only test
+  // was that the hour number matched -- the same class of mistake as comparing
+  // two times without saying which day they are on, which `series.py` exists
+  // to stop happening on the server.
+  const o = opts || {};
+  const markNow = o.markNow !== false;
   const summary = nowcast
     ? `<div class="nowcast">${icon('umbrella')}<span>${esc(nowcast)}</span></div>` : '';
-  const list = (hours || []).slice(0, 24).filter((h) => h.temp_c != null);
+  const list = (hours || []).slice(0, o.limit || 24).filter((h) => h.temp_c != null);
   if (list.length < 2) {
     return summary ? `<div class="card">${summary.replace(/border-bottom[^"]*/, '')}</div>` : '';
   }
@@ -240,17 +280,18 @@ function hourlyBlock(hours, nowcast) {
   // Moscow from anywhere.
   const nowHour = cityHour();
   const cols = list.map((h, i) => {
-    const isNow = nowHour !== null && hourOf(h.time) === nowHour;
+    const isNow = markNow && nowHour !== null && hourOf(h.time) === nowHour;
     return `<div class="hour${isNow ? ' now' : ''}">
       <div class="gz"><span class="hv" style="top:${(y(h.temp_c) - 20).toFixed(1)}px"
         >${fmtT(h.temp_c)}</span></div>
       ${icon(h.icon, 'wi')}
       <div class="hh">${esc(isNow ? 'сейчас' : shortTime(h.time))}</div>
-      <div class="hp">${h.precip_mm ? esc(num(h.precip_mm)) : ''}</div>
+      <div class="hp">${h.precip_mm ? esc(num(h.precip_mm))
+        : h.precip_prob ? esc(Math.round(h.precip_prob)) + '%' : ''}</div>
     </div>`;
   }).join('');
 
-  return `<div class="card">${summary}<h2>По часам</h2>
+  return `<div class="card">${summary}<h2>${esc(o.title || 'По часам')}</h2>
     <div class="hours"><div class="hstrip" style="width:${width}px">
       ${svg}${cols}
     </div></div></div>`;
@@ -265,6 +306,7 @@ function hourlyBlock(hours, nowcast) {
 function dailyBlock(days, nowTemp) {
   const list = (days || []).filter((d) => d.temp_max_c != null);
   if (!list.length) return '';
+  const today = cityToday();
 
   const lows = list.map((d) => d.temp_min_c).filter((v) => v != null);
   const highs = list.map((d) => d.temp_max_c);
@@ -276,16 +318,24 @@ function dailyBlock(days, nowTemp) {
   const rows = list.map((d, i) => {
     const l = d.temp_min_c != null ? pct(d.temp_min_c) : 0;
     const r = pct(d.temp_max_c);
-    const dot = (i === 0 && nowTemp != null && nowTemp >= wmin && nowTemp <= wmax)
+    // The dot marks where the current reading falls inside today's range,
+    // so it belongs on the row that *is* today -- not on the first row. Two
+    // of the three sources sometimes start their list on a different day.
+    const dot = (d.date === today && nowTemp != null
+                 && nowTemp >= wmin && nowTemp <= wmax)
       ? `<u style="left:${pct(nowTemp).toFixed(1)}%"></u>` : '';
-    const lab = dayLabel(d.date, i);
-    return `<div class="day">
+    const lab = dayLabel(d.date);
+    // A real <button>, not a div with a click handler: it is a control that
+    // opens a screen, and the keyboard, the screen reader and the tap
+    // highlight all follow from saying so.
+    return `<button class="day" data-day="${esc(d.date)}">
       <div class="d">${esc(lab.a)}<small>${esc(lab.b)}</small></div>
       ${icon(d.icon, 'wi')}
       <span class="lo">${fmtT(d.temp_min_c)}</span>
       <div class="bar"><i style="left:${l.toFixed(1)}%;width:${Math.max(r - l, 3).toFixed(1)}%"></i>${dot}</div>
       <span class="hi">${fmtT(d.temp_max_c)}</span>
-    </div>`;
+      <svg class="go" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+    </button>`;
   }).join('');
 
   return `<div class="card"><h2>Прогноз на ${list.length} дней</h2>${rows}</div>`;
@@ -332,7 +382,11 @@ function render(d) {
   const c = view.current;
   if (!c) { renderError(d); return; }
 
-  const today = (view.daily && view.daily[0]) || null;
+  // The day whose date *is* today, not whichever day the source listed first.
+  // The hero's high/low and the sunrise below it are statements about today,
+  // and a source whose ten days begin tomorrow would otherwise have made them
+  // quietly about tomorrow instead.
+  const today = dayOn(view, cityToday()) || (view.daily && view.daily[0]) || null;
   const range = today && today.temp_max_c != null
     ? `<span class="hi">${fmtT(today.temp_max_c)}</span>`
       + ` / <span class="lo">${fmtT(today.temp_min_c)}</span>`
@@ -357,6 +411,12 @@ function render(d) {
   $('city').textContent = (d.place && d.place.name) || '';
   $('pin').style.display = (state.place && state.place.adhoc) ? '' : 'none';
   renderHealth(d, view);
+
+  // A ten-minute refresh landing while a detail screen is open must reach that
+  // screen too. Otherwise the numbers behind it move and the ones in front of
+  // you do not, which is the app quietly showing two different forecasts at
+  // once -- and the one you are looking at is the stale one.
+  if (current) openScreen(current.name, current.arg);
 }
 
 function renderError(d) {
@@ -449,7 +509,7 @@ function useGeolocation() {
       const lat = +pos.coords.latitude.toFixed(PRECISION);
       const lon = +pos.coords.longitude.toFixed(PRECISION);
       load({ slug: `@${lat},${lon}`, name: '…', lat, lon, adhoc: true });
-      closeSheet();
+      pop();
     },
     (err) => {
       alert(err.code === 1
@@ -460,11 +520,120 @@ function useGeolocation() {
   );
 }
 
-/* ---- the place sheet -------------------------------------------------------
+/* ---- the navigation stack --------------------------------------------------
+ *
+ * One primitive, two screens: the day detail and the place picker. Both were
+ * going to need "a thing that covers the app and can be dismissed", and two
+ * implementations of that is how you end up with two subtly different back
+ * behaviours.
+ *
+ * It is built on `history.pushState`, which is the whole point rather than an
+ * implementation detail. In a standalone iOS PWA the edge-swipe-back gesture
+ * is wired to browser history, so pushing a history entry is what makes the
+ * screen dismissable by the system gesture -- and the OS animates that itself.
+ *
+ * Which is why there is no touch handling here. A hand-written swipe runs
+ * *in addition to* the system gesture rather than replacing it, and the app
+ * navigates back twice; that bug has outlived several releases of Ionic. The
+ * lesson generalises: on iOS the gesture is not ours to implement, only to
+ * opt into.
+ *
+ * Depth is deliberately one. Neither screen leads anywhere else, and a stack
+ * that can only ever hold one thing should say so rather than carry the
+ * bookkeeping for a case that does not exist.
+ */
+const SCREENS = {};                 // name -> (arg) => {title, sub, html}
+let current = null;                 // {name, arg} or null
+let restoreScroll = 0;
+
+function pushMs() {
+  // Read back from CSS rather than restated -- the same rule as --hour-w, and
+  // for the same reason. CSS may spell a duration either way round, so both
+  // are handled here rather than assumed at the other end.
+  const raw = cssVar('--push-ms');
+  const n = parseFloat(raw) || 0;
+  return raw.endsWith('ms') ? n : raw.endsWith('s') ? n * 1000 : n;
+}
+
+/** Renders `name` into the screen. Returns false when it has nothing to show,
+ *  so the caller can decline to push a history entry for a blank screen. */
+function openScreen(name, arg) {
+  const spec = SCREENS[name](arg);
+  if (!spec) return false;
+  const already = current !== null;
+  const body = $('screen-body');
+  // Redrawing the *same* screen must not move it. `scrollTop` is kept rather
+  // than zeroed, because this function also runs on the ten-minute refresh and
+  // on a source switch -- and a screen that jumps to the top while you are
+  // reading it is worse than one showing a stale number. A different screen
+  // starts at the top, as arriving somewhere new should.
+  const at = already && current.name === name ? body.scrollTop : 0;
+  current = { name, arg };
+  $('screen-title').innerHTML = spec.title
+    + (spec.sub ? `<small>${spec.sub}</small>` : '');
+  body.innerHTML = spec.html;
+  body.scrollTop = at;
+  if (already) return true;
+
+  $('screen').setAttribute('aria-hidden', 'false');
+  $('screen').classList.add('open');
+  // The forecast is still in the document behind an opaque screen, so without
+  // this it stays tabbable and audible to a screen reader -- a second copy of
+  // the app underneath the one you are looking at.
+  document.querySelector('.wrap').inert = true;
+  // Pin the page underneath. iOS Safari ignores overflow:hidden on <body>, and
+  // position:fixed discards the scroll offset -- so it is saved here and put
+  // back on the way out, or dismissing the screen silently returns you to the
+  // top of the forecast. Captured *before* the pin, since pinning is what
+  // makes window.scrollY read zero.
+  restoreScroll = window.scrollY;
+  document.body.style.top = `-${restoreScroll}px`;
+  document.body.classList.add('locked');
+  return true;
+}
+
+function closeScreen() {
+  $('screen').classList.remove('open');
+  $('screen').setAttribute('aria-hidden', 'true');
+  document.querySelector('.wrap').inert = false;
+  document.body.classList.remove('locked');
+  document.body.style.top = '';
+  window.scrollTo(0, restoreScroll);
+  current = null;
+  // Emptied only after it has finished sliding out, or the screen goes blank
+  // in front of you for the length of the animation.
+  setTimeout(() => { if (!current) $('screen-body').innerHTML = ''; }, pushMs());
+}
+
+function push(name, arg) {
+  if (!SCREENS[name]) return;
+  const stacking = current !== null;
+  // Rendered before the history entry exists, so a screen with nothing to show
+  // leaves no entry behind for the back gesture to land on.
+  if (!openScreen(name, arg)) return;
+  // Replace rather than stack when a screen is already up: depth stays one, so
+  // the history is one entry deep whatever route got you here.
+  if (stacking) history.replaceState({ yw: name, arg }, '');
+  else history.pushState({ yw: name, arg }, '');
+}
+
+/** The in-app back control. Goes through history so it behaves identically to
+ *  the system gesture -- one code path, one outcome. */
+function pop() {
+  if (current) history.back();
+}
+
+window.addEventListener('popstate', (e) => {
+  const want = e.state && e.state.yw;
+  if (!want) { if (current) closeScreen(); return; }
+  if (!current || current.name !== want) openScreen(want, e.state.arg);
+});
+
+/* ---- the place picker ------------------------------------------------------
  * Search, geolocation and the saved cities are all answers to one question --
- * "where" -- so they live in one panel instead of three permanent strips. It
+ * "where" -- so they live on one screen instead of three permanent strips. It
  * costs a tap on a decision made twice a month and gives the whole top of the
- * screen back to the weather.
+ * app back to the weather.
  */
 let searchTimer = null;
 let savedCities = [];
@@ -474,44 +643,12 @@ const GEO_ICON = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/>'
   + '<circle cx="12" cy="12" r="8"/><path d="M12 1.5V4M12 20v2.5M1.5 12H4M20 12h2.5"/></svg>';
 const TICK = '<svg class="tick" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></svg>';
 
-// iOS Safari ignores overflow:hidden on <body>, so the page kept scrolling
-// under the open sheet. Pinning the body is the only reliable fix, and
-// position:fixed discards the scroll offset -- so it has to be saved on the way
-// in and restored on the way out, or opening the sheet silently teleports you
-// back to the top of the forecast.
-let lockedAt = 0;
-
-// Blend a colour over the current sky the way the scrim does, so the status
-// bar matches the dimmed page instead of staying bright above it.
-/* The scrim colour composited over the top of the sky, as a solid hex.
- *
- * The scrim itself and the sky are both CSS; this reads *both* back rather
- * than restating either, because a constant written down in two places is the
- * bug that already cost this file a broken hourly curve. Change --scrim in the
- * stylesheet and this follows.
- *
- * What it is for: <meta name="theme-color">, which is browser chrome no scrim
- * inside the page can reach. Note what this is *not*: iOS 26 Safari ignores
- * theme-color entirely and samples a fixed element's background-color instead
- * (see `.edge` in the stylesheet, and DECISIONS.md 14). This remains correct
- * for the installed PWA, for Android, and for Safari before 26 -- a fallback,
- * not the fix, and it agrees with the CSS exactly because both are the same
- * arithmetic on the same two values.
+/* Read a CSS custom property back rather than restating its value here. A
+ * constant written down in two languages diverges; this file has the scars.
  */
 function cssVar(name) {
   return getComputedStyle(document.documentElement)
     .getPropertyValue(name).trim();
-}
-
-function scrimTint() {
-  const sky = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(cssVar('--sky1'));
-  const scrim = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,/\s]+([\d.]+))?/i
-    .exec(cssVar('--scrim'));
-  if (!sky || !scrim) return '#0a1020';
-  const alpha = scrim[4] === undefined ? 1 : parseFloat(scrim[4]);
-  const mix = [1, 2, 3].map((i) => Math.round(
-    parseInt(scrim[i], 10) * alpha + parseInt(sky[i], 16) * (1 - alpha)));
-  return '#' + mix.map((v) => v.toString(16).padStart(2, '0')).join('');
 }
 
 function setThemeColor(c) {
@@ -519,32 +656,21 @@ function setThemeColor(c) {
   if (meta && c) meta.setAttribute('content', c);
 }
 
-function openSheet() {
-  lockedAt = window.scrollY;
-  // Safari tints the status bar from theme-color, and that strip is browser
-  // chrome -- our scrim cannot reach it. Without this the top of the screen
-  // stays bright while everything below it dims, which reads as the blur
-  // failing to draw.
-  setThemeColor(scrimTint());
-  document.body.style.top = `-${lockedAt}px`;
-  document.body.classList.add('locked');
-  $('sheet').classList.add('open');
-  renderSheet();
-  setTimeout(() => $('q').focus(), 80);
-}
+let lastQuery = '';
 
-function closeSheet() {
-  $('sheet').classList.remove('open');
-  skyNow = null;                       // force setSky to restore theme-color
-  setSky(lastIcon);
-  document.body.classList.remove('locked');
-  document.body.style.top = '';
-  window.scrollTo(0, lockedAt);
-  $('q').value = '';
-  found = [];
-}
+/* The field and the list are rendered separately, and that split is the whole
+ * reason results can update while you type. Re-rendering the field along with
+ * them would replace the element the keyboard is attached to -- on iOS that
+ * closes the keyboard and drops the caret, once per keystroke. */
+SCREENS.place = () => ({
+  title: 'Место',
+  html: `<input id="q" type="search" placeholder="Найти город…"
+           autocomplete="off" autocorrect="off" spellcheck="false"
+           enterkeyhint="search" value="${esc(lastQuery)}">
+         <div id="plist">${placeList()}</div>`,
+});
 
-function renderSheet() {
+function placeList() {
   const cur = state.place && state.place.slug;
   const onGps = !!(state.place && state.place.adhoc);
   const out = [];
@@ -555,8 +681,7 @@ function renderSheet() {
     <span>Моё местоположение</span>
     ${onGps ? '<span class="on">включено</span>' : ''}</button>`);
 
-  const searching = $('q').value.trim().length >= 2;
-  if (searching) {
+  if (lastQuery.trim().length >= 2) {
     out.push('<h3>Найдено</h3>');
     if (!found.length) {
       out.push('<div class="empty">Ничего не найдено</div>');
@@ -572,16 +697,22 @@ function renderSheet() {
         <span class="nm">${esc(c.name)}</span>
         ${c.slug === cur && !onGps ? TICK : ''}</li>`).join('') + '</ul>');
   }
-  $('plist').innerHTML = out.join('');
+  return out.join('');
+}
+
+function refreshPlaceList() {
+  const list = $('plist');
+  if (list) list.innerHTML = placeList();
 }
 
 async function doSearch(q) {
-  if (q.trim().length < 2) { found = []; renderSheet(); return; }
+  lastQuery = q;
+  if (q.trim().length < 2) { found = []; refreshPlaceList(); return; }
   found = [];
   try {
     const r = await fetch(`${BASE}api/search?q=${encodeURIComponent(q)}`);
     found = (await r.json()).results || [];
-    renderSheet();
+    refreshPlaceList();
   } catch (e) { /* offline: leave the last results up */ }
 }
 
@@ -591,6 +722,237 @@ async function loadCities() {
     savedCities = (await r.json()).cities || [];
   } catch (e) { /* ignore */ }
 }
+
+/* ---- the day detail --------------------------------------------------------
+ *
+ * Keyed by *date*, never by index. The tab strip is live on this screen, and
+ * three sources do not necessarily start their ten days on the same morning --
+ * so an index would quietly show you a different day when you switched source,
+ * which is the wrong-cell failure this codebase spends most of its effort on,
+ * committed by the front end for a change.
+ */
+function dayOn(view, date) {
+  return ((view && view.daily) || []).find((d) => d.date === date) || null;
+}
+
+/** The hours belonging to one calendar day, for the sources that can say.
+ *
+ *  Open-Meteo stamps every entry with a full ISO local time, so slicing is
+ *  exact. Gismeteo ships a UTC epoch, which needs the city's clock to decide
+ *  which day it lands in. Yandex ships «21:00» and nothing else -- no date, no
+ *  epoch -- so for Yandex this returns nothing rather than guessing, and the
+ *  screen falls back to the parts of day, which is Yandex's own shape anyway.
+ */
+function hoursOn(hours, date, tz) {
+  return (hours || []).filter((h) => {
+    if (typeof h.time === 'string' && h.time.length >= 10 && h.time.includes('T')) {
+      return h.time.slice(0, 10) === date;
+    }
+    if (h.at == null) return false;
+    try {
+      return new Date(h.at * 1000).toLocaleDateString('en-CA',
+        { timeZone: tz || undefined }) === date;   // en-CA renders as yyyy-mm-dd
+    } catch { return false; }
+  });
+}
+
+/* Source order, deliberately not sorted.
+ *
+ * The first version sorted these into ночь → утро → день → вечер, on the
+ * reasoning that a day starts at midnight. Yandex prints them утро → день →
+ * вечер → ночь, and its «ночь» column is the night that *follows* the day.
+ * Sorting therefore did not tidy the list, it moved a forecast twenty-four
+ * hours: the row labelled «ночь» at the top of Tuesday would have been
+ * Tuesday-into-Wednesday presented as Monday-into-Tuesday.
+ *
+ * Nothing about that is visible -- four plausible temperatures in a plausible
+ * order. Reordering data asserts a fact about what the order meant, and that
+ * fact had not been checked. The source knows what its own columns are.
+ */
+function partsBlock(day) {
+  if (!day.parts || !day.parts.length) return '';
+  const rows = day.parts
+    .map((p) => {
+      const bits = [];
+      if (p.wind_ms != null) {
+        // Gusts ride along with the wind rather than getting a cell of their
+        // own: "3 до 8 м/с" is one fact about how it will feel outside, and
+        // the gust alone means nothing without the speed beside it.
+        const gust = p.wind_gust_ms != null && p.wind_gust_ms > p.wind_ms
+          ? ` до ${num(p.wind_gust_ms)}` : '';
+        bits.push(`${num(p.wind_ms)}${gust} м/с ${shortDir(p.wind_dir)}`.trim());
+      } else if (p.wind_dir === 'штиль') {
+        // Gismeteo publishes a direction of «штиль» and *no speed at all* for
+        // a calm part of the day. Gating the whole cell on the speed dropped
+        // the one reading that says something -- the row simply lost its wind.
+        bits.push('штиль');
+      }
+      if (p.precip_mm) bits.push(num(p.precip_mm) + ' мм');
+      if (p.humidity_pct != null) bits.push(Math.round(p.humidity_pct) + '%');
+      if (p.pressure_mmhg != null) bits.push(Math.round(p.pressure_mmhg) + ' мм рт.');
+      const feels = p.feels_like_c != null
+        && Math.round(p.feels_like_c) !== Math.round(p.temp_c)
+        ? `ощущается ${fmtT(p.feels_like_c)}` : '';
+      return `<div class="part">
+        <div class="n">${esc(p.name)}</div>
+        ${icon(p.icon, 'wi')}
+        <div class="tt">${fmtT(p.temp_c)}</div>
+        <div class="m"><b>${esc(p.condition || '')}</b>
+          ${esc([bits.join(' · '), feels].filter(Boolean).join(' · '))}</div>
+      </div>`;
+    }).join('');
+  return `<div class="card"><h2>По времени суток</h2>${rows}</div>`;
+}
+
+function metricsBlock(day) {
+  const rows = [];
+  const add = (k, v, unit) => {
+    if (v === null || v === undefined || v === '') return;
+    rows.push(`<div class="metric"><div class="k">${esc(k)}</div>
+      <div class="v">${esc(v)}${unit ? `<small>${esc(unit)}</small>` : ''}</div></div>`);
+  };
+  const range = (a, b) => (a == null || b == null || a === b)
+    ? (a == null ? b : a) : `${a}–${b}`;
+
+  if (day.feels_min_c != null || day.feels_max_c != null) {
+    add('Ощущается как', day.feels_min_c != null && day.feels_max_c != null
+      ? `${fmtT(day.feels_min_c)} … ${fmtT(day.feels_max_c)}`
+      : fmtT(day.feels_max_c != null ? day.feels_max_c : day.feels_min_c));
+  }
+  if (day.avg_temp_c != null) add('Средняя за сутки', fmtT(day.avg_temp_c));
+  // Unit immediately after the number, direction after the unit. Written the
+  // other way round it reads "3 З м/с", and Cyrillic З next to a digit is a 3
+  // at a glance -- the cell said "3 3 м/с" and I had to look twice.
+  if (day.wind_ms != null) {
+    add('Ветер', num(day.wind_ms),
+        ` м/с${day.wind_dir ? ', ' + shortDir(day.wind_dir) : ''}`);
+  } else if (day.wind_dir) {
+    add('Ветер', shortDir(day.wind_dir));
+  }
+  if (day.wind_gust_ms != null) add('Порывы', num(day.wind_gust_ms), ' м/с');
+  if (day.humidity_pct != null) add('Влажность', Math.round(day.humidity_pct), '%');
+  const p = range(day.pressure_min_mmhg != null ? Math.round(day.pressure_min_mmhg) : null,
+                  day.pressure_max_mmhg != null ? Math.round(day.pressure_max_mmhg) : null);
+  if (p != null) add('Давление', p, ' мм');
+  if (day.precip_mm != null) add('Осадки', num(day.precip_mm), ' мм');
+  if (day.precip_prob != null) add('Вероятность осадков', Math.round(day.precip_prob), '%');
+  if (day.snow_cm) add('Снег', num(day.snow_cm), ' см');
+  if (day.snow_depth_cm) add('Высота снега', num(day.snow_depth_cm), ' см');
+  if (day.uv_index != null) add('УФ-индекс', num(day.uv_index));
+  if (day.kp_index != null) add('Геомагнитная активность', num(day.kp_index), ' Kp');
+  if (day.water_temp_c != null) add('Вода', fmtT(day.water_temp_c));
+  if (day.sunrise) add('Восход', day.sunrise);
+  if (day.sunset) add('Закат', day.sunset);
+  if (day.daylight) add('Долгота дня', day.daylight);
+  if (day.magnetic) add('Магнитное поле', day.magnetic);
+  if (!rows.length) return '';
+  return `<div class="card"><h2>Подробности</h2>${rows.join('')}</div>`;
+}
+
+/* ---- the deeper day, fetched when you open one -----------------------------
+ *
+ * Yandex publishes a page per day, so ten days would be ten requests against
+ * the one this app spends per source per city per ten minutes. The trade is:
+ * ask for exactly the day somebody opened, and treat the answer as an upgrade
+ * rather than a dependency.
+ *
+ * Which is why there is no spinner. The screen renders immediately from the
+ * payload already in hand -- four parts of day, the metric table -- and the
+ * eight-column curve appears underneath it a moment later if the network
+ * cooperates. Offline, or upstream down, the screen is exactly what it was
+ * before this existed. A loading state would be advertising a thing that may
+ * not arrive, in place of a thing that already has.
+ */
+const deeper = {};                   // "yandex|2026-08-07" -> Day, or null
+
+function deepKey(source, date) { return `${source}|${date}`; }
+
+/** The set fields of an object. Merging the deep day over the shallow one has
+ *  to skip its blanks, or a page that omits a value would *erase* one the main
+ *  payload had — an upgrade that takes things away is not an upgrade. */
+function pickTruthy(obj) {
+  const out = {};
+  for (const k in obj) if (obj[k] !== null && obj[k] !== undefined) out[k] = obj[k];
+  return out;
+}
+
+async function fetchDeeper(source, date) {
+  const key = deepKey(source, date);
+  if (key in deeper) return;         // in flight, fetched, or known absent
+  deeper[key] = null;
+  try {
+    const r = await fetch(`${BASE}api/day?date=${encodeURIComponent(date)}`
+      + `&${placeQuery(state.place)}`);
+    // 204 means the server looked and there is no page for this day -- a GPS
+    // fix, or a date past the tenth. That is an answer, so it is remembered;
+    // asking again would be one wasted request per redraw.
+    if (r.status === 204) return;
+    if (!r.ok) { delete deeper[key]; return; }
+    const got = await r.json();
+    if (!got.day || !(got.day.hours || []).length) return;
+    deeper[key] = got.day;
+    // Only redraw if you are still looking at the day it was fetched for.
+    if (current && current.name === 'day' && current.arg === date) {
+      openScreen('day', date);
+    }
+  } catch (e) {
+    // Offline, or the request failed. Forget it rather than remembering a
+    // failure: the screen is complete without this, and the next time you
+    // open the day you may well have signal.
+    delete deeper[key];
+  }
+}
+
+SCREENS.day = (date) => {
+  const d = state.data;
+  if (!d || !d.sources) return null;
+  const active = pickSource(d);
+  const view = d.sources[active];
+  const day = dayOn(view, date);
+  const i = ((view && view.daily) || []).findIndex((x) => x.date === date);
+  const lab = dayLabel(date);
+  const tz = d.place && d.place.tz;
+
+  let body = sourceStrip(d, active);
+  if (!day) {
+    body += `<div class="card nodata">У источника «${esc(view ? view.label : '')}»
+      нет данных на этот день.<br>Попробуйте другой источник выше.</div>`;
+    return { title: lab.a, sub: lab.b, html: body };
+  }
+
+  const range = day.temp_max_c != null
+    ? `<span class="hi">${fmtT(day.temp_max_c)}</span> / `
+      + `<span class="lo">${fmtT(day.temp_min_c)}</span>` : '';
+  body += `<div class="dayhero">${icon(day.icon)}
+    <div><div class="r">${range}</div>
+      <div class="c">${esc(day.condition || '')}</div></div></div>`;
+
+  // Each source in the shape it is actually good at, ordered by how much of
+  // the day each block answers at once. Four named parts summarise a day
+  // better than anything else here, so they lead when a source has them --
+  // Yandex off its ten-day page, Gismeteo off /3-days/. Open-Meteo has none
+  // and leads with the hour-by-hour curve, which for any date but today is
+  // the only one it can draw at all. Metrics come last everywhere: they are
+  // what you go looking for, not what you glance at.
+  // The per-day page, when this source has one and it has arrived. Eight
+  // three-hourly columns with feels-like and gusts beat whatever slice of the
+  // flat series happens to fall on this date, so it wins where it exists.
+  const deep = deeper[deepKey(active, date)];
+  if (active === 'yandex' && !deep) fetchDeeper(active, date);
+  const hours = (deep && deep.hours) || hoursOn(view.hourly, date, tz);
+  const curve = hours.length >= 2
+    ? hourlyBlock(hours, null, { title: 'По часам',
+                                 markNow: date === cityToday() }) : '';
+  const parts = partsBlock(day);
+  const metrics = metricsBlock(deep ? { ...day, ...pickTruthy(deep) } : day);
+  body += [parts, curve, metrics].join('');
+
+  if (!parts && !curve && !metrics) {
+    body += `<div class="card nodata">Этот источник даёт на этот день только
+      максимум и минимум.</div>`;
+  }
+  return { title: lab.a, sub: lab.b, html: body };
+};
 
 /* ------------------------------------------------------------------- boot */
 
@@ -607,13 +969,33 @@ function boot() {
   loadCities();
   load(state.place, { force: false });
 
-  $('btn-place').addEventListener('click', openSheet);
+  // A screen open at load time is a reload *while* it was open. The payload
+  // has not arrived yet and the day it referred to may not exist any more, so
+  // the entry is rewritten rather than restored -- reopening it would mean
+  // guessing, and guessing here shows you a different day than the one you
+  // left.
+  if (history.state && history.state.yw) history.replaceState(null, '');
+
+  $('btn-place').addEventListener('click', () => push('place'));
+  $('back').addEventListener('click', pop);
   $('btn-refresh').addEventListener('click', () => load(state.place, { force: true }));
 
-  $('sheet').addEventListener('click', (e) => {
-    if (e.target.hasAttribute('data-close')) { closeSheet(); return; }
-    // The geolocation control is a <button>, the places are <li>s.
+  // One delegated listener on the screen shell, which never gets replaced --
+  // everything inside it is rebuilt on every render.
+  $('screen').addEventListener('click', (e) => {
     if (e.target.closest('[data-act="geo"]')) { useGeolocation(); return; }
+    const src = e.target.closest('.src');
+    if (src) {
+      if (src.disabled) return;
+      chooseSource(src.dataset.src);
+      // `render`, not just a redraw of this screen: it ends by refreshing
+      // whatever screen is open, so one call keeps the detail and the forecast
+      // underneath it on the same source. Redrawing only the screen left the
+      // page behind it showing the source you had just switched away from,
+      // which you would find on the way back.
+      render(state.data);
+      return;
+    }
     const li = e.target.closest('li');
     if (!li) return;
     if (li.dataset.find !== undefined) {
@@ -622,10 +1004,13 @@ function boot() {
     } else if (li.dataset.slug) {
       load({ slug: li.dataset.slug, adhoc: false });
     } else { return; }
-    closeSheet();
+    lastQuery = '';
+    found = [];
+    pop();
   });
 
-  $('q').addEventListener('input', (e) => {
+  $('screen').addEventListener('input', (e) => {
+    if (e.target.id !== 'q') return;
     clearTimeout(searchTimer);
     const v = e.target.value;
     searchTimer = setTimeout(() => doSearch(v), 260);
@@ -634,15 +1019,16 @@ function boot() {
   // The strip is rebuilt with the hero on every render, so the listener lives
   // on a container that never gets replaced.
   $('content').addEventListener('click', (e) => {
+    const day = e.target.closest('[data-day]');
+    if (day) { push('day', day.dataset.day); return; }
     const b = e.target.closest('.src');
     if (!b || b.disabled) return;
-    state.source = b.dataset.src;
-    try { localStorage.setItem(LS.source, state.source); } catch (err) {}
+    chooseSource(b.dataset.src);
     render(state.data);          // already in the payload: no refetch
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && $('sheet').classList.contains('open')) closeSheet();
+    if (e.key === 'Escape' && current) pop();
   });
 
   // Fresh data enters this app when you open it. So: refetch on every return

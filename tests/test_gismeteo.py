@@ -18,6 +18,8 @@ way to derive.
 """
 
 import datetime as dt
+import pathlib
+import re
 from itertools import pairwise
 
 import pytest
@@ -27,6 +29,43 @@ from app.models import ParseError, Tier
 from app.sources import gismeteo as G
 
 TODAY = dt.date(2026, 7, 31)
+FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
+RAW_DAYS = (FIXTURES / "mf-10days.html").read_text(encoding="utf-8",
+                                                   errors="replace")
+
+
+def _row_pairs(html: str, row: str) -> list[tuple[float | None, float | None]]:
+    """The (min, max) a chart row states, read straight out of the markup.
+
+    A second opinion on the parser, obtained by the crudest possible means: cut
+    the row out of the raw text and regex the typed values inside it. It shares
+    no code with `gismeteo._row_values` -- no lxml, no XPath, no notion of
+    cells -- which is the entire point. Two readings that agree are evidence;
+    one reading checked against numbers somebody typed in by hand is not.
+
+    Pairs are built by *column*, so a column missing its `mint` yields a `None`
+    rather than borrowing the next one, which is the failure being guarded.
+    """
+    # Note the quote characters: Gismeteo writes `class="value"` on the column
+    # and `class='maxt'` inside it, in the same document. Assuming one of them
+    # is how the first version of this found nothing at all.
+    def side(cell: str, which: str) -> float | None:
+        m = re.search(rf"""class=['"]{which}['"][^>]*>\s*"""
+                      rf"""<[a-z-]+-value value=['"](-?[\d.]+)['"]""", cell)
+        return float(m.group(1)) if m else None
+
+    start = html.find(f'data-row="{row}"')
+    if start < 0:
+        return []
+    end = html.find("data-row=", start + 1)
+    block = html[start: end if end > 0 else len(html)]
+    out: list[tuple[float | None, float | None]] = []
+    for cell in re.split(r"""<div class=['"]value['"]""", block)[1:]:
+        lo, hi = side(cell, "mint"), side(cell, "maxt")
+        if lo is None and hi is None:
+            continue
+        out.append((lo, hi))
+    return out
 
 
 @pytest.fixture(scope="module")
@@ -47,12 +86,15 @@ class TestAddressing:
             assert G.city_id(cities.get(slug)) is not None
 
     def test_urls_use_the_clean_path_form(self):
-        now, hourly, days = G.urls_for(cities.get("yoshkar-ola"))
+        now, hourly, days, parts = G.urls_for(cities.get("yoshkar-ola"))
         assert now == "https://www.gismeteo.ru/weather-yoshkar-ola-11975/"
         assert hourly.endswith("/hourly/")
         assert days.endswith("/10-days/")
+        # Named /3-days/ by Gismeteo and showing ten of them, four columns a
+        # day. The URL is theirs; the surprise is documented in `urls_for`.
+        assert parts.endswith("/3-days/")
         # robots.txt disallows /*?* -- every URL with a query string.
-        assert not any("?" in u for u in (now, hourly, days))
+        assert not any("?" in u for u in (now, hourly, days, parts))
 
     def test_a_gps_place_has_no_id_and_says_so(self):
         """No id means the tab is disabled with a reason. It must NOT quietly
@@ -210,9 +252,39 @@ class TestDaily:
 
     def test_later_columns_drop_the_month_and_still_resolve(self, parsed):
         """Column 0 says "пт 31 июля"; column 3 says only "пн 3". The sequence
-        position is the fallback, anchored on today."""
+        position is the fallback, anchored on the first column that states a
+        month."""
         assert parsed.daily[3].title == "пн 3"
         assert parsed.daily[3].date == "2026-08-03"
+
+    def test_an_abbreviated_month_is_still_a_month(self):
+        """«сб 1 авг» is what the ten-day header actually says, and until the
+        three-letter forms were in the table it matched nothing -- so every
+        Gismeteo date came from "today plus the column index" instead of from
+        the page. That fallback is right on any day the page's first column is
+        today, which is every day but the one it exists for."""
+        assert G._date_from("сб 1 авг", today=dt.date(2026, 7, 30),
+                            index=0) == dt.date(2026, 8, 1)
+        assert G._date_from("пт 31 июля", today=TODAY, index=0) == TODAY
+        # No month named at all: say so, rather than inventing one.
+        assert G._date_from("вс 2", today=TODAY, index=1) is None
+
+    def test_the_sequence_is_anchored_on_the_page_not_on_our_clock(self):
+        """The failure this prevents leaves no broken value behind.
+
+        Column 0 carries a month and resolves from its label; columns 1..n
+        carry only a day number and used to be counted from *today*. Let those
+        two disagree by a day -- a payload cached across midnight -- and the
+        first two columns land on the same date, one date vanishes, and every
+        row after it describes the wrong day under a plausible heading."""
+        got = G._column_dates(["сб 1 авг", "вс 2", "пн 3"], 3,
+                              today=dt.date(2026, 7, 31))
+        assert [d.isoformat() for d in got] == \
+            ["2026-08-01", "2026-08-02", "2026-08-03"]
+
+    def test_no_label_anywhere_falls_back_to_today(self):
+        got = G._column_dates(["", "", ""], 3, today=TODAY)
+        assert got[0] == TODAY and (got[2] - got[0]).days == 2
 
     def test_highs_and_lows(self, parsed):
         d = parsed.daily[0]
@@ -246,6 +318,242 @@ class TestDaily:
             today=TODAY)
         assert days == []
         assert prov["daily"] == int(Tier.ABSENT)
+
+
+class TestTheMetricRows:
+    """Thirteen rows the ten-day page has always carried and we never read.
+
+    Nothing was broken while they went unread -- that is the whole difficulty.
+    A `Day` with `humidity_pct=None` is indistinguishable from a source that
+    does not publish humidity, and the page was publishing it in a labelled row
+    with one cell per day the entire time.
+    """
+
+    @pytest.fixture(scope="class")
+    def mf(self, request):
+        d = request.path.parent / "fixtures"
+        return G.parse(
+            (d / "mf-current.html").read_text(encoding="utf-8", errors="replace"),
+            days_html=(d / "mf-10days.html").read_text(encoding="utf-8",
+                                                       errors="replace"),
+            hourly_html=(d / "mf-hourly.html").read_text(encoding="utf-8",
+                                                         errors="replace"),
+            today=dt.date(2026, 8, 1))
+
+    def test_every_modelled_metric_arrives(self, mf):
+        day = mf.daily[0]
+        for name in ("feels_min_c", "feels_max_c", "avg_temp_c", "humidity_pct",
+                     "pressure_min_mmhg", "pressure_max_mmhg", "wind_ms",
+                     "wind_gust_ms", "wind_dir", "uv_index", "kp_index"):
+            assert getattr(day, name) is not None, f"{name} is empty"
+
+    @pytest.mark.parametrize("row,lo,hi", [
+        ("temperature-air", "temp_min_c", "temp_max_c"),
+        ("temperature-heat-index", "feels_min_c", "feels_max_c"),
+        ("pressure", "pressure_min_mmhg", "pressure_max_mmhg"),
+    ])
+    def test_the_values_are_the_ones_on_the_page(self, mf, row, lo, hi):
+        """Read back out of the raw HTML by a deliberately different route.
+
+        This used to assert `(15.0, 25.0)` and friends, which made it a test of
+        *the weather on 31 July*: every `make fixtures-gm` broke it, and the
+        only available repair was to paste in whatever the new capture said --
+        which is not a test, it is a transcription. Worse, a parser that had
+        genuinely started reading the wrong row would have been "fixed" the
+        same way, by hand, without anybody noticing.
+
+        So the expectation comes from the page instead, found by a plain regex
+        over the raw text rather than by the parser's own XPath. Two mechanisms
+        on one page: if they agree, the parser is reading the row it thinks it
+        is -- on any capture, for ever.
+        """
+        want = _row_pairs(RAW_DAYS, row)
+        assert want, f"no {row} values found in the raw page"
+        got = [(getattr(d, lo), getattr(d, hi)) for d in mf.daily]
+        assert got == want[: len(got)]
+
+    def test_a_missing_half_does_not_shift_its_neighbours(self):
+        """The reason cells are counted as containers rather than as a flat
+        list of typed elements.
+
+        Gismeteo's pressure row has published a max for ten days and a min for
+        only the first eight. Read flat, that is eighteen values where twenty
+        are expected, and the ninth day silently takes the eighth day's
+        minimum -- a real pressure, in range, in the right unit, attached to
+        the wrong day. Nothing downstream can see it.
+
+        On synthetic markup, because whether any given capture *has* a gap is
+        Gismeteo's business: the July page had one, today's does not, and
+        asserting it against a fixture was testing the weather again.
+        """
+        cells = "".join(
+            '<div class="value"><div class="maxt">'
+            f'<pressure-value value="{750 + i}" from-unit="mmhg"></pressure-value>'
+            "</div>"
+            + (f'<div class="mint"><pressure-value value="{740 + i}" '
+               f'from-unit="mmhg"></pressure-value></div>' if i < 3 else "")
+            + "</div>"
+            for i in range(5))
+        doc = __import__("lxml.html", fromlist=["x"]).fromstring(
+            f'<div data-row="pressure" class="widget-row-chart '
+            f'widget-row-chart-pressure"><div class="values">{cells}</div></div>')
+        assert G._row_values(doc, "pressure", "maxt") == [750, 751, 752, 753, 754]
+        # The gap stays where the page put it: three minima, then two holes --
+        # not three minima slid under days four and five.
+        assert G._row_values(doc, "pressure", "mint") == [740, 741, 742, None, None]
+
+    def test_wherever_both_ends_exist_they_belong_to_the_same_day(self, mf):
+        """The property the test above protects, over whatever was recorded."""
+        for d in mf.daily:
+            if d.pressure_min_mmhg is not None:
+                assert d.pressure_min_mmhg <= d.pressure_max_mmhg, d.date
+            if d.temp_min_c is not None:
+                assert d.temp_min_c <= d.temp_max_c, d.date
+
+    def test_wind_direction_speaks_the_same_language_as_every_other_source(self, mf):
+        """The cell says «СЗ». Open-Meteo says «северо-западный». One
+        vocabulary reaches the client or the front end needs three tables."""
+        assert mf.daily[0].wind_dir == "северо-западный"
+        assert all(d.wind_dir is None or " " not in d.wind_dir
+                   for d in mf.daily)
+
+    def test_each_row_records_which_rung_answered(self, mf):
+        """`data-row="wind-speed"` is Gismeteo's own semantic key, so every one
+        of these should be tier 1 today. The value of recording it is the day
+        one of them is not."""
+        for name in ("temp", "feels", "wind", "pressure", "humidity", "uv"):
+            assert mf.provenance[f"daily.{name}"] == int(Tier.NAMED), name
+
+    def test_the_caption_answers_when_the_key_is_gone(self):
+        """Tier 2. Their `data-row` attribute is an internal contract and will
+        change without warning; the Russian caption is what a human reads."""
+        doc = __import__("lxml.html", fromlist=["x"]).fromstring(
+            '<div><div class="widget-row widget-row-humidity">'
+            '<p class="widget-row-caption">Относительная влажность, %</p>'
+            '<div class="row-item">81</div></div></div>')
+        row, tier = G._find_row(doc, "humidity")
+        assert tier == int(Tier.LABELLED)
+        assert G._cell_value(G._cells(row)[0]) == 81.0
+
+    def test_the_class_answers_when_the_caption_is_gone(self):
+        """Tier 3, and the reason the class token is `row-wind-speed` rather
+        than `widget-row-wind`: three separate rows carry the latter."""
+        doc = __import__("lxml.html", fromlist=["x"]).fromstring(
+            '<div><div class="widget-row widget-row-wind row-wind-gust">'
+            '<div class="row-item"><speed-value value="9"/></div></div>'
+            '<div class="widget-row widget-row-wind row-wind-speed">'
+            '<div class="row-item"><speed-value value="4"/></div></div></div>')
+        row, tier = G._find_row(doc, "wind")
+        assert tier == int(Tier.SHAPE)
+        assert G._cell_value(G._cells(row)[0]) == 4.0
+
+
+class TestThePartsOfDayGrid:
+    """`/3-days/` is a ten-day grid at four columns a day, and the name of the
+    page is the only thing about it that says three."""
+
+    @pytest.fixture(scope="class")
+    def mf(self, request):
+        d = request.path.parent / "fixtures"
+
+        def read(n):
+            return (d / n).read_text(encoding="utf-8", errors="replace")
+
+        return G.parse(read("mf-current.html"),
+                       days_html=read("mf-10days.html"),
+                       hourly_html=read("mf-hourly.html"),
+                       parts_html=read("mf-3days.html"),
+                       today=dt.date(2026, 8, 1))
+
+    def test_the_grid_is_ten_days_of_four(self, mf):
+        with_parts = [d for d in mf.daily if d.parts]
+        assert len(with_parts) >= 8, \
+            f"only {len(with_parts)} of {len(mf.daily)} days got parts"
+        assert all(len(d.parts) == 4 for d in with_parts)
+
+    def test_the_parts_keep_gismeteos_own_order(self, mf):
+        """Night first here, and *last* on Yandex's page -- where it means the
+        following night. Two sources, two conventions, neither reordered."""
+        day = next(d for d in mf.daily if d.parts)
+        assert [p.name for p in day.parts] == ["ночь", "утро", "день", "вечер"]
+
+    def test_every_part_carries_the_metrics_the_page_publishes(self, mf):
+        day = next(d for d in mf.daily if d.parts)
+        for p in day.parts:
+            for name in ("temp_c", "feels_like_c", "condition", "icon",
+                         "humidity_pct", "pressure_mmhg", "wind_gust_ms"):
+                assert getattr(p, name) is not None, f"{p.name}.{name} is empty"
+
+    def test_a_calm_part_says_so_instead_of_inventing_a_zero(self, mf):
+        """Gismeteo prints «штиль» and no number at all when there is no wind.
+        The speed must stay `None` -- a 0 would be a value we made up, and this
+        codebase drops rather than fills."""
+        calm = [p for d in mf.daily for p in d.parts if p.wind_dir == "штиль"]
+        assert calm, "no calm part in the fixture -- has the page changed?"
+        assert all(p.wind_ms is None for p in calm)
+
+    def test_parts_are_matched_to_days_by_date_not_by_position(self):
+        """The two pages are fetched together but they are still two pages, and
+        a set recorded across midnight has them starting on different mornings.
+
+        Asserted on synthetic input rather than on the fixtures, deliberately.
+        Whether the recorded pages happen to agree depends on the minute
+        somebody ran `make fixtures-gm`, and a test that encodes today's
+        accident fails tomorrow for no reason -- or, worse, starts passing for
+        no reason. What is being protected is that a day only ever gets the
+        parts labelled with *its own date*.
+        """
+        from lxml import html as LH
+
+        def grid(first_date: str) -> str:
+            cells = "".join(f'<div class="row-item">{n}</div>'
+                            for _ in range(2) for n in ("Ночь", "Утро", "День",
+                                                        "Вечер"))
+            return (f'<div><div class="widget-row widget-row-tod-date">'
+                    f'<div class="row-item">{first_date}</div>'
+                    f'<div class="row-item">вс 9</div></div>'
+                    f'<div class="widget-row widget-row-datetime-time">{cells}'
+                    f'</div><div class="widget-row widget-row-humidity">'
+                    + "".join('<div class="row-item">70</div>' for _ in range(8))
+                    + "</div></div>")
+
+        parts, _ = G._parts(LH.fromstring(grid("сб, 8 августа")),
+                            today=dt.date(2026, 8, 8))
+        assert sorted(parts) == ["2026-08-08", "2026-08-09"]
+        assert all(len(v) == 4 for v in parts.values())
+
+        # The same grid, stated as starting a day later. Every part moves with
+        # it; nothing is left hanging off the date it used to be under.
+        later, _ = G._parts(LH.fromstring(grid("вс, 9 августа")),
+                            today=dt.date(2026, 8, 8))
+        assert sorted(later) == ["2026-08-09", "2026-08-10"]
+
+    def test_a_day_only_ever_holds_parts_of_its_own_date(self, mf):
+        """The property, over whatever the recorded pages happen to say. If the
+        two were captured a day apart, some days have no parts and none has the
+        wrong ones."""
+        grid, _ = G._parts(
+            __import__("lxml.html", fromlist=["x"]).fromstring(
+                (FIXTURES / "mf-3days.html").read_text(encoding="utf-8",
+                                                       errors="replace")),
+            today=dt.date(2026, 8, 1))
+        for day in mf.daily:
+            assert day.parts == grid.get(day.date, []), day.date
+
+    def test_a_grid_that_does_not_divide_is_refused(self):
+        """Forty columns over ten dates is a grid. Thirty-nine is a page that
+        has changed shape, and laying it out by position anyway is how
+        Wednesday morning ends up under Tuesday."""
+        doc = __import__("lxml.html", fromlist=["x"]).fromstring(
+            '<div><div class="widget-row widget-row-tod-date">'
+            '<div class="row-item">вс, 2 августа</div>'
+            '<div class="row-item">пн, 3 августа</div></div>'
+            '<div class="widget-row widget-row-datetime-time">'
+            '<div class="row-item">Ночь</div><div class="row-item">Утро</div>'
+            '<div class="row-item">День</div></div></div>')
+        parts, prov = G._parts(doc, today=TODAY)
+        assert parts == {}
+        assert prov["parts"] == int(Tier.ABSENT)
 
 
 class TestIndependence:
@@ -300,28 +608,37 @@ class TestMirror:
                        days_html=read(d / "mf-10days.html"),
                        hourly_html=read(d / "mf-hourly.html"))
 
-    def test_the_hourly_page_begins_at_the_next_whole_hour(self, request, mirror):
-        """Recorded because the app now depends on it.
+    def test_the_hourly_page_never_starts_before_the_observation(self, request,
+                                                                 mirror):
+        """Recorded because `series.align_to_now` is built around it.
 
-        Gismeteo's `/hourly/` page does not include the hour you are standing
-        in -- the observation at 12:00 is followed by a strip starting 13:00,
-        because their own page shows current conditions in a separate card
-        above it. That is why `series.align_to_now` puts the observation at the
-        head of the series; without it the strip simply had no column for now.
+        Gismeteo's `/hourly/` page has historically started at the *next* whole
+        hour -- an observation at 12:00 followed by a strip beginning 13:00,
+        because their own page shows current conditions in a card above it.
+        That is why `align_to_now` puts the observation at the head of the
+        series: without it the strip simply had no column for now.
 
-        If this ever stops being true, `align_to_now` will find a covering
-        entry and leave the series alone, so the behaviour degrades correctly
-        -- but the reason for the code will have evaporated, and that is worth
-        knowing.
+        The July capture had a gap of one hour. Today's has a gap of **zero**:
+        the strip now includes the hour you are standing in. Both are fine, and
+        the difference between them is not a bug in either direction -- when a
+        covering entry exists `align_to_now` finds it and leaves the series
+        alone, which is the degradation working. So the assertion is the
+        property the alignment actually needs, and no longer the one number
+        that happened to be true in July.
+
+        What would be a real problem is a strip starting *before* the
+        observation, or more than an hour after it: the first would mean the
+        page is showing history, the second that we are matching against the
+        wrong day.
         """
         if not (request.path.parent / "fixtures" / "mf-hourly.html").exists():
             pytest.skip("no hourly fixture")
         first = mirror.hourly[0]
         assert first.at is not None and mirror.current.observed_epoch is not None
         gap = first.at - mirror.current.observed_epoch
-        assert 0 < gap <= 3600, (
-            f"the hourly page starts {gap}s after the observation; it used to "
-            f"start at the next whole hour")
+        assert 0 <= gap <= 3600, (
+            f"the hourly strip starts {gap}s from the observation -- it should "
+            f"begin at the observed hour or the next one, never before")
 
     def test_the_dedicated_hourly_page_is_worth_fetching(self, request, mirror):
         """The reason for the third request. The landing page gives eight

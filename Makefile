@@ -9,6 +9,7 @@
 #   make logs          tail the container on the VPS
 #   make fixtures      re-record test fixtures from the box that does the fetching
 #   make fixtures-gm   re-record the Gismeteo pages from whichever host answers
+#   make fixtures-day  record the two per-day pages nothing parses yet
 #   make probe         diagnose a source that is refusing us
 #   make canary        has an upstream changed under us? (live, not fixtures)
 #   make routes        which way in to Gismeteo works from here
@@ -62,7 +63,7 @@ COMPOSE = cd $(REMOTE_DIR) && $(SUDO) docker compose
 
 .PHONY: help test test-fast lint fmt check run mock shots build push deploy \
         restart reload-nginx sync-config health logs ps fixtures fixtures-gm \
-        selftest probe routes routes-remote canary clean
+        fixtures-day selftest probe routes routes-remote canary clean
 
 help:
 	@grep -E '^#   make' $(MAKEFILE_LIST) | sed 's/^#   /  /'
@@ -170,6 +171,14 @@ fixtures-gm:
 	  > tests/fixtures/$(GM_PREFIX)-hourly.html
 	curl -fsS --compressed -A '$(UA)' '$(GM_URL)/10-days/' \
 	  > tests/fixtures/$(GM_PREFIX)-10days.html
+	@# Named /3-days/ and showing ten, four columns a day. All four pages are
+	@# recorded together and that matters more here than it looks: they are
+	@# fetched in the same second in production, and a set captured across
+	@# midnight makes the parts of Tuesday hang off Monday in the fixtures and
+	@# nowhere else -- a test failure with no bug behind it, or worse, a test
+	@# that agrees with a bug.
+	curl -fsS --compressed -A '$(UA)' '$(GM_URL)/3-days/' \
+	  > tests/fixtures/$(GM_PREFIX)-3days.html
 	@wc -c tests/fixtures/$(GM_PREFIX)-*.html
 	@# Recording succeeded above. Running the suite is the *next* step, not part
 	@# of this one -- and it needs pytest, which the machine that can reach the
@@ -177,6 +186,29 @@ fixtures-gm:
 	@# capture and read as "the fixtures did not work".
 	@python3 -c "import pytest" 2>/dev/null && $(MAKE) test || \
 	  echo "\n  Fixtures recorded. pytest is not installed here -- run \`make test\`\n  where it is, or \`pip3 install pytest\` first.\n"
+
+# Yandex's per-day page, which nothing parses yet.
+#
+# `.../details/auto/10-day-weather/day-N` is one day per URL and carries more
+# than the ten-day page does: eight three-hourly columns with temperature,
+# feels-like, condition, wind *and gusts*, precipitation probability,
+# visibility and road state, plus sunrise, sunset and day length. All of it in
+# the self-labelling accessibility prose that makes this source safe to read.
+#
+# Not parsed, and the reason is a fetch cost rather than a parsing one: ten
+# days is ten URLs, against the one this app currently spends per city per ten
+# minutes. That wants deciding, not defaulting into.
+#
+#     make fixtures-day
+#     make fixtures-day DAY=3
+DAY        ?= 5
+YA_URL     ?= https://yandex.ru/pogoda/ru/yoshkar-ola
+fixtures-day:
+	curl -fsS --compressed -A '$(UA)' -H 'Accept-Language: ru-RU,ru;q=0.9' \
+	  '$(YA_URL)/details/auto/10-day-weather/day-$(DAY)' \
+	  > tests/fixtures/ya-day$(DAY).html
+	@wc -c tests/fixtures/ya-day$(DAY).html
+	@echo "\n  Recorded. Commit it, then a parser has something to read.\n"
 
 # The test suite runs against committed fixtures and therefore cannot notice
 # that the real pages have moved. This reads the live /api/health and fails if

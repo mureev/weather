@@ -14,8 +14,10 @@ button working while denying it to anything embedded.
 
 from __future__ import annotations
 
+import datetime
 import logging
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, Response
@@ -25,8 +27,8 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from . import cities
 from .config import settings
-from .models import Status
-from .service import ORDER, cache_stats, client, get_weather, invalidate
+from .models import Status, prune
+from .service import ORDER, cache_stats, client, get_day, get_weather, invalidate
 from .sources import geocode
 from .version import BUILD, BUILT_AT, SHELL, info
 
@@ -85,6 +87,28 @@ async def security_headers(request: Request, call_next):
 
 # --- API -------------------------------------------------------------------
 
+def _resolve(city: str | None, lat: float | None, lon: float | None):
+    """Which place the caller means. One implementation, two endpoints.
+
+    It was two, briefly, and that is exactly the kind of thing that diverges:
+    the day endpoint would have been the one that forgot `cities.nearest`, and
+    the symptom would have been a GPS fix silently losing its detail screen
+    near a city that has one.
+    """
+    if lat is not None and lon is not None:
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise HTTPException(400, "coordinates out of range")
+        # A fix near a registry city uses the registry entry: it has a verified
+        # slug, which is a more reliable way to ask than raw coordinates.
+        return cities.nearest(lat, lon) or cities.ad_hoc(lat, lon)
+    if city:
+        place = cities.get(city)
+        if place is None:
+            raise HTTPException(404, f"unknown city {city!r}")
+        return place
+    return cities.default()
+
+
 @api.get("/api/weather")
 async def weather(city: str | None = None,
                   lat: float | None = None,
@@ -96,23 +120,40 @@ async def weather(city: str | None = None,
     the switcher in the UI is a client-side choice with no refetch -- and, more
     importantly, so that comparing them compares like with like.
     """
-    place = None
-    if lat is not None and lon is not None:
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-            raise HTTPException(400, "coordinates out of range")
-        # A fix near a registry city uses the registry entry: it has a verified
-        # slug, which is a more reliable way to ask than raw coordinates.
-        place = cities.nearest(lat, lon) or cities.ad_hoc(lat, lon)
-    elif city:
-        place = cities.get(city)
-        if place is None:
-            raise HTTPException(404, f"unknown city {city!r}")
-    else:
-        place = cities.default()
-
-    w = await get_weather(place, force=force)
+    w = await get_weather(_resolve(city, lat, lon), force=force)
     status = 200 if w.health.status is not Status.DOWN else 503
     return JSONResponse(w.to_dict(), status_code=status,
+                        headers={"Cache-Control": "no-cache"})
+
+
+@api.get("/api/day")
+async def day_detail(date: str,
+                     city: str | None = None,
+                     lat: float | None = None,
+                     lon: float | None = None):
+    """One day, in as much depth as any source here offers.
+
+    Fetched on demand rather than shipped with the forecast, and that is a
+    deliberate trade rather than an optimisation: Yandex publishes a page per
+    day, so ten days is ten requests against the one this app spends per source
+    per city per ten minutes. Multiplying the whole upstream footprint tenfold
+    to deepen one tab is the wrong shape. So the request happens when somebody
+    opens a day, is cached for the usual ten minutes, and *nothing depends on
+    it* -- the day screen renders from the main payload first and takes this as
+    an upgrade if it arrives. 204 when there is none, which is a real answer
+    and not an error: a GPS fix has no addressable page, and neither does a
+    date outside the ten.
+    """
+    place = _resolve(city, lat, lon)
+    try:
+        want = datetime.date.fromisoformat(date)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "date must be yyyy-mm-dd") from None
+
+    got = await get_day(place, want)
+    if got is None:
+        return Response(status_code=204)
+    return JSONResponse({"source": "yandex", "day": prune(asdict(got))},
                         headers={"Cache-Control": "no-cache"})
 
 

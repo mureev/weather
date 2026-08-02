@@ -48,7 +48,7 @@ from lxml import html as LH
 from .. import ru_text as R
 from ..config import settings
 from ..extract import Extracted, Identity, _balanced
-from ..models import Blocked, Current, Day, Hour, ParseError, Place, Tier
+from ..models import Blocked, Current, Day, DayPart, Hour, ParseError, Place, Tier
 from ..series import covering
 
 log = logging.getLogger(__name__)
@@ -99,8 +99,8 @@ def city_id(place: Place | None) -> str | None:
     return PATHS.get(place.slug)
 
 
-def urls_for(place: Place, host: str = HOST) -> tuple[str, str, str] | None:
-    """The three pages we read, on `host`: now, hourly, ten days.
+def urls_for(place: Place, host: str = HOST) -> tuple[str, str, str, str] | None:
+    """The four pages we read, on `host`: now, hourly, ten days, parts of day.
 
     Every mirror uses the identical `/weather-<slug>-<id>/` shape, which is why
     the host is a parameter and not a rewrite: nothing else about the address
@@ -110,13 +110,19 @@ def urls_for(place: Place, host: str = HOST) -> tuple[str, str, str] | None:
     columns at 0:00, 3:00, 6:00 and so on. `/hourly/` is the same widget with
     every hour in it, which is the series worth having, so it is fetched
     separately and preferred when it parses.
+
+    `/3-days/` is misnamed by its own URL and that is worth knowing before you
+    look at it: it is a **ten-day** grid at four columns a day -- ночь, утро,
+    день, вечер -- carrying the same fifteen metric rows as `/10-days/` but per
+    part rather than per day. It is the richest page of the four and the only
+    reason the day-detail screen can say anything about Thursday evening.
     """
     seg = city_id(place)
     if not seg:
         return None
     host = host.rstrip("/")
     base = f"{host}/weather-{seg}"
-    return f"{base}/", f"{base}/hourly/", f"{base}/10-days/"
+    return f"{base}/", f"{base}/hourly/", f"{base}/10-days/", f"{base}/3-days/"
 
 
 def headers() -> dict[str, str]:
@@ -179,18 +185,21 @@ async def load(client: httpx.AsyncClient, place: Place, *,
     urls = urls_for(place, host)
     if urls is None:
         raise ParseError(f"no gismeteo id for {place.slug!r}")
-    now_url, hourly_url, days_url = urls
+    now_url, hourly_url, days_url, parts_url = urls
 
-    # Three pages, concurrently. The hourly one is *optional*: it is an upgrade
-    # on a series the landing page already carries at three-hour resolution, so
-    # losing it should cost detail, not the whole source.
-    now_html, days_html, hourly_html = await asyncio.gather(
+    # Four pages, concurrently. Two of them are *optional*: each is an upgrade
+    # on something we already have -- `/hourly/` refines a series the landing
+    # page carries at three-hour resolution, `/3-days/` adds parts of day to a
+    # ten-day list that stands perfectly well without them. Losing either
+    # should cost detail, not the source.
+    now_html, days_html, hourly_html, parts_html = await asyncio.gather(
         fetch_html(client, now_url, timeout=timeout),
         fetch_html(client, days_url, timeout=timeout),
-        _optional(fetch_html(client, hourly_url, timeout=timeout)))
+        _optional(fetch_html(client, hourly_url, timeout=timeout)),
+        _optional(fetch_html(client, parts_url, timeout=timeout)))
 
     got = parse(now_html, days_html=days_html, hourly_html=hourly_html,
-                today=today)
+                parts_html=parts_html, today=today)
     bad = check_identity(got.ident, place)
     if bad:
         raise ParseError(f"{now_url}: wrong place ({bad})")
@@ -279,7 +288,7 @@ def _bearing_to_ru(deg: float | None) -> str | None:
 # --- parsing ---------------------------------------------------------------
 
 def parse(html_text: str, *, days_html: str | None = None,
-          hourly_html: str | None = None,
+          hourly_html: str | None = None, parts_html: str | None = None,
           today: dt.date | None = None) -> Extracted:
     if R.looks_like_captcha(html_text):
         # `Blocked`, not `ParseError`: a challenge page is a refusal wearing a
@@ -313,6 +322,17 @@ def parse(html_text: str, *, days_html: str | None = None,
         out.daily, dprov = _days(LH.fromstring(days_html),
                                  today=today or dt.date.today())
         out.provenance.update(dprov)
+
+    if parts_html and out.daily:
+        # Purely additive, and matched by date rather than by position: the two
+        # pages are fetched in the same second but they are still two pages,
+        # and a ten-day list starting on a different morning from a forty-cell
+        # grid would otherwise hang every part of Tuesday off Monday.
+        by_date, pprov = _parts(LH.fromstring(parts_html),
+                                today=today or dt.date.today())
+        out.provenance.update(pprov)
+        for day in out.daily:
+            day.parts = by_date.get(day.date, [])
 
     # The condition, last, because it is a lookup *into* the hourly series --
     # the column covering the moment the reading was taken. Doing it here
@@ -500,6 +520,128 @@ def _precip_mm(doc: Any) -> list[float | None]:
     return out
 
 
+# --- the per-day metric rows ------------------------------------------------
+#
+# The ten-day page is a stack of labelled rows -- wind, humidity, pressure, UV,
+# geomagnetic activity, pollen -- each with one cell per day. We were reading
+# exactly two of them (the temperature chart's max and min) and leaving the
+# other thirteen on the page, which is the failure `test_mapping.py` was written
+# about: nothing broke, the app just showed a tenth of what it had downloaded.
+#
+# Each row can be found three ways, and they fail independently:
+#
+#   1 NAMED     `data-row="wind-speed"` -- their own semantic key, and the only
+#               handle here that is neither prose nor presentation.
+#   2 LABELLED  the Russian caption. Survives a rename of the key above.
+#   3 SHAPE     the class token. Survives a rewording of the caption.
+#
+# Class alone would not do even as a first choice: three separate rows carry
+# `widget-row-wind`, distinguished only by `row-wind-speed` / `row-wind-
+# direction` / `row-wind-gust`. Caption alone would not either -- two of those
+# three captions differ by one word.
+_ROWS: dict[str, tuple[str, str, str]] = {
+    # logical name          data-row                  caption fragment            class token
+    "temp":       ("temperature-air", "температура воздуха", "widget-row-chart-temperature-air"),
+    "feels":      ("temperature-heat-index", "по ощущению", "widget-row-chart-temperature-heat-index"),
+    "avg":        ("temperature-avg", "среднесуточная", "widget-row-chart-temperature-avg"),
+    "wind":       ("wind-speed", "скорость ветра", "row-wind-speed"),
+    "gust":       ("wind-gust", "порывы ветра", "row-wind-gust"),
+    "wind_dir":   ("wind-direction", "направление ветра", "row-wind-direction"),
+    "pressure":   ("pressure", "давление", "widget-row-chart-pressure"),
+    "humidity":   ("humidity", "влажность", "widget-row-humidity"),
+    "uv":         ("radiation", "уф-индекс", "widget-row-radiation"),
+    "kp":         ("geomagnetic", "геомагнитная", "widget-row-geomagnetic"),
+    "precip":     ("precipitation-bars", "осадки", "widget-row-precipitation-bars"),
+    "snow":       ("icon-snow", "выпадающий снег", "widget-row-icon-snow"),
+    "snow_depth": ("snow-height", "высота снежного", "widget-row-chart-snow-height"),
+}
+
+
+def _find_row(doc: Any, name: str) -> tuple[Any | None, int]:
+    """The row node and which rung of the ladder answered."""
+    key, caption, cls = _ROWS[name]
+    got = doc.xpath(f'//*[@data-row="{key}"]')
+    if got:
+        return got[0], int(Tier.NAMED)
+    for row in doc.xpath('//*[contains(@class,"widget-row")]'):
+        cap = row.xpath('.//*[contains(@class,"widget-row-caption")]')
+        if cap and caption in R.clean(cap[0].text_content()).lower():
+            return row, int(Tier.LABELLED)
+    got = doc.xpath(_TOKEN.format(cls=cls))
+    return (got[0], int(Tier.SHAPE)) if got else (None, int(Tier.ABSENT))
+
+
+def _cells(row: Any) -> list[Any]:
+    """One node per day, in column order.
+
+    Three cell shapes coexist on the same page: `row-item` for the plain rows,
+    `.values > .value` for the charts, and -- snow depth only -- a typed element
+    that *is* the cell.
+
+    Reading a row's typed elements flat would be shorter and wrong. The pressure
+    row omits its `mint` on the last two days, so a flat list of twenty is
+    eighteen, and every day after the gap silently reads its neighbour's number.
+    Nothing about that failure is visible: the values are all plausible
+    pressures. Columns are containers, so counting containers is the only
+    reading that stays aligned when one of them is missing a half.
+    """
+    items = row.xpath('.//*[contains(concat(" ", normalize-space(@class), " "),'
+                      ' " row-item ")]')
+    if items:
+        return items
+    return row.xpath('.//*[contains(concat(" ", normalize-space(@class), " "),'
+                     ' " values ")]/*')
+
+
+def _cell_value(cell: Any, part: str | None = None) -> float | None:
+    """The number in one cell, typed attribute first.
+
+    `part` narrows to `maxt` or `mint` for the rows that carry a range. The
+    typed attribute is preferred everywhere for the reason the module docstring
+    gives: it is already signed and already a number, so the U+2212 trap cannot
+    reach it. Text is the fallback, for the rows Gismeteo renders as plain
+    digits -- humidity, UV, Kp.
+    """
+    scope = cell
+    if part is not None:
+        got = cell.xpath(f'.//*[contains(concat(" ", normalize-space(@class),'
+                         f' " "), " {part} ")]')
+        if not got:
+            return None
+        scope = got[0]
+    typed = ([scope] if scope.get("value") is not None else []) \
+        + scope.xpath(".//*[@value]")
+    if typed:
+        return R.to_float(typed[0].get("value") or "")
+    return R.to_float(R.clean(scope.text_content()))
+
+
+def _row_values(doc: Any, name: str, part: str | None = None,
+                prov: dict[str, int] | None = None) -> list[float | None]:
+    row, tier = _find_row(doc, name)
+    if prov is not None:
+        prov[f"daily.{name}"] = tier
+    if row is None:
+        return []
+    return [_cell_value(c, part) for c in _cells(row)]
+
+
+# Gismeteo writes wind direction as a Russian abbreviation in the cell; every
+# other source in this app speaks the long form, and the front end has one
+# table turning long forms back into short ones for display. Translating here
+# means the client keeps one vocabulary instead of three.
+_ABBR: dict[str, str] = {
+    "с": "северный", "св": "северо-восточный", "в": "восточный",
+    "юв": "юго-восточный", "ю": "южный", "юз": "юго-западный",
+    "з": "западный", "сз": "северо-западный", "штиль": "штиль",
+}
+
+
+def _dir_from(cell: Any) -> str | None:
+    word = R.clean(cell.text_content()).lower().replace("-", "")
+    return _ABBR.get(word)
+
+
 def _temperature_chart(doc: Any) -> Any | None:
     """The chart row that holds air temperature, by its caption.
 
@@ -518,50 +660,174 @@ def _temperature_chart(doc: Any) -> Any | None:
     return rows[0] if rows else None
 
 
+# Which `Day` attribute each row fills, and which half of it to read. Kept as
+# data rather than fifteen near-identical assignments because the interesting
+# part is the *list* -- adding a metric should be one line here, and a metric
+# that stops arriving should be visible as a gap in `provenance` rather than
+# discovered by looking at the page with your eyes.
+_DAY_FIELDS: tuple[tuple[str, str, str | None], ...] = (
+    ("feels_max_c",       "feels",      "maxt"),
+    ("feels_min_c",       "feels",      "mint"),
+    ("avg_temp_c",        "avg",        None),
+    ("pressure_max_mmhg", "pressure",   "maxt"),
+    ("pressure_min_mmhg", "pressure",   "mint"),
+    ("wind_ms",           "wind",       None),
+    ("wind_gust_ms",      "gust",       None),
+    ("humidity_pct",      "humidity",   None),
+    ("uv_index",          "uv",         None),
+    ("kp_index",          "kp",         None),
+    ("precip_mm",         "precip",     None),
+    ("snow_cm",           "snow",       None),
+    ("snow_depth_cm",     "snow_depth", None),
+)
+
+
 def _days(doc: Any, *, today: dt.date) -> tuple[list[Day], dict[str, int]]:
-    """The ten-day block: dates, typed max/min, tooltips, wind letters."""
+    """The ten-day block: dates, typed max/min, tooltips, and the metric rows."""
     dates = [R.clean(x.text_content()) for x in
              doc.xpath('//*[contains(@class,"widget-row-date")]'
                        '//*[contains(@class,"row-item")]')]
     tips = [R.clean(n.get("data-tooltip") or "") for n in
             doc.xpath(_TOKEN.format(cls="widget-row-icon")
                       + "//*[@data-tooltip]")]
-    chart = _temperature_chart(doc)
-    if chart is None:
-        return [], {"daily": int(Tier.ABSENT)}
-
-    highs = [R.to_float(x.get("value") or "") for x in
-             chart.xpath('.//*[contains(@class,"maxt")]//temperature-value[@value]')]
-    lows = [R.to_float(x.get("value") or "") for x in
-            chart.xpath('.//*[contains(@class,"mint")]//temperature-value[@value]')]
+    prov: dict[str, int] = {}
+    highs = _row_values(doc, "temp", "maxt", prov)
+    lows = _row_values(doc, "temp", "mint")
     if not highs:
         return [], {"daily": int(Tier.ABSENT)}
+
+    metrics = {name: _row_values(doc, row, part, prov)
+               for name, row, part in _DAY_FIELDS}
+    dirs_row, _ = _find_row(doc, "wind_dir")
+    dirs = [_dir_from(c) for c in _cells(dirs_row)] if dirs_row is not None else []
+    column_dates = _column_dates(dates, len(highs), today=today)
 
     out: list[Day] = []
     for i, hi in enumerate(highs):
         lo = lows[i] if i < len(lows) else None
         if hi is None and lo is None:
             continue
-        date = _date_from(dates[i] if i < len(dates) else "", today=today, index=i)
+        date = column_dates[i]
         tip = tips[i] if i < len(tips) else None
         d = Day(date=date.isoformat(),
                 title=R.clean(dates[i]) if i < len(dates) else None,
                 temp_min_c=lo, temp_max_c=hi,
                 condition=(tip[0].upper() + tip[1:]) if tip else None,
-                icon=R.icon_key(tip) if tip else None)
+                icon=R.icon_key(tip) if tip else None,
+                wind_dir=dirs[i] if i < len(dirs) else None)
+        for name, _row, _part in _DAY_FIELDS:
+            col = metrics[name]
+            if i < len(col) and col[i] is not None:
+                setattr(d, name, col[i])
         out.append(d)
 
     # Fewer than three days is a parse failure wearing a short list's clothes.
     if len(out) < 3:
         return [], {"daily": int(Tier.ABSENT)}
-    return out, {"daily": int(Tier.LABELLED)}
+    prov["daily"] = int(Tier.LABELLED)
+    return out, prov
 
 
-def _date_from(label: str, *, today: dt.date, index: int) -> dt.date:
-    """"пт 31 июля" / "вс 2" -> a date.
+# Which `DayPart` attribute each row fills, on the parts grid. Same rows as the
+# ten-day page, one value per part instead of a range per day -- which is why
+# none of these names a `maxt`/`mint` half.
+_PART_FIELDS: tuple[tuple[str, str], ...] = (
+    ("temp_c", "temp"),
+    ("feels_like_c", "feels"),
+    ("pressure_mmhg", "pressure"),
+    ("humidity_pct", "humidity"),
+    ("wind_ms", "wind"),
+    ("wind_gust_ms", "gust"),
+    ("precip_mm", "precip"),
+)
 
-    Later columns drop the month entirely, so the sequence position is the
-    fallback -- and the anchor, since column 0 is always today.
+# The four columns each date is divided into, lower-cased to match the
+# vocabulary Yandex uses -- one word list reaches the client rather than two,
+# and `service._PART_HOUR` keys on it when deciding which parts are dark.
+_PART_NAMES = ("ночь", "утро", "день", "вечер")
+
+
+def _parts(doc: Any, *, today: dt.date) -> tuple[dict[str, list[DayPart]],
+                                                 dict[str, int]]:
+    """The parts-of-day grid: date -> its four parts.
+
+    The page is `/3-days/` and shows ten. Forty columns, four per date, with
+    the same metric rows as the ten-day page — so this is the ten-day forecast
+    at four times the resolution, and the only place any source in this app
+    publishes «Thursday evening» as a thing you can look at.
+
+    Refuses rather than guesses when the grid does not divide evenly. Forty
+    columns over ten dates is a grid; thirty-nine over ten is a page that has
+    changed shape, and mapping it by position anyway is how you end up showing
+    Wednesday morning under Tuesday.
+    """
+    prov: dict[str, int] = {}
+    dates = [R.clean(x.text_content()) for x in
+             doc.xpath(_TOKEN.format(cls="widget-row-tod-date")
+                       + '//*[contains(@class,"row-item")]')]
+    names = [R.clean(x.text_content()).lower() for x in
+             doc.xpath(_TOKEN.format(cls="widget-row-datetime-time")
+                       + '//*[contains(@class,"row-item")]')]
+    if not dates or not names or len(names) != len(dates) * len(_PART_NAMES):
+        return {}, {"parts": int(Tier.ABSENT)}
+
+    tips = [R.clean(n.get("data-tooltip") or "") for n in
+            doc.xpath(_TOKEN.format(cls="widget-row-icon") + "//*[@data-tooltip]")]
+    metrics = {attr: _row_values(doc, row, None, prov)
+               for attr, row in _PART_FIELDS}
+    dirs_row, _ = _find_row(doc, "wind_dir")
+    dirs = [_dir_from(c) for c in _cells(dirs_row)] if dirs_row is not None else []
+
+    when = _column_dates(dates, len(dates), today=today)
+    out: dict[str, list[DayPart]] = {}
+    for i, name in enumerate(names):
+        tip = tips[i] if i < len(tips) else None
+        part = DayPart(
+            name=name,
+            condition=(tip[0].upper() + tip[1:]) if tip else None,
+            icon=R.icon_key(tip) if tip else None,
+            wind_dir=dirs[i] if i < len(dirs) else None)
+        for attr, _row in _PART_FIELDS:
+            col = metrics[attr]
+            if i < len(col):
+                setattr(part, attr, col[i])
+        out.setdefault(when[i // len(_PART_NAMES)].isoformat(), []).append(part)
+    prov["parts"] = int(Tier.NAMED)
+    return out, prov
+
+
+def _column_dates(labels: list[str], count: int, *,
+                  today: dt.date) -> list[dt.date]:
+    """A date for every column, anchored on the first label that states one.
+
+    Only the first column spells its month out -- «сб 1 авг», then «вс 2», «пн
+    3» -- so the rest have to be counted from somewhere. Counting from *today*
+    is the obvious choice and it is subtly wrong: if the page's first column
+    ever disagrees with our idea of today (a response cached across midnight,
+    a fixture replayed on another day), column zero takes its date from the
+    label and every column after it takes a different one from the clock. The
+    visible symptom is two rows with the same date and one date missing --
+    which looks like an off-by-one in the *renderer*, and is the sort of thing
+    that costs an evening.
+
+    Anchoring on the label instead makes the sequence internally consistent by
+    construction: one date is read, the others are that date plus their offset.
+    Today is only the anchor when no column says anything at all.
+    """
+    anchor, at = today, 0
+    for i, label in enumerate(labels[:count]):
+        got = _date_from(label, today=today, index=i)
+        if got is not None:
+            anchor, at = got, i
+            break
+    return [anchor + dt.timedelta(days=i - at) for i in range(count)]
+
+
+def _date_from(label: str, *, today: dt.date, index: int) -> dt.date | None:
+    """"пт 31 июля" / "вс 2" -> a date, or None when the label states no month.
+
+    `today` disambiguates the year, which the label never carries: «1 янв» in
+    late December is next year's.
     """
     m = R.DATE_RE.search(R.clean(label).lower())
     if m:
@@ -577,4 +843,4 @@ def _date_from(label: str, *, today: dt.date, index: int) -> dt.date:
                 best = cand
         if best is not None:
             return best
-    return today + dt.timedelta(days=index)
+    return None

@@ -92,6 +92,17 @@ MONTHS = {
     "январь": 1, "февраль": 2, "март": 3, "апрель": 4, "май": 5, "июнь": 6,
     "июль": 7, "август": 8, "сентябрь": 9, "октябрь": 10, "ноябрь": 11,
     "декабрь": 12,
+    # Gismeteo's ten-day header writes «сб 1 авг», and without these the label
+    # never matched -- so `_date_from` fell through to "today plus the column
+    # index" for every Gismeteo day, every time. Nothing failed: positional
+    # dates are right whenever column zero is today, which is almost always.
+    # The exception is the case the fallback exists for, a page cached across
+    # midnight, where every date would be a day out and look perfectly normal.
+    # Listed last on purpose: `MONTHS` feeds an alternation and Python's `re`
+    # takes the first branch that matches, so the full forms have to come first
+    # or «1 августа» would match «авг» and stop.
+    "янв": 1, "фев": 2, "мар": 3, "апр": 4, "июн": 6, "июл": 7, "авг": 8,
+    "сен": 9, "окт": 10, "ноя": 11, "дек": 12,
 }
 DATE_RE = re.compile(
     rf"{_G}(?P<day>\d{{1,2}})\s+(?P<month>{'|'.join(MONTHS)})", re.IGNORECASE

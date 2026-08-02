@@ -167,3 +167,58 @@ class TestAppliedToAPayload:
             assert sv.current.icon == "clear-night", key
             assert sv.hourly[0].icon == "clear-night", key
             assert sv.hourly[1].icon == "clear", f"{key}: noon is not night"
+
+    @pytest.mark.parametrize("date", ["2026-03-21", "2026-06-21",
+                                      "2026-08-04", "2026-12-04"])
+    def test_a_part_of_the_day_is_dark_exactly_when_the_sun_is_down(self, date):
+        """The «ночь» row on the day screen drew a sun behind a cloud, because
+        `nightify` reached the current reading and the hourly strip and nothing
+        else. Found by looking at the screen, not by a test.
+
+        Checked against this module's own sunrise and sunset rather than
+        against a table of expected icons -- those two are themselves validated
+        against Gismeteo's published times above, so the chain ends somewhere
+        outside our own arithmetic.
+        """
+        import datetime as dt
+
+        from app import cities, service
+        from app.models import Day, DayPart
+
+        place = cities.get("yoshkar-ola")
+        day = Day(date=date, parts=[DayPart(name=n, temp_c=5.0, icon="clear")
+                                    for n in ("утро", "день", "вечер", "ночь")])
+        service._sunlit_parts(day, place)
+
+        # Compared as local *times of day*, which is both how a person reads a
+        # sunrise and how the sources publish one. `sun.sunrise` scans a UTC
+        # day by contract, and at MSK in midsummer the sunrise inside UTC-21
+        # June is 23:56Z -- local 02:56 on the 22nd. The clock time is right
+        # either way; only the calendar date shifts, so the date is what this
+        # comparison leaves out.
+        on = dt.date.fromisoformat(date)
+        here = sun.zone(place.tz)
+        up = sun.sunrise(place.lat, place.lon, on).astimezone(here).time()
+        down = sun.sunset(place.lat, place.lon, on).astimezone(here).time()
+        for part in day.parts:
+            centre = dt.time(service._PART_HOUR[part.name])
+            daylight = up <= centre <= down
+            assert (part.icon == "clear") == daylight, (
+                f"{date} {part.name}: icon {part.icon} but the sun is "
+                f"{'up' if daylight else 'down'} "
+                f"(rise {up:%H:%M}, set {down:%H:%M}, part at {centre:%H:%M})")
+
+    def test_a_white_night_is_not_drawn_as_a_dark_one(self):
+        """Yoshkar-Ola is at 56.6°N: on the solstice the sun is up before three
+        in the morning, so even «ночь» gets a daylight icon. A rule keyed on
+        the word rather than on the sky would never produce that."""
+        import datetime as dt
+
+        from app import cities, service
+        from app.models import Day, DayPart
+
+        day = Day(date="2026-06-21",
+                  parts=[DayPart(name="ночь", temp_c=11.0, icon="clear")])
+        service._sunlit_parts(day, cities.get("yoshkar-ola"))
+        assert day.parts[0].icon == "clear"
+        assert dt.date.fromisoformat("2026-06-21").month == 6   # solstice, not a typo

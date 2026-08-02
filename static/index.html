@@ -71,7 +71,11 @@
      layer. They have to agree exactly or the seam is visible on a phone. */
   --skygrad:linear-gradient(180deg,var(--sky1) 0%,
     var(--sky1) var(--skyhold,0%),var(--sky2) 62%,var(--bg) 100%);
-  --scrim:rgba(4,8,18,.62);
+  /* How long a pushed screen takes to arrive, and on what curve. Read back by
+     app.js, which has to know when the animation is over to finish tidying up
+     -- the same read-it-back rule as --hour-w, for the same reason. */
+  --push-ms:300ms;
+  --push-ease:cubic-bezier(.32,.72,0,1);
 }
 @media (prefers-color-scheme: light){
   :root{ --bg:#eef2fa; --bg2:#e2e9f7; --card:#fff; --card2:#f4f7fd;
@@ -103,17 +107,6 @@ html{
   background-repeat:no-repeat;
   background-size:100% 100%;
   transition:background-color 1.2s ease;
-}
-
-/* While the place sheet is open, the canvas dims with everything else --
-   *exactly* with it, since this is the same colour over the same gradient that
-   `.sheet .scrim` lays over the page. The strips iOS paints outside the
-   viewport are browser chrome; no scrim inside the page can reach them, and
-   the `theme-color` meta that is supposed to colour them is not reliably
-   re-read by Safari after load. This is, so it is the fix and the meta is the
-   belt to its braces. */
-html:has(body.locked){
-  background-image:linear-gradient(var(--scrim),var(--scrim)),var(--skygrad);
 }
 
 body{
@@ -205,13 +198,6 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 .edge{position:fixed;left:0;right:0;height:10px;z-index:0;pointer-events:none}
 .edge-top{top:0;background-color:var(--sky1)}
 .edge-bot{bottom:0;background-color:var(--bg)}
-/* With the sheet open the whole viewport dims, so the strips must dim with it
-   -- same colour over the same base, so they still match whatever is behind
-   them. Safari may or may not re-sample; the stylesheet does its part. */
-html:has(body.locked) .edge-top{
-  background-color:color-mix(in srgb,var(--scrim) 62%,var(--sky1))}
-html:has(body.locked) .edge-bot{
-  background-color:color-mix(in srgb,var(--scrim) 62%,var(--bg))}
 
 .sky{position:fixed;inset:-2px;z-index:-1;overflow:hidden;
      height:calc(100dvh + 4px);
@@ -237,9 +223,20 @@ html:has(body.locked) .edge-bot{
   :root[data-sky="overcast"]    {--sky1:#5b6880;--sky2:#e8ebf1}
   :root[data-sky="rain"]        {--sky1:#48607e;--sky2:#e6ebf3}
   :root[data-sky="snow"]        {--sky1:#5a6d90;--sky2:#eef2f8}
-  body .hero,body .top{color:#fff}
+  /* Anything that sits *on the sky* rather than on a card. In light mode the
+     sky stays deep at the top -- it has to, because iOS forces white status-bar
+     glyphs under `black-translucent` -- so the page's near-black `--fg` would
+     be text on a saturated blue. Every element in this list is one that has no
+     card behind it; adding a new one without adding it here is how a heading
+     ends up invisible in daylight and nowhere else. */
+  body .hero,body .top,body .navbar,body .navbar .t,body .dayhero{color:#fff}
   body .hero .cond,body .hero .sub .lo{color:rgba(255,255,255,.82)}
   body .hero .feels{color:rgba(255,255,255,.66)}
+  body .navbar .t small{color:rgba(255,255,255,.74)}
+  body .dayhero .r .lo{color:rgba(255,255,255,.78)}
+  body .dayhero .c{color:rgba(255,255,255,.86)}
+  body .navbar{border-bottom-color:rgba(255,255,255,.18)}
+  body .screen h3{color:rgba(255,255,255,.78)}
   body .placebtn svg{stroke:rgba(255,255,255,.72)}
   body .pin{fill:rgba(255,255,255,.85)}
   /* Stars over a sky that opens out to near-white read as dust. Keep them,
@@ -287,35 +284,65 @@ html:has(body.locked) .edge-bot{
 .placebtn:active{opacity:.6}
 .pin{width:15px;height:15px;flex:none;stroke:none;fill:var(--dim);margin-top:3px}
 
-/* ---- place sheet ---------------------------------------------------------
- * Everything about "where" lives here: search, geolocation, saved cities. Off
- * screen until asked for, which is the right amount of room for a decision you
- * make twice a month.
+/* ---- the pushed screen ---------------------------------------------------
+ * One navigation primitive, used by both sub-screens: the day detail and the
+ * place picker. It replaced a bottom sheet, which was the wrong shape for both
+ * -- a drawer says "a small choice, then back to what you were doing", and a
+ * ten-day day-detail is not that. It also read as a web page imitating an app:
+ * the rounded panel, the dimmed backdrop and the grab handle are three
+ * separate promises of a gesture that was never implemented.
+ *
+ * A push makes one promise and iOS keeps it for us. In a standalone PWA the
+ * edge-swipe-back gesture is wired to *browser history*, so a screen pushed
+ * with `history.pushState` can be dismissed with the same swipe as any native
+ * screen -- and the OS draws that transition itself. Which is also the reason
+ * there is no swipe handler in app.js: a hand-rolled one runs *alongside* the
+ * system gesture rather than instead of it, and the app navigates back twice.
+ * (Ionic have been carrying that bug for years; see DECISIONS.md.)
+ *
+ * Opaque, and full-screen. That is not laziness about the parallax iOS does
+ * under a push -- it is what makes this safe. A transformed ancestor becomes
+ * the containing block for `position: fixed` descendants, which is exactly how
+ * a 4px rise on `.wrap` broke the old sheet, and sliding the page under the
+ * screen would put that trap back. Nothing moves but the screen itself.
  */
-.sheet{position:fixed;inset:0;z-index:50;display:none}
-.sheet.open{display:block}
-.sheet .scrim{position:absolute;inset:0;background:var(--scrim);
-              backdrop-filter:blur(3px);animation:fadein .2s ease}
-@keyframes fadein{from{opacity:0}to{opacity:1}}
-.sheet .panel{position:absolute;left:0;right:0;bottom:0;max-height:88dvh;
-  display:flex;flex-direction:column;
-  background:var(--bg);border-top-left-radius:26px;border-top-right-radius:26px;
-  border-top:1px solid var(--line);
-  padding:8px max(16px,env(safe-area-inset-left)) 0 max(16px,env(safe-area-inset-right));
-  animation:rise .26s cubic-bezier(.2,.9,.3,1)}
-@keyframes rise{from{transform:translateY(24px)}to{transform:none}}
-.grab{width:38px;height:5px;border-radius:99px;background:var(--line);
-      margin:2px auto 12px;flex:none}
-.sheet .scroll{overflow-y:auto;-webkit-overflow-scrolling:touch;
-  /* Stops the sheet's own scroll from chaining to the page behind it, which is
-     half the fix. The other half is pinning <body>; see .locked below. */
+.screen{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;
+  background-color:var(--sky1);background-image:var(--skygrad);
+  visibility:hidden;transform:translateX(100%);
+  transition:transform var(--push-ms) var(--push-ease),
+             visibility var(--push-ms)}
+.screen.open{visibility:visible;transform:none}
+@media (prefers-reduced-motion: reduce){
+  .screen{transition:none}
+}
+/* Translucent, so content scrolls up *under* the title rather than being
+   clipped by a solid band -- the detail that makes a header read as chrome
+   belonging to the screen instead of a box drawn on top of it. */
+.navbar{flex:none;display:grid;grid-template-columns:1fr auto 1fr;
+  align-items:center;gap:8px;
+  padding:max(8px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right))
+          8px max(10px,env(safe-area-inset-left));
+  background:color-mix(in srgb,var(--sky1) 72%,transparent);
+  backdrop-filter:blur(16px);
+  border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.navbar .back{display:flex;align-items:center;gap:1px;justify-self:start;
+  color:var(--accent);font-size:17px;padding:6px 8px 6px 2px;margin:-6px 0}
+.navbar .back svg{width:19px;height:19px;stroke:currentColor;fill:none;
+  stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.navbar .back:active{opacity:.5}
+.navbar .t{font-size:16.5px;font-weight:600;text-align:center;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.navbar .t small{display:block;font-size:12px;font-weight:500;
+  color:var(--faint);letter-spacing:.02em}
+.screen .body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
   overscroll-behavior:contain;
-  padding-bottom:max(20px,env(safe-area-inset-bottom))}
-.sheet input{width:100%;padding:13px 15px;border-radius:14px;background:var(--card);
+  padding:2px max(14px,env(safe-area-inset-right))
+          max(28px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}
+.screen input{width:100%;padding:13px 15px;border-radius:14px;background:var(--card);
   border:1px solid var(--line);color:var(--fg);font-size:17px;outline:none;
-  flex:none;margin-bottom:4px}
-.sheet input:focus{border-color:var(--accent)}
-.sheet h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;
+  margin:10px 0 4px}
+.screen input:focus{border-color:var(--accent)}
+.screen h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;
           color:var(--faint);margin:18px 4px 8px;font-weight:600}
 
 /* Not a cell. As a single-row group it sat directly under the search field at
@@ -355,10 +382,57 @@ html:has(body.locked) .edge-bot{
 .empty{padding:22px 4px;text-align:center;color:var(--faint);font-size:15px}
 
 /* iOS Safari ignores overflow:hidden on <body>. Pinning it is the only thing
-   that reliably stops the page scrolling underneath an open sheet -- and the
+   that reliably stops the page scrolling underneath an open screen -- and the
    scroll offset has to be preserved and restored by hand, because position:
    fixed throws it away. */
 body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
+
+/* ---- day detail ----------------------------------------------------------
+ * Three sources, three shapes, deliberately. Яндекс publishes four parts of a
+ * day; Gismeteo publishes fifteen metric rows and no parts; Open-Meteo
+ * publishes an hour at a time for ten days and no summary of any of it.
+ *
+ * The obvious design is one table with a row per field, and it is the wrong
+ * one: two thirds of it would be blank on any given tab, and a blank cell in a
+ * table reads as *missing data* rather than as "this source does not work that
+ * way". So each source gets the layout it is actually good at, and the tab
+ * strip is what changes the shape.
+ */
+.dayhero{display:flex;align-items:center;gap:14px;padding:14px 4px 12px}
+.dayhero svg{width:62px;height:62px;flex:none}
+.dayhero .r{font-size:34px;font-weight:300;letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;line-height:1.05}
+.dayhero .r .lo{color:var(--dim)}
+.dayhero .c{font-size:15px;color:var(--dim);margin-top:2px;line-height:1.3}
+
+/* Parts of day: a row each, because they are a sequence through the day and a
+   grid of four boxes loses that ordering. */
+.part{display:flex;align-items:center;gap:11px;padding:11px 0}
+.part + .part{border-top:1px solid var(--line)}
+.part .n{width:62px;flex:none;font-size:15px;text-transform:capitalize}
+.part svg.wi{width:30px;height:30px;flex:none}
+.part .tt{width:52px;flex:none;text-align:right;font-size:20px;font-weight:520;
+  font-variant-numeric:tabular-nums}
+.part .m{flex:1;min-width:0;font-size:12.5px;color:var(--faint);line-height:1.35}
+/* Wraps rather than truncating. «Облачно с прояснениями» does not fit and an
+   ellipsis in a four-row list is a worse answer than a second line -- the rows
+   are already unequal, since only some parts of the day carry a feels-like. */
+.part .m b{display:block;color:var(--dim);font-weight:500;font-size:13.5px}
+
+/* The metrics table: label left, value right, one per line. A grid of tiles
+   was tried and is worse here -- fifteen tiles is a wall, and these are read
+   one at a time by someone looking for one of them. */
+.metric{display:flex;align-items:baseline;gap:10px;padding:9px 0;font-size:15px}
+.metric + .metric{border-top:1px solid var(--line)}
+.metric .k{color:var(--dim);flex:1;min-width:0}
+.metric .v{font-variant-numeric:tabular-nums;font-weight:520;text-align:right;
+  white-space:nowrap}
+.metric .v small{color:var(--faint);font-weight:400;margin-left:4px}
+
+/* Said out loud when a source has nothing for this day, instead of an empty
+   card. An empty card is indistinguishable from a broken one. */
+.nodata{padding:22px 6px;text-align:center;color:var(--faint);font-size:14.5px;
+  line-height:1.5}
 
 /* ---- hero: no card, on the sky ------------------------------------------ */
 .hero{text-align:center;padding:2px 0 20px}
@@ -403,8 +477,20 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
   border-bottom:1px solid var(--line);line-height:1.4}
 .nowcast svg{width:18px;height:18px;flex:none;margin-top:1px;opacity:.8}
 
-/* ---- hourly curve ------------------------------------------------------- */
-.hours{overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
+/* ---- hourly curve -------------------------------------------------------
+ * `overflow: auto hidden`, and the second word is load-bearing. Setting only
+ * `overflow-x: auto` does not leave the other axis alone: the spec says that
+ * when one axis is not `visible`, a `visible` on the other computes to `auto`.
+ * So the strip quietly became vertically scrollable, and it only took *two
+ * pixels* of overflow for that to be noticeable -- a drag down the curve
+ * scrolled the widget instead of the screen behind it.
+ *
+ * The two pixels are fixed below as well, at their source. This is the
+ * structural half: a strip that scrolls sideways must never acquire a second
+ * scroll axis because somebody changed a font size.
+ */
+.hours{overflow:auto hidden;scrollbar-width:none;margin:0 -16px;padding:0 16px;
+       overscroll-behavior-x:contain}
 .hours::-webkit-scrollbar{display:none}
 .hstrip{display:flex;position:relative}
 .hcurve{position:absolute;left:0;top:0;pointer-events:none}
@@ -418,13 +504,25 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 /* Millimetres, only on the hours that have any. Always-present and mostly
    empty would be a row of noise; the blank is the information. The row keeps
    its height either way so the strip does not jump as the forecast changes. */
-.hour .hp{height:15px;font-size:11.5px;font-weight:600;color:var(--cold);
-          font-variant-numeric:tabular-nums}
+/* `line-height` stated, not inherited. The body's 1.45 over 11.5px is a
+   16.7px line box in a 15px-high element -- 2px of overflow, invisible on the
+   page and quite visible under a finger, because it was enough to make the
+   whole strip a scroll container. */
+.hour .hp{height:15px;line-height:15px;font-size:11.5px;font-weight:600;
+          color:var(--cold);font-variant-numeric:tabular-nums}
 .hour.now .hh{color:var(--accent);font-weight:650}
 
 /* ---- daily with range bars ---------------------------------------------- */
-.day{display:flex;align-items:center;gap:10px;padding:9px 0}
+.day{display:flex;align-items:center;gap:10px;padding:9px 0;width:100%;
+     text-align:left}
 .day + .day{border-top:1px solid var(--line)}
+.day:active{opacity:.55}
+/* The chevron says the row goes somewhere. Small and faint: it is an
+   affordance, not a decoration, and ten of them in a column at full contrast
+   would be a stripe down the side of the card. */
+.day svg.go{width:15px;height:15px;flex:none;stroke:var(--faint);fill:none;
+            stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;
+            opacity:.65;margin-left:-2px}
 .day .d{width:82px;flex:none;font-size:16px;line-height:1.15}
 .day .d small{display:block;color:var(--faint);font-size:12.5px}
 .day svg.wi{width:28px;height:28px;flex:none}
@@ -529,6 +627,10 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
   <symbol id="i-partly" viewBox="0 0 32 32"><circle cx="11.5" cy="12" r="5" fill="#ffc94d"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#c9d4ec"/></symbol>
   <symbol id="i-partly-night" viewBox="0 0 32 32"><path d="M17.8 13.6a6 6 0 0 1-7.4-7.6 6.3 6.3 0 1 0 7.4 7.6z" fill="#cfd9f5"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#aebbd8"/></symbol>
   <symbol id="i-cloudy" viewBox="0 0 32 32"><circle cx="10.5" cy="11" r="4.2" fill="#ffc94d"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#c2cee8"/></symbol>
+  <!-- Broken cloud after dark. Without it the night rows of the day screen
+       drew a sun at three in the morning, because `cloudy` is «облачно с
+       прояснениями» and its glyph is the sun peering through the gap. -->
+  <symbol id="i-cloudy-night" viewBox="0 0 32 32"><path d="M16.4 12.8a5.6 5.6 0 0 1-6.9-7.1 5.9 5.9 0 1 0 6.9 7.1z" fill="#cfd9f5"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#aebbd8"/></symbol>
   <symbol id="i-overcast" viewBox="0 0 32 32"><path d="M22 14.5a6.5 6.5 0 0 0-12.4-1.8A5 5 0 0 0 10 22.6h12a4 4 0 0 0 0-8.1z" fill="#9fadc9"/><path d="M24 25H11a4.6 4.6 0 0 1 .3-9.2A6.6 6.6 0 0 1 24 17a4 4 0 0 1 0 8z" fill="#c2cee8"/></symbol>
   <symbol id="i-fog" viewBox="0 0 32 32"><path d="M23 20H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 11a4.6 4.6 0 0 1-1.6 9z" fill="#b9c5dd"/><g stroke="#9fadc9" stroke-width="2.1" stroke-linecap="round"><path d="M7 24h18M9 28h14"/></g></symbol>
   <symbol id="i-drizzle" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#c2cee8"/><g stroke="#6ea8ff" stroke-width="2" stroke-linecap="round"><path d="M13 23v2M18 23v2M23 23v2"/></g></symbol>
@@ -591,21 +693,26 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
     </div>
   </div>
 
-  <!-- Off screen until asked for. Search, geolocation and saved cities are
-       all "where", so they belong in one place rather than three. -->
-  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Место">
-    <div class="scrim" data-close></div>
-    <div class="panel">
-      <div class="grab"></div>
-      <input id="q" type="search" placeholder="Найти город…" autocomplete="off"
-             autocorrect="off" spellcheck="false" enterkeyhint="search">
-      <div class="scroll" id="plist"></div>
-    </div>
-  </div>
-
   <p class="install" id="install">
     <b>Поделиться</b> → <b>На экран «Домой»</b>. В iOS&nbsp;26 — в меню <b>⋯</b>
   </p>
+</div>
+
+<!-- Outside `.wrap`, and that placement is load-bearing rather than tidy: this
+     is `position: fixed`, `.wrap` carries an animation, and a transformed
+     ancestor becomes the containing block for fixed descendants. The old sheet
+     lived inside `.wrap` and broke the first time an animation there grew a
+     transform. Nothing fixed lives inside `.wrap` any more, and a test walks
+     the ancestors to keep it that way. -->
+<div class="screen" id="screen" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="navbar">
+    <button class="back" id="back" aria-label="Назад">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      <span>Назад</span>
+    </button>
+    <div class="t" id="screen-title"></div>
+  </div>
+  <div class="body" id="screen-body"></div>
 </div>
 
 <script src="config.js"></script>

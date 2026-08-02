@@ -97,6 +97,18 @@ def code_only(path: Path) -> str:
     return "\n".join(lines)
 
 
+def js_code_only(path: Path) -> str:
+    """The same idea for JavaScript, and needed for the same reason.
+
+    `app.js` documents the bug where 58px in the CSS met 54px in the JS -- by
+    quoting both numbers. A grep for restated constants finds its own tombstone
+    and fails, which teaches the next session to delete the explanation.
+    """
+    text = source(path)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"(^|[^:\\])//.*$", r"\1", text, flags=re.M)
+
+
 # --- layering ---------------------------------------------------------------
 
 class TestNothingReachesUpward:
@@ -226,6 +238,70 @@ class TestMistakesThatCannotBeRepeated:
                     f"ru_text.{name} matches ° with no lookbehind guard"
         assert checked, "no degree pattern found -- has the parser moved?"
 
+    @pytest.mark.parametrize("model,table", [("Day", "DAY_CONTRACTS"),
+                                             ("DayPart", "PART_CONTRACTS"),
+                                             ("Hour", "HOUR_CONTRACTS")])
+    def test_every_number_has_a_contract(self, model, table):
+        """A numeric field with no entry in the contract table is unvalidated.
+
+        Which sounds mild, and is not: unvalidated means an out-of-range value
+        is *served*, and this app's entire argument is that it would rather
+        show a blank than a plausible wrong number. Thirteen numeric fields
+        arrived on `Day` in one sitting; the odds of remembering all thirteen
+        in the validator by hand are not good, and nothing else would have
+        noticed the omission -- the field would simply pass through.
+
+        On its first run this found `precip_prob`, which had been on the model
+        since the beginning and had never been checked.
+        """
+        from dataclasses import fields as dataclass_fields
+
+        from app import models, validation
+
+        cls = getattr(models, model)
+        contracts = getattr(validation, table)
+        numeric = {f.name for f in dataclass_fields(cls)
+                   if "float" in str(f.type)}
+        covered = {name for name, _ in contracts}
+        assert not (numeric - covered), (
+            f"unvalidated numeric fields on {model}: "
+            f"{sorted(numeric - covered)}. Add them to validation.{table} with "
+            f"the range they must satisfy -- a field with no contract is "
+            f"served unchecked.")
+        unknown = {rule for _, rule in contracts if rule not in validation.RANGES}
+        assert not unknown, (
+            f"{table} names rules that RANGES does not define: "
+            f"{sorted(unknown)} -- these silently check nothing at all.")
+
+    def test_every_icon_a_parser_can_emit_exists_in_the_shell(self):
+        """An icon key with no `<symbol>` renders as the `unknown` glyph — a
+        question mark where the weather should be, visible to the user and to
+        no test.
+
+        Found the other way round, which is worse: `cloudy-night` did not
+        exist, so `nightify` quietly handed back the *day* form and the night
+        rows of the day screen drew a sun at three in the morning. Nothing was
+        missing on screen; the wrong thing was present. This walks every key
+        the vocabulary can produce, in both day and night forms, against the
+        symbols the shell actually defines.
+        """
+        from app import ru_text, sun
+
+        symbols = set(re.findall(r'symbol id="i-([a-z-]+)"',
+                                 source(STATIC / "index.html")))
+        assert symbols, "no icon symbols found -- has the shell moved?"
+
+        emit = {ru_text.icon_key(c) for c in ru_text.CONDITIONS}
+        emit |= set(getattr(ru_text, "_YA_ICON", {}).values())
+        emit = {k for k in emit if k}
+        emit |= {sun.nightify(k, True) for k in emit}
+        emit |= {sun.nightify(k, False) for k in emit}
+
+        missing = sorted(k for k in emit if k and k not in symbols)
+        assert not missing, (
+            f"the parsers can produce {missing} and the shell has no symbol "
+            f"for them -- they would render as the unknown glyph")
+
     def test_the_unicode_minus_is_still_first(self):
         """Yandex renders minus as U+2212. Miss it and every winter temperature
         comes out positive -- and it is completely invisible in July."""
@@ -246,14 +322,37 @@ class TestMistakesThatCannotBeRepeated:
                 f"{path.name} is guessing day/night from a fixed hour window"
 
     def test_no_constant_is_written_down_in_two_languages(self):
-        """CSS owns the layout numbers; JS reads them back. Restating one is
-        how the hourly curve drifted 4px per column, and then how the status
-        bar tint drifted from the scrim. Third time it becomes a test."""
-        js = source(STATIC / "app.js")
-        for name in ("--hour-w", "--scrim"):
-            assert name in js, f"app.js no longer reads {name} back from CSS"
-        assert not re.search(r"rgba?\(\s*4\s*,\s*8\s*,\s*18", js), \
-            "the scrim colour is restated in app.js instead of read from --scrim"
+        """CSS owns the layout numbers; JS reads them back.
+
+        Restating one is how the hourly curve drifted 4px per column, then how
+        the status-bar tint drifted from the scrim, and it would have been how
+        the screen animation drifted from its own timeout. Third time it became
+        a test; this is the fourth, and the test no longer names the properties
+        it protects -- it derives them from the code, so the next one is covered
+        the moment it is written rather than the moment someone remembers.
+        """
+        js = js_code_only(STATIC / "app.js")
+        css = source(STATIC / "index.html")
+
+        read = set(re.findall(r"""cssVar\(\s*['"](--[\w-]+)['"]""", js)) | \
+            set(re.findall(r"""getPropertyValue\(\s*['"](--[\w-]+)['"]""", js))
+        assert read, "app.js reads no CSS custom property back at all"
+        missing = sorted(n for n in read if f"{n}:" not in css)
+        assert not missing, \
+            f"app.js reads {missing} but the stylesheet never defines them"
+
+        # And the other direction: a literal in the JS that repeats a value the
+        # stylesheet already owns is the bug itself, whatever it is called.
+        for name in sorted(read):
+            m = re.search(rf"{re.escape(name)}\s*:\s*([^;{{}}]+);", css)
+            if not m:
+                continue
+            value = m.group(1).strip()
+            if len(value) < 4:                 # too short to be a coincidence
+                continue
+            assert value not in js, (
+                f"{name} is {value} in the stylesheet and the same literal "
+                f"appears in app.js -- read it back, do not restate it")
 
 
 class TestThePrivacyPromiseIsStructural:

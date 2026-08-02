@@ -10,13 +10,14 @@ anywhere else, and a **Моё местоположение** button when you wan
 Three independent sources — **Яндекс**, **Gismeteo**, **Open-Meteo** — fetched
 together and switchable with one tap.
 
-Compressed cold load is about 26 kB — shell, script, service worker and the
-first payload together. The image ships 34 MB of dependencies and the process
-holds a bounded cache; both are asserted by tests rather than hoped for.
+Compressed cold load is about 37 kB — shell, script, service worker and the
+first payload together, the payload carrying ten days at hourly resolution. The
+image ships 34 MB of dependencies and the process holds a bounded cache; all
+three are asserted by tests rather than hoped for.
 
 ```bash
 make            # list every command
-make check      # lint + 389 tests, no network required
+make check      # lint + 492 tests, no network required
 make run        # localhost:8080 against live upstreams
 make deploy     # build amd64, push to GHCR, restart on the VPS, check health
 ```
@@ -28,7 +29,7 @@ make deploy     # build amd64, push to GHCR, restart on the VPS, check health
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 389 tests, no
+1. **`make check` must pass before you believe anything.** 492 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -63,11 +64,15 @@ matters for a reason beyond latency: you are comparing three readings taken at
 the same instant, not three taken as you tapped. Each tab carries its own
 temperature, so the disagreement is visible without switching at all.
 
-| source | current | hourly | 10-day | nowcast | any city? |
-|---|---|---|---|---|---|
-| Яндекс | RSC flight JSON | a11y prose | a11y prose | ✓ | ✓ by lat/lon |
-| Gismeteo | `window.M.state` | typed attrs, own page | typed attrs | — | only known ids |
-| Open-Meteo | JSON API | JSON API | JSON API | — | ✓ by lat/lon |
+| source | current | hourly | 10-day | per-day detail | nowcast | any city? |
+|---|---|---|---|---|---|---|
+| Яндекс | RSC flight JSON | a11y prose, 24 h | a11y prose | 4 parts of day | ✓ | ✓ by lat/lon |
+| Gismeteo | `window.M.state` | typed attrs, own page, ~25 h | typed attrs | 4 parts × 13 metrics | — | only known ids |
+| Open-Meteo | JSON API | JSON API, ~240 h | JSON API | hourly, any day | — | ✓ by lat/lon |
+
+The **per-day detail** column is what the day screen renders, and the three
+entries in it are genuinely different kinds of thing rather than three
+completions of the same table — see the front-end section below.
 
 The front end has no idea *how* any number was extracted. That indirection is
 the maintainability story: when a site redesigns — not if — one parser changes
@@ -99,11 +104,13 @@ whole "right shape, wrong cell" failure class cannot occur there.
 plain JSON carrying the city's own coordinates, so its identity check is
 arithmetic rather than an argument about Russian declension, and its forecast
 temperatures are `<temperature-value value="21">` — a typed, already-signed
-attribute. It costs three requests rather than one: the landing page's hourly
+attribute. It costs four requests rather than one: the landing page's hourly
 strip is *three*-hourly, eight columns wide, so `/hourly/` is fetched as well
-and whichever page yields more hours wins. That page is optional by
-construction — if it redesigns, the forecast gets coarser instead of
-disappearing.
+and whichever page yields more hours wins; `/10-days/` carries fifteen labelled
+metric rows; and `/3-days/` — which is misnamed, and is really a ten-day grid at
+four columns a day — carries those same rows per part of day. The last two of
+those are optional by construction: if either redesigns, the forecast gets
+coarser instead of disappearing.
 
 Gismeteo is also the one source that has to be *reached* rather than merely
 parsed: it returns 403 to this server's address and no header, transport or TLS
@@ -188,7 +195,35 @@ before you read a figure. **Day rows have range bars** showing where each day's
 low-to-high sits inside the whole period, so "is Thursday the cold one" needs no
 arithmetic.
 
-**Everything about *where* lives in one sheet**, opened by tapping the city
+**Tapping a day pushes a screen**, and so does tapping the city name. One
+navigation primitive, built on `history.pushState` — which is the point rather
+than an implementation detail: in a standalone iOS PWA the edge-swipe-back
+gesture is wired to browser history, so a screen that is a history entry can be
+dismissed by the system gesture with the system's own animation. A screen that
+is a CSS class cannot, and hand-rolling the swipe makes it worse rather than
+better, because the platform gesture cannot be switched off and the app then
+navigates back twice (`DECISIONS.md` §22).
+
+**The day screen changes shape with the source**, deliberately. Яндекс publishes
+four named parts of a day; Gismeteo publishes fifteen metric rows and no parts;
+Open-Meteo publishes an hour at a time for ten days and no summary at all. One
+table with a row per field would be two-thirds blank on any tab, and a blank
+cell reads as *missing data* rather than as "this source does not work that
+way". So: parts of day for Яндекс, a metrics table for Gismeteo, an hourly curve
+for Open-Meteo — and the screen is keyed by **date**, never by row index, since
+the three do not agree on which morning their ten days begin (`DECISIONS.md`
+§23).
+
+**One request is spent when you open a day, and nothing depends on it.** Yandex
+publishes a page per day — eight three-hourly columns with feels-like, gusts and
+precipitation probability, richer than anything on the ten-day page — but ten
+days would be ten requests against the one this app spends per source per city
+per ten minutes. So `/api/day` fetches exactly the day you opened, caches it for
+the usual ten minutes, and the screen renders from the payload it already has
+before the answer arrives. There is deliberately no spinner: offline, or with
+the fetch refused, the screen is exactly what it was without it.
+
+**Everything about *where* lives on one screen**, opened by tapping the city
 name. Search, geolocation and saved cities are all answers to the same question,
 so they belong in one place rather than three permanent strips.
 
@@ -281,9 +316,19 @@ make routes                             # which way in to Gismeteo works from he
 make routes-remote                      # ...and from the VPS, the one that counts
 make routes ARGS='http://1.2.3.4:8080'  # ...and would this proxy help?
 make fixtures-gm                        # re-record Gismeteo from whichever host answers
+make fixtures-day                       # record the two per-day pages nothing parses yet
 make selftest                           # per-source fetch/parse/identity breakdown
 make probe                              # why is a source returning 403?
 ```
+
+`make fixtures-day` is the odd one out: it records pages the app does **not**
+read yet. Gismeteo's `/3-days/` carries the same fifteen metric rows at
+three-hourly resolution, and Yandex's `…/details/auto/10-day-weather/day-N` is
+one day per URL with eight three-hourly columns, feels-like, gusts, visibility
+and road state. Both would deepen the day-detail screen; neither has a parser,
+because a parser written against markup nobody has looked at is how this project
+produced its worst bugs. Run it where those hosts answer, commit what lands, and
+the parser has something real to be tested against.
 
 Use `make routes-remote` in anger, not `make routes`. That is the whole point
 of it: a route verified — or a fixture recorded — on a machine that is not
@@ -325,11 +370,12 @@ app/
   series.py          which hourly entry describes a given instant — one answer
   sources/
     yandex_html.py   fetcher; request hygiene, host fallback
+    yandex_day.py    one day, deeper — fetched only when you open one
     gismeteo.py      id registry, M.state, typed attrs
     openmeteo.py     no key, no quota
     geocode.py       text city search
 static/              index.html, app.js, sw.js, icons — no build step
-tests/               389 tests: parsers, degradation, invariants, docs, API, browser
+tests/               492 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 deploy/              nginx-proxy vhost snippet + compose service block
 ```

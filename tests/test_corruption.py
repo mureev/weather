@@ -142,12 +142,42 @@ class TestSeriesDefences:
         assert "degeneracy" in rep.warnings[0]
 
     def test_discontinuity_is_flagged(self):
+        """A row misalignment, which is the case this layer exists for: every
+        value is a perfectly possible temperature and the *step* is not. Ten
+        degrees between one hour and the next is not meteorology."""
+        rep = V.Report()
+        hours = [Hour(time="01:00", temp_c=16.0), Hour(time="02:00", temp_c=16.5),
+                 Hour(time="03:00", temp_c=27.0), Hour(time="04:00", temp_c=17.0),
+                 Hour(time="05:00", temp_c=17.2), Hour(time="06:00", temp_c=17.4)]
+        V.check_series(hours, rep)
+        assert any("discontinuity" in w for w in rep.warnings)
+
+    def test_an_impossible_hour_is_dropped_before_the_shape_is_judged(self):
+        """78° in an hourly cell used to reach the strip untouched: the range
+        contracts were applied to the current reading and to each day, and the
+        hourly series got only a shape check. So an out-of-range hour was
+        flagged as a *discontinuity* -- correctly noticed, wrongly named, and
+        still served.
+
+        It is dropped now, and dropped first, which is why this no longer
+        reports a discontinuity: there is nothing left to be discontinuous
+        with."""
         rep = V.Report()
         hours = [Hour(time="01:00", temp_c=16.0), Hour(time="02:00", temp_c=16.5),
                  Hour(time="03:00", temp_c=78.0), Hour(time="04:00", temp_c=17.0),
                  Hour(time="05:00", temp_c=17.2), Hour(time="06:00", temp_c=17.4)]
         V.check_series(hours, rep)
-        assert any("discontinuity" in w for w in rep.warnings)
+        assert hours[2].temp_c is None
+        assert any("03:00 temp_c" in w for w in rep.warnings), rep.warnings
+        assert "03:00 temp_c" in rep.dropped
+
+    def test_an_hourly_wind_bearing_in_the_speed_field_is_caught(self):
+        """The hourly series carries wind now, which means it can carry a
+        bearing in the speed field -- 270 is a plausible direction and an
+        impossible wind. The unit signature says so by name."""
+        rep = V.Report()
+        V.check_series([Hour(time="01:00", temp_c=16.0, wind_ms=270.0)], rep)
+        assert any("bearing" in w for w in rep.warnings), rep.warnings
 
     def test_a_real_day_passes(self, request):
         rep = V.Report()

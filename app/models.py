@@ -74,7 +74,15 @@ class Current:
 
 @dataclass
 class DayPart:
-    """One of night / morning / day / evening."""
+    """One of night / morning / day / evening.
+
+    Two sources fill these and they do not agree on the order, which is left
+    alone on purpose: Yandex prints morning first and means the night that
+    *follows* the day, Gismeteo prints night first and means the one that
+    starts it. Sorting them into a canonical order would silently move one
+    source's forecast by twenty-four hours. The source knows what its own
+    columns are; we keep them in the order it published them.
+    """
 
     name: str
     temp_c: float | None = None
@@ -84,25 +92,9 @@ class DayPart:
     humidity_pct: float | None = None
     pressure_mmhg: float | None = None
     wind_ms: float | None = None
+    wind_gust_ms: float | None = None
     wind_dir: str | None = None
-
-
-@dataclass
-class Day:
-    date: str                      # ISO yyyy-mm-dd
-    title: str | None = None    # "Сегодня, 31 июля"
-    temp_min_c: float | None = None
-    temp_max_c: float | None = None
-    condition: str | None = None
-    icon: str | None = None
-    precip_prob: float | None = None
-    uv_index: float | None = None
-    water_temp_c: float | None = None
-    sunrise: str | None = None
-    sunset: str | None = None
-    daylight: str | None = None
-    magnetic: str | None = None
-    parts: list[DayPart] = field(default_factory=list)
+    precip_mm: float | None = None
 
 
 @dataclass
@@ -120,6 +112,54 @@ class Hour:
     icon: str | None = None
     precip_mm: float | None = None
     precip_prob: float | None = None
+    wind_ms: float | None = None
+    wind_gust_ms: float | None = None
+    wind_dir: str | None = None
+
+
+@dataclass
+class Day:
+    date: str                      # ISO yyyy-mm-dd
+    title: str | None = None    # "Сегодня, 31 июля"
+    temp_min_c: float | None = None
+    temp_max_c: float | None = None
+    condition: str | None = None
+    icon: str | None = None
+    precip_prob: float | None = None
+    # Everything below is for the day-detail screen. All of it was already
+    # being downloaded -- Gismeteo publishes a row per metric on the ten-day
+    # page we fetch, and Open-Meteo returns them for the asking -- and all of
+    # it was being dropped on the floor.
+    #
+    # Pressure is a *range* rather than a number because that is what the
+    # source publishes, and picking one end of it to call "the pressure" is the
+    # kind of small invention this codebase spends its comments avoiding.
+    precip_mm: float | None = None
+    feels_min_c: float | None = None
+    feels_max_c: float | None = None
+    avg_temp_c: float | None = None
+    humidity_pct: float | None = None
+    pressure_min_mmhg: float | None = None
+    pressure_max_mmhg: float | None = None
+    wind_ms: float | None = None
+    wind_gust_ms: float | None = None
+    wind_dir: str | None = None
+    snow_cm: float | None = None
+    snow_depth_cm: float | None = None
+    kp_index: float | None = None
+    uv_index: float | None = None
+    water_temp_c: float | None = None
+    sunrise: str | None = None
+    sunset: str | None = None
+    daylight: str | None = None
+    magnetic: str | None = None
+    parts: list[DayPart] = field(default_factory=list)
+    # Hours belonging to *this day*, when a source publishes a page per day.
+    # Empty in the main payload -- the flat `SourceView.hourly` series is what
+    # the strip reads -- and filled only by `/api/day`, which is fetched when
+    # somebody actually opens a day. Pruned from the wire when empty, so a day
+    # that has none costs nothing to say so.
+    hours: list[Hour] = field(default_factory=list)
 
 
 @dataclass
@@ -189,11 +229,32 @@ class Weather:
         return self.sources.get(self.selected)
 
     def to_dict(self) -> dict[str, Any]:
-        d = asdict(self)
+        d = prune(asdict(self))
         d["health"]["status"] = self.health.status.value
         for key, sv in self.sources.items():
             d["sources"][key]["fallback_profile"] = sv.fallback_profile
         return d
+
+
+def prune(value: Any) -> Any:
+    """Drop `None`-valued keys on the way out.
+
+    A `Day` now has twenty-odd optional fields and no source fills more than
+    half of them, so the literal text `"snow_depth_cm": null,` was being shipped
+    ten times per source per fetch. The client already reads every one of these
+    with `!= null`, and in JavaScript a missing key reads back as `undefined`,
+    for which `undefined != null` is *false* -- so an absent key and a null one
+    are the same answer to every question the front end asks.
+
+    Empty lists and strings stay. `dropped_fields: []` is a statement that
+    nothing was dropped, and `warnings: []` is what the renderer iterates; an
+    absent list would be a different fact wearing the same clothes.
+    """
+    if isinstance(value, dict):
+        return {k: prune(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [prune(v) for v in value]
+    return value
 
 
 class ParseError(RuntimeError):

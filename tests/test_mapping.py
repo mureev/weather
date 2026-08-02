@@ -29,6 +29,7 @@ from __future__ import annotations
 import collections
 import datetime as dt
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from lxml import html as LH
@@ -41,13 +42,22 @@ FIX = ROOT / "tests" / "fixtures"
 SRC = "".join((ROOT / "app" / p).read_text(encoding="utf-8")
               for p in ("sources/gismeteo.py", "extract.py", "ru_text.py"))
 
-# Typed elements Gismeteo ships that we knowingly do not consume, and why. The
-# point of the list is not that it is short -- it is that every entry is a
-# decision. Something appearing here that nobody chose is the bug.
+# Typed elements Gismeteo ships that this file's grep cannot see us consume,
+# and why. The point of the list is not that it is short -- it is that every
+# entry is a decision. Something appearing here that nobody chose is the bug.
+#
+# All three of these *are* read now, by the daily metric rows. They stay listed
+# because the audit above works by looking for the tag name in our source text,
+# and the metric parser deliberately does not name tags: it takes whatever
+# element in a cell carries a `value` attribute, which is what lets one code
+# path read `temperature-value`, `speed-value`, `pressure-value` and
+# `snow-value` alike. The grep is a tripwire for element types nobody has
+# considered, and it keeps that job; these three are the known cost of it, and
+# `TestTheDailyMetricsArrive` below is what actually holds them to account.
 DECLARED_UNREAD = {
-    "speed-value": "hourly wind is not modelled; current wind comes from cw",
-    "pressure-value": "hourly pressure is not modelled; current comes from cw",
-    "snow-value": "snow depth is not modelled at all",
+    "speed-value": "read generically by @value in the wind rows, not by tag",
+    "pressure-value": "read generically by @value in the pressure row",
+    "snow-value": "read generically by @value in the snow-depth row",
 }
 
 
@@ -143,6 +153,104 @@ class TestPublishedFieldsAreNotSilentlyEmpty:
 
     def test_the_observation_carries_its_own_instant(self, parsed):
         assert parsed.current.observed_epoch is not None
+
+
+class TestTheDailyMetricsArrive:
+    """The other half of the audit: every metric row the page publishes, held
+    against the `Day` field it is supposed to land in.
+
+    This exists because the tag-name grep above cannot see a parser that reads
+    typed elements generically, and because a metric that stops arriving looks
+    exactly like a metric the source never had.
+    """
+
+    @pytest.fixture(scope="class")
+    def days(self):
+        got = G.parse(
+            (FIX / "mf-current.html").read_text(encoding="utf-8", errors="replace"),
+            days_html=(FIX / "mf-10days.html").read_text(encoding="utf-8",
+                                                         errors="replace"),
+            today=dt.date(2026, 8, 1))
+        return got.daily
+
+    # Row caption on the page -> the field it fills. Written as the caption
+    # rather than as our internal key so that reading this list next to the
+    # page tells you what is missing.
+    PUBLISHED: ClassVar[dict[str, tuple[str, ...]]] = {
+        "Температура воздуха": ("temp_min_c", "temp_max_c"),
+        "Температура по ощущению": ("feels_min_c", "feels_max_c"),
+        "Среднесуточная температура": ("avg_temp_c",),
+        "Средняя скорость ветра": ("wind_ms",),
+        "Направление ветра": ("wind_dir",),
+        "Порывы ветра": ("wind_gust_ms",),
+        "Осадки в жидком эквиваленте": ("precip_mm",),
+        "Выпадающий снег": ("snow_cm",),
+        "Высота снежного покрова": ("snow_depth_cm",),
+        "Давление": ("pressure_min_mmhg", "pressure_max_mmhg"),
+        "Относительная влажность": ("humidity_pct",),
+        "УФ-индекс": ("uv_index",),
+        "Геомагнитная активность": ("kp_index",),
+    }
+
+    # Rows on the page that nobody has claimed. Pollen is three separate rows
+    # of 0-3 scores; it is real information and seasonal, and it is left out
+    # deliberately rather than overlooked -- three more fields on every day of
+    # every source, to say "0" for eight months of the year.
+    UNCLAIMED = ("Пыльца берёзы", "Пыльца злаковых трав", "Пыльца амброзии")
+
+    @pytest.mark.parametrize("caption,fields", sorted(PUBLISHED.items()))
+    def test_a_published_row_reaches_its_field(self, days, caption, fields):
+        for name in fields:
+            got = [getattr(d, name) for d in days]
+            assert any(v is not None for v in got), (
+                f"the page publishes «{caption}» for ten days and every "
+                f"Day.{name} is empty")
+
+    @pytest.fixture(scope="class")
+    def parts(self):
+        got = G.parse(
+            (FIX / "mf-current.html").read_text(encoding="utf-8", errors="replace"),
+            days_html=(FIX / "mf-10days.html").read_text(encoding="utf-8",
+                                                         errors="replace"),
+            parts_html=(FIX / "mf-3days.html").read_text(encoding="utf-8",
+                                                         errors="replace"),
+            today=dt.date(2026, 8, 1))
+        return [p for d in got.daily for p in d.parts]
+
+    @pytest.mark.parametrize("name", ["temp_c", "feels_like_c", "condition",
+                                      "icon", "humidity_pct", "pressure_mmhg",
+                                      "wind_ms", "wind_gust_ms", "wind_dir"])
+    def test_the_parts_grid_fills_what_it_publishes(self, parts, name):
+        """The same audit one level down. `/3-days/` carries the metric rows
+        per part of day, and a part with every field empty is the exact shape
+        of the precipitation bug: nothing fails, the app is just smaller than
+        the page."""
+        assert parts, "no parts parsed at all"
+        got = [getattr(p, name) for p in parts]
+        assert any(v is not None for v in got), (
+            f"the parts grid publishes {name} for every column and every "
+            f"DayPart.{name} is empty")
+
+    @pytest.mark.parametrize("page", ["mf-10days.html", "mf-3days.html"])
+    def test_the_page_has_no_row_this_list_has_not_considered(self, page):
+        """The inverse question, and the one that catches a *new* row.
+
+        Gismeteo adding «Атмосферное электричество» tomorrow would otherwise be
+        invisible for ever: no test fails, no value is wrong, the app is simply
+        smaller than the page it is reading."""
+        doc = LH.fromstring(
+            (FIX / page).read_text(encoding="utf-8", errors="replace"))
+        captions = set()
+        for row in doc.xpath('//*[contains(@class,"widget-row")]'):
+            cap = row.xpath('.//*[contains(@class,"widget-row-caption")]')
+            if cap:
+                captions.add(R.clean(cap[0].text_content()).rstrip(", ").strip())
+        known = [*self.PUBLISHED, *self.UNCLAIMED]
+        missed = [c for c in captions
+                  if not any(c.startswith(k) for k in known)]
+        assert not missed, (
+            f"the ten-day page carries rows nothing reads and nothing "
+            f"declares: {missed}. Parse them or add them to UNCLAIMED.")
 
 
 class TestTheConditionVocabularyIsFullyMapped:

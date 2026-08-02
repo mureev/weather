@@ -839,6 +839,148 @@ the project still working in five years.
 
 ---
 
+## 22. A day is a screen you push, not a drawer you open
+
+The ten-day list needed somewhere to put a day. So did the city picker, whose
+bottom sheet had been the weakest thing in the app for a while — the rounded
+panel, the dimmed backdrop and the grab handle are three separate promises of a
+drag gesture that was never implemented, and a drawer says *small choice, then
+back to what you were doing*, which a day's detail is not.
+
+Both are now the same primitive: a full-screen panel that slides in from the
+right, pushed with `history.pushState`.
+
+**Why history, specifically.** In a standalone iOS PWA the edge-swipe-back
+gesture is wired to browser history. A screen that exists as a history entry is
+therefore dismissable by the system gesture, with the system's own transition,
+for free. A screen that exists as a CSS class is not, and no amount of touch
+handling fixes that — a hand-rolled swipe runs *alongside* the OS gesture rather
+than instead of it, and the app navigates back twice. Ionic have carried that
+bug across several major versions; there is no way to opt out of the platform
+gesture. So the rule is: the gesture is not ours to implement, only to opt into.
+There is a test asserting `app.js` registers no touch handlers.
+
+**Why opaque and full-screen.** Not laziness about the parallax iOS does under a
+push — it is what makes this safe. A transformed ancestor becomes the containing
+block for `position: fixed` descendants, which is exactly how a 4px rise on
+`.wrap` broke the old sheet (§14). Sliding the page under the screen would put
+that trap straight back. Being opaque also retires the whole scrim problem: the
+strips iOS paints behind its own bars cannot be tinted from inside the page, and
+covering them is not a smaller fix than the three we tried, it is a different
+shape of one.
+
+**Depth is one.** Neither screen leads anywhere else. A stack that can only ever
+hold one thing should say so rather than carry bookkeeping for a case that does
+not exist.
+
+**What would change it:** a third screen that genuinely opens from a second, or
+a Safari that lets a page suppress the platform back gesture.
+
+## 23. Each source gets the shape it is good at
+
+The day-detail screen shows different things on different tabs, and that is the
+design rather than an unfinished part of it.
+
+Яндекс publishes four named parts of a day and no per-day metrics. Gismeteo
+publishes fifteen metric rows and no parts. Open-Meteo publishes an hour at a
+time for ten days and no summary of any of it. The obvious design — one table,
+a row per field — would be two-thirds blank on any given tab, and a blank cell
+in a table reads as *missing data* rather than as "this source does not work
+that way".
+
+So each tab renders in the idiom its source actually fills: parts of day for
+Яндекс, a metrics table for Gismeteo, an hourly curve for Open-Meteo. Switching
+tabs changes the shape of the screen, which is honest about what the three
+sources are.
+
+The corollary is that the screen is keyed by **date**, never by row index. The
+three do not agree on where their ten days start, and an index would quietly
+show you a different day when you switched source. That is not hypothetical: it
+shipped in the day *labels* — 2 August read «Завтра» on one tab and «вс» on
+another — and was caught by putting two screenshots side by side, not by a test.
+There is a test now.
+
+**What would change it:** a source that starts publishing the others' shapes, at
+which point the divergence stops being informative.
+
+**Postscript, one day later.** Gismeteo's `/3-days/` page turned out to be a
+*ten*-day grid at four columns a day, carrying the same fifteen metric rows per
+part of day. So Gismeteo now publishes parts too, and the rule became simpler
+rather than more complicated: lead with parts wherever a source has them, then
+the hourly curve, then the metric table — ordered by how much of the day each
+block answers at once. The two sources still disagree about what a part *is*
+(Yandex prints morning first and means the following night; Gismeteo prints
+night first and means the one that starts the day), and that disagreement is
+preserved rather than normalised. See §22's note on reordering.
+
+## 24. Prose on the wire
+
+The byte budget went from 32 kB to 39 kB in one sitting, and roughly half of the
+increase is comments.
+
+This codebase writes long explanatory comments on purpose — the paragraph
+recording the failure that produced a line is the most valuable text in the
+repository, and `app.js` ships to a phone with all of it intact. Stripping
+comments at serve time was considered and rejected: a remover that mangles one
+regular-expression literal is a silent, catastrophic failure, and it would be a
+build step in everything but name (§21).
+
+So the trade is made deliberately: 37 kB fetched once and then held by the
+service worker indefinitely, in exchange for a front end the next session can
+actually read. The budget test carries the arithmetic so that the *next*
+increase has to be argued for too.
+
+**What would change it:** a cold load that stops fitting in a second on a slow
+connection, or evidence anyone is fetching the shell more than once.
+
+
+## 25. One request, spent because somebody tapped something
+
+Yandex publishes a page per day — `…/details/auto/10-day-weather/day-N` —
+carrying eight three-hourly columns with feels-like, gusts, precipitation
+probability and visibility. It is the deepest per-day data any source here
+offers, and it is the only one that costs new requests: ten days is ten URLs
+against the **one** this app spends per source per city per ten minutes.
+
+Three options, and the middle one was chosen deliberately.
+
+*Fetch all ten on every refresh* multiplies the app's entire upstream footprint
+by eleven to deepen its thinnest tab. The README's claim — that this is a slower
+request rate than one human with the page open — would simply stop being true,
+and it is a claim worth keeping.
+
+*Do not fetch it at all* was defensible right up until the day it wasn't:
+Gismeteo's parts grid (§23) already gives four parts × thirteen metrics for all
+ten days, and Open-Meteo gives hourly for any of them. But the Яндекс tab is the
+default one, and leaving the default the thinnest is an odd place to land.
+
+*Fetch the day somebody opened*, cache it for the usual ten minutes, and — the
+part that makes it safe — **let nothing depend on it**. The screen renders from
+the payload already in hand: four parts of day, the metric table, whatever slice
+of the flat hourly series falls on that date. The eight-column curve replaces
+that slice a moment later if the network cooperates. There is deliberately no
+spinner and no skeleton, because a loading state advertises a thing that may
+never arrive in place of a thing that already has. Offline, the screen is
+exactly what it was before this feature existed.
+
+The endpoint answers **204** when there is no page — a GPS fix has no
+addressable slug, a date past the tenth has no page — and the client remembers
+that, because it is an answer rather than a failure. A *failed* request is
+forgotten instead, so opening the day again after regaining signal tries once
+more.
+
+And the URL's day number is not trusted. `day-5` is a position, and this
+codebase has an invariant about positions (`CLAUDE.md` 12): the offset is
+computed from the date, the page is fetched, and then the page's own stated date
+is held against the date that was asked for. A page describing a different day
+is rejected exactly the way a page describing a different city is.
+
+**What would change it:** Yandex publishing the same depth on the ten-day page,
+or a measurement showing people open days often enough that the lazy fetches
+outnumber the eager ones would have been.
+
+---
+
 ## Traps that cost real time
 
 Kept because each was invisible until it wasn't.
@@ -881,6 +1023,27 @@ Kept because each was invisible until it wasn't.
 - **iOS Safari ignores `overflow:hidden` on `<body>`.** Pinning with
   `position:fixed` is the only reliable scroll lock, and it discards the scroll
   offset, which must be saved and restored by hand.
+- **A position is not a date.** «Сегодня» and «Завтра» were decided by the row's
+  index, and the three sources disagree about which morning their ten days start
+  on — so the same date was named differently depending on which tab was open.
+  Same species as the headline reading the strip's first column and calling it
+  now. Ask what the value *is*, never where it sits.
+- **A metric row can be missing a half.** Gismeteo's pressure row publishes a
+  maximum for ten days and a minimum for eight. Read as a flat list of typed
+  elements that is eighteen where twenty are expected, and every day after the
+  gap takes its neighbour's number — a real pressure, in range, in the right
+  unit, attached to the wrong day. Cells are counted as containers.
+- **A source's own abbreviations have to be in the table.** Gismeteo's ten-day
+  header says «сб 1 авг», and `MONTHS` held only «августа» and «август» — so the
+  label matched nothing and every date came from "today plus the column index"
+  instead. The fallback is correct on every day but the one it exists for.
+- **A stub whose signature drifts fails like a broken upstream.** The mock's
+  Gismeteo fetcher never grew the `timeout=` keyword the real one did, so every
+  mock fetch raised `TypeError`, the router logged it as a fetch error, and the
+  Gismeteo tab was quietly disabled in every screenshot and browser test.
+- **Fixtures from two different recordings are not a smaller reality.** The mock
+  paired a landing page from one day with an hourly strip from another, and the
+  coherence check — correctly — reported the app as broken on every fetch.
 
 ### And two traps in the test harness
 

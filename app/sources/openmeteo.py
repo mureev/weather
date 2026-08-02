@@ -15,6 +15,7 @@ no code, no model and no vendor with the thing it is checking.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from typing import Any
 
@@ -55,7 +56,10 @@ _CURRENT = (
 _HOURLY = "temperature_2m,weather_code,precipitation,precipitation_probability"
 _DAILY = (
     "temperature_2m_max,temperature_2m_min,weather_code,"
-    "precipitation_probability_max"
+    "precipitation_probability_max,precipitation_sum,"
+    "apparent_temperature_max,apparent_temperature_min,"
+    "wind_speed_10m_max,wind_direction_10m_dominant,"
+    "uv_index_max,sunrise,sunset,daylight_duration"
 )
 
 _DIRS = ("северный", "северо-восточный", "восточный", "юго-восточный",
@@ -85,7 +89,16 @@ async def fetch(client: httpx.AsyncClient, place: Place) -> dict[str, Any] | Non
         "timezone": place.tz,
         "wind_speed_unit": "ms",
         "forecast_days": 10,
-        "forecast_hours": 24,
+        # No `forecast_hours`. It was capping the hourly array at 24 entries,
+        # which is why the only source that can draw an Apple-style curve for
+        # *any* day of the forecast was only ever asked about today. The cap
+        # cost nothing to remove and was the single largest gap between what
+        # this app showed and what it already had access to.
+        #
+        # 240 entries rather than 24. The payload is extremely repetitive, so
+        # gzip absorbs nearly all of it -- and there is a test asserting the
+        # compressed cold load stays inside its budget, which is the right
+        # place for that argument to be settled.
     }
     try:
         r = await client.get(settings.openmeteo_url, params=params,
@@ -95,6 +108,25 @@ async def fetch(client: httpx.AsyncClient, place: Place) -> dict[str, Any] | Non
     except Exception as e:
         log.warning("open-meteo fetch failed: %s", e)
         return None
+
+
+def _epoch(stamp: Any, offset_s: Any) -> int | None:
+    """`"2026-08-01T14:00"` plus the response's UTC offset -> a UTC epoch.
+
+    Open-Meteo formats every timestamp in the *requested* timezone and reports
+    the offset it used in `utc_offset_seconds`, so the conversion is exact
+    arithmetic on values from the same response. No clock is read and no
+    timezone database is consulted -- which matters, because this is the number
+    the whole app uses to decide which entry describes "now", and a series
+    aligned against a guess is the bug `series.py` exists to prevent.
+    """
+    if not isinstance(stamp, str) or not isinstance(offset_s, (int, float)):
+        return None
+    try:
+        naive = dt.datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+    return int(naive.replace(tzinfo=dt.UTC).timestamp()) - int(offset_s)
 
 
 def to_current(raw: dict[str, Any]) -> Current | None:
@@ -113,17 +145,28 @@ def to_current(raw: dict[str, Any]) -> Current | None:
         wind_ms=_num(c.get("wind_speed_10m")),
         wind_dir=_bearing_to_ru(c.get("wind_direction_10m")),
         observed_at=c.get("time"),
+        observed_epoch=_epoch(c.get("time"), (raw or {}).get("utc_offset_seconds")),
     )
 
 
-def to_hourly(raw: dict[str, Any], limit: int = 24) -> list[Hour]:
+def to_hourly(raw: dict[str, Any], limit: int | None = None) -> list[Hour]:
+    """Every hour the response carries, not the first day of them.
+
+    There used to be a 24 here, and it was the reason the one source that can
+    draw an hour-by-hour curve for *any* day of the forecast was only ever
+    asked about today. The day-detail screen slices this list by date, so the
+    cap was the feature's only real obstacle -- see the note in `fetch` about
+    where the size argument gets settled.
+    """
     h = (raw or {}).get("hourly") or {}
     times = h.get("time") or []
+    offset = (raw or {}).get("utc_offset_seconds")
     out: list[Hour] = []
-    for i, t in enumerate(times[:limit]):
+    for i, t in enumerate(times if limit is None else times[:limit]):
         cond, icon = _cond(_at(h, "weather_code", i))
         out.append(Hour(
             time=t,
+            at=_epoch(t, offset),
             temp_c=_num(_at(h, "temperature_2m", i)),
             condition=cond,
             icon=icon,
@@ -139,6 +182,7 @@ def to_daily(raw: dict[str, Any]) -> list[Day]:
     out: list[Day] = []
     for i, date in enumerate(dates):
         cond, icon = _cond(_at(d, "weather_code", i))
+        seconds = _num(_at(d, "daylight_duration", i))
         out.append(Day(
             date=date,
             temp_min_c=_num(_at(d, "temperature_2m_min", i)),
@@ -146,8 +190,31 @@ def to_daily(raw: dict[str, Any]) -> list[Day]:
             condition=cond,
             icon=icon,
             precip_prob=_num(_at(d, "precipitation_probability_max", i)),
+            precip_mm=_num(_at(d, "precipitation_sum", i)),
+            feels_min_c=_num(_at(d, "apparent_temperature_min", i)),
+            feels_max_c=_num(_at(d, "apparent_temperature_max", i)),
+            wind_ms=_num(_at(d, "wind_speed_10m_max", i)),
+            wind_dir=_bearing_to_ru(_at(d, "wind_direction_10m_dominant", i)),
+            uv_index=_num(_at(d, "uv_index_max", i)),
+            sunrise=_clock(_at(d, "sunrise", i)),
+            sunset=_clock(_at(d, "sunset", i)),
+            daylight=_duration(seconds),
         ))
     return out
+
+
+def _clock(stamp: Any) -> str | None:
+    """`2026-08-01T03:48` -> `03:48`. The date is already the row's key."""
+    return stamp[11:16] if isinstance(stamp, str) and len(stamp) >= 16 else None
+
+
+def _duration(seconds: float | None) -> str | None:
+    """Seconds of daylight as «16 ч 12 мин», matching how Yandex words it --
+    so the detail screen reads the same whichever tab you are on."""
+    if seconds is None:
+        return None
+    minutes = round(seconds / 60)
+    return f"{minutes // 60} ч {minutes % 60} мин"
 
 
 def _at(block: dict[str, Any], key: str, i: int) -> Any:

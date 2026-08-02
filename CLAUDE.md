@@ -64,8 +64,9 @@ Everything below follows from that.
    searches and GPS fixes — so the key space is effectively infinite and an
    unbounded store is a set that only ever grows.
 9. **A value that must exist in two languages is read back, never restated.**
-   CSS owns `--hour-w` and `--scrim`; JS reads them. This has bitten three
-   times; the tests assert the *agreement*, not either value.
+   CSS owns `--hour-w` and `--push-ms`; JS reads them back with `cssVar`. This
+   has bitten four times; the test derives the list of properties from the code
+   rather than naming them, and asserts the *agreement*, not either value.
 10. **Two fields that describe the same instant must agree.** The dangerous
    failure here is never a bad value — it is a right value describing the wrong
    thing: the wrong city, the wrong hour, the wrong cell. Bounds-checking sees
@@ -75,6 +76,17 @@ Everything below follows from that.
    function reads the clock; a date is passed in as `today=`, and the clock may
    only be that argument's default. The page's stated date beats our guess
    about what day it is.
+12. **Ask what a value *is*, never where it sits.** Row 0 is not today, column
+   0 is not now, and the *n*th typed element is not the *n*th day. Every one of
+   those has shipped here as a bug, and none of them produced a wrong-looking
+   number — they produced a right number attached to the wrong thing. On the
+   front end this means a date, not an index; in a parser it means a container,
+   not an offset into a flat list.
+13. **The gesture is not ours to implement, only to opt into.** iOS runs its own
+   edge-swipe-back in a standalone PWA and it cannot be switched off. A screen
+   is pushed onto `history` so the platform gesture dismisses it; a hand-rolled
+   swipe would run *alongside* the system one and navigate back twice. There is
+   a test asserting `app.js` registers no touch handlers.
 
 ---
 
@@ -85,7 +97,7 @@ This will happen. It is the expected case, not the emergency.
 ```bash
 make routes-remote          # is it reachable at all, and from where?
 make fixtures               # re-record Yandex from the box that fetches
-make fixtures-gm            # re-record Gismeteo/Meteofor
+make fixtures-gm            # re-record all four Gismeteo/Meteofor pages
 make check                  # the diff tells you exactly what moved
 ```
 
@@ -150,6 +162,45 @@ Full list at the bottom of `DECISIONS.md`. The ones that recur:
   it.** Two `theme-color` fixes passed their tests and did nothing on a phone.
   When a fix is green and the screenshot is unchanged, you are measuring the
   wrong end of the mechanism.
+- **A row can be missing a half.** Gismeteo's pressure row has a max for ten
+  days and a min for eight. Read flat, every day after the gap takes its
+  neighbour's number — in range, right unit, wrong day. Count containers.
+- **A page can be named for something it is not.** Gismeteo's `/3-days/` is a
+  *ten*-day grid at four columns a day. It was left unparsed for a while on the
+  strength of its URL. Open the page before believing its name.
+- **A source's absence can be a reading.** Gismeteo prints «штиль» and no number
+  at all for a calm part of the day. Gating the cell on the speed dropped the
+  one value that said something.
+- **`overflow-x: auto` does not leave the other axis alone.** When one axis is
+  not `visible`, a `visible` on the other computes to `auto`. Two pixels of
+  overflow made the hourly strip its own vertical scroller, so dragging the
+  curve moved the widget instead of the screen. State both axes.
+- **A line box is taller than its font size.** 11.5px text at the body's 1.45
+  line-height is 16.7px in a 15px-high row. That was the two pixels.
+- **A test that hardcodes values from a fixture is a test of the weather.**
+  Every `make fixtures-gm` broke it, and the only repair was to paste in the new
+  numbers -- which would "fix" a parser that had started reading the wrong row
+  just as readily. Cross-check against the same page by a *different* mechanism
+  instead: `_row_pairs` in `test_gismeteo.py` regexes the raw HTML where the
+  parser uses XPath.
+- **A missing icon does not look missing.** `cloudy-night` did not exist, so
+  `nightify` handed back the day form and the night rows drew a sun at three in
+  the morning. Nothing was absent on screen; the wrong thing was present. There
+  is now a test walking every emittable key against the shell's `<symbol>`s.
+- **Backticks in a `git commit -m "..."` are command substitution.** One such
+  message ran `make fixtures-gm`, whose `>` redirect truncated a fixture to zero
+  bytes before curl failed. Commit messages go in a file and through `-F`.
+- **Look at it.** The day labels disagreed between tabs — «Завтра» on one, «вс»
+  on the other, same date — and 400-odd tests were green. It was found by
+  putting two screenshots side by side. `python -m tools.shoot`, or drive the
+  mock server with Playwright; a screen this app renders is cheap to look at and
+  the failures that matter here are the ones that look fine.
+- **A stub whose signature drifts fails like a broken upstream.** The mock's
+  Gismeteo fetcher never grew the real one's `timeout=` keyword, so the tab was
+  silently disabled in every screenshot and browser test.
+- **Fixtures from two recordings are not a smaller reality.** Pairing a landing
+  page from one day with an hourly strip from another makes the coherence check
+  report the app as broken, correctly.
 
 ---
 

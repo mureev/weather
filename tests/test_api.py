@@ -6,6 +6,10 @@ fails on a train.
 """
 
 
+import datetime as dt
+import re
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -13,14 +17,25 @@ from app import service
 from app.main import app
 from app.sources import gismeteo, openmeteo, yandex_html
 
+ROOT = Path(__file__).resolve().parent.parent
+
 
 @pytest.fixture
 def client_(request, monkeypatch):
-    raw = (request.path.parent / "fixtures" / "current.html").read_text(
-        encoding="utf-8", errors="replace")
+    fix = request.path.parent / "fixtures"
+    raw = (fix / "current.html").read_text(encoding="utf-8", errors="replace")
+    day_page = (fix / "ya-day5.html").read_text(encoding="utf-8", errors="replace")
 
     async def fake_fetch(_client, url):
-        return raw
+        m = re.search(r"/day-(\d+)", url)
+        if not m:
+            return raw
+        # The recorded page describes 7 August 2026. The parser rejects a page
+        # about a different day than the one requested -- correctly -- so the
+        # stub restamps it, otherwise every test here would exercise that
+        # rejection instead of the feature.
+        want = dt.date.today() + dt.timedelta(days=int(m.group(1)))
+        return day_page.replace("2026-08-07T", f"{want.isoformat()}T")
 
     async def fake_om(_client, _place):
         # Close enough to agree with the fixture's +16°, so the referee stays
@@ -79,7 +94,11 @@ class TestWeatherEndpoint:
         gm = client_.get("/weather/api/weather").json()["sources"]["gismeteo"]
         assert gm["available"] is False
         assert gm["reason"]
-        assert gm["current"] is None
+        # `.get`, not `[...]`: empty fields are pruned from the wire format, so
+        # "no current reading" is now an absent key rather than a null one.
+        # Both are the same answer -- in JavaScript `undefined != null` is
+        # false, which is the comparison every reader in app.js makes.
+        assert gm.get("current") is None
 
     def test_provenance_is_reported_per_source(self, client_):
         d = client_.get("/weather/api/weather").json()
@@ -287,6 +306,48 @@ class TestFrontEndHygiene:
         assert "403" in sw
 
 
+class TestTheDayEndpoint:
+    """`/api/day` is the one request this app makes because somebody tapped
+    something. Everything about it is shaped by that being optional."""
+
+    @staticmethod
+    def when(days: int) -> str:
+        return (dt.date.today() + dt.timedelta(days=days)).isoformat()
+
+    def test_it_returns_the_day_that_was_asked_for(self, client_):
+        want = self.when(3)
+        r = client_.get(f"/weather/api/day?date={want}&city=yoshkar-ola")
+        assert r.status_code == 200
+        got = r.json()
+        assert got["source"] == "yandex"
+        assert got["day"]["date"] == want
+
+    def test_it_carries_eight_columns_with_gusts(self, client_):
+        d = client_.get(f"/weather/api/day?date={self.when(2)}").json()["day"]
+        assert len(d["hours"]) == 8
+        assert all(h["wind_ms"] is not None for h in d["hours"])
+        assert any(h.get("wind_gust_ms") for h in d["hours"])
+
+    def test_a_day_with_no_page_is_204_and_not_an_error(self, client_):
+        """A GPS fix has no addressable page and a date past the tenth has no
+        page at all. Neither is a failure -- it is a question with no answer,
+        and the screen carries on with what the main payload gave it."""
+        assert client_.get(
+            f"/weather/api/day?date={self.when(40)}").status_code == 204
+
+    def test_a_malformed_date_is_refused(self, client_):
+        assert client_.get("/weather/api/day?date=tuesday").status_code == 400
+
+    def test_it_is_not_in_the_cold_load(self, client_):
+        """The whole justification for fetching on demand is that nothing
+        waits for it. If this ever became part of the first paint, the ten
+        requests it replaced would have to come back."""
+        js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        boot = js[js.index("function boot()"):]
+        assert "api/day" not in boot, \
+            "the day detail is being fetched during boot rather than on tap"
+
+
 class TestItIsCheapToLoad:
     """Bytes on the wire, as a budget rather than a hope.
 
@@ -340,19 +401,49 @@ class TestItIsCheapToLoad:
         assert r.status_code == 200 and "content-encoding" not in r.headers
 
     def test_a_cold_load_fits_in_a_budget(self, client_):
-        """Shell plus first payload, compressed, as a phone would fetch it."""
+        """Shell plus first payload, compressed, as a phone would fetch it.
+
+        Raised once, from 32 kB, and worth recording what bought it. Three
+        things landed together: the day-detail screen and the navigation it
+        needed (+3.7 kB of `app.js`), its stylesheet (+1.3 kB), and Open-Meteo's
+        hourly series going from one day to ten (+3.2 kB of payload). The last
+        of those is the whole reason any day of the forecast can be opened, and
+        it costs nothing upstream -- the request was already being made and the
+        answer thrown away.
+
+        A note on the other two, because it is a real cost of this codebase's
+        house style: a good deal of `app.js` is prose. Comments explaining the
+        bug behind a line are the most valuable text in this repository and
+        they are also bytes on a phone. That trade is made deliberately and
+        this is where the bill arrives. Stripping them at serve time was
+        considered and rejected: a comment remover that mangles one regex
+        literal is a silent, catastrophic failure, and this is 41 kB fetched
+        once and then held by the service worker for good.
+
+        **Raised twice in one sitting, which is the pattern this test exists to
+        resist**, so the second one is worth pinning down. It bought parts of
+        day for all ten days from Gismeteo -- forty more objects per payload --
+        and those have to be in the *main* payload rather than fetched on
+        demand, because the day screen's whole design is that it works before
+        the network answers and offline. That is the trade, stated: an extra
+        2 kB on every cold load so that opening a day never waits.
+
+        What should refuse a third raise: anything that is not paid for by
+        something visible offline. Growth in `app.js` for a feature that only
+        works online belongs behind a fetch, not in the shell.
+        """
         total = 0
         for path in (*self.SHELL, "api/weather"):
             r = client_.get(f"/weather/{path}", headers={"Accept-Encoding": "gzip"})
             total += self.wire_bytes(r)
-        assert total < 32_000, (
-            f"a cold load is now {total/1000:.1f} kB compressed; it was 26 kB. "
+        assert total < 43_000, (
+            f"a cold load is now {total/1000:.1f} kB compressed; it was 41 kB. "
             f"Something sizeable joined the shell -- check before raising this.")
 
     def test_the_uncompressed_shell_has_not_ballooned_either(self, client_):
         """Compression can hide a lot of growth. Watch the source too."""
         raw = sum(len(client_.get(f"/weather/{n}").content) for n in self.SHELL)
-        assert raw < 80_000, f"the shell source is now {raw/1000:.1f} kB"
+        assert raw < 98_000, f"the shell source is now {raw/1000:.1f} kB"
 
     def test_static_assets_say_how_long_they_may_be_kept(self, client_):
         """Unhashed shell files must revalidate -- a cached copy that never

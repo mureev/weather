@@ -109,10 +109,17 @@ def sunset(lat: float, lon: float, day: dt.date) -> dt.datetime | None:
 
 # --- applying it to icons ---------------------------------------------------
 
-# Only these two have a night form. An overcast sky, rain and fog look the same
-# whatever is behind them, and inventing `rain-night` would mean drawing a moon
-# nobody could see.
-_HAS_NIGHT_FORM = ("clear", "partly")
+# The ones where you can see what is behind the cloud. An *overcast* sky, rain
+# and fog look the same whatever is up there, and inventing `rain-night` would
+# mean drawing a moon nobody could see.
+#
+# `cloudy` joined this list late, and the symptom was worth recording: it is
+# «облачно с прояснениями» -- broken cloud -- and its glyph is a sun peering
+# round a cloud, so the night rows of the day screen showed a sun at three in
+# the morning. The night form was missing rather than wrong, which is why
+# nothing failed: `nightify` strips a `-night` suffix it does not recognise,
+# so the icon came back correct-looking and diurnal.
+_HAS_NIGHT_FORM = ("clear", "partly", "cloudy")
 
 
 def nightify(icon: str | None, night: bool) -> str | None:
