@@ -863,6 +863,93 @@ class TestNothingScrollsThatShouldNotScroll:
                 f"the {s['where']} strip overflows vertically by {s['over']}px")
 
 
+@pytest.fixture
+def wide_page(browser, server):
+    """A desktop window. Everything else here runs at iPhone size, which is why
+    a screen that ignored the content column went unnoticed."""
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900},
+                              color_scheme="dark", locale="ru-RU")
+    pg = ctx.new_page()
+    pg.goto(server, wait_until="networkidle")
+    pg.wait_for_selector(".hero .t", timeout=10_000)
+    yield pg
+    ctx.close()
+
+
+class TestTheDayScreenSitsWhereTheForecastDoes:
+    def test_it_uses_the_same_content_column(self, wide_page):
+        """The forecast is a 560px column on a desktop and the pushed screen
+        was not — it ran the full width of the window while the page behind it
+        stayed neat. One variable, `--col`, used by both."""
+        column = wide_page.evaluate(
+            "document.querySelector('.wrap').getBoundingClientRect().width")
+        wide_page.locator(".day[data-day]").nth(3).click()
+        wide_page.wait_for_selector(".screen.open")
+        wide_page.wait_for_timeout(300)
+        got = wide_page.evaluate("""() => {
+          const b = document.getElementById('screen-body');
+          return { content: b.lastElementChild.getBoundingClientRect().width,
+                   bar: document.querySelector('#screen .navbar')
+                          .getBoundingClientRect().width,
+                   window: innerWidth }; }""")
+        assert got["content"] == column, (
+            f"the day screen's column is {got['content']}px, the forecast's "
+            f"is {column}px")
+        assert got["bar"] == got["window"], \
+            "the nav bar should span the window even when its contents do not"
+
+    def test_a_phone_still_uses_the_full_width(self, page):
+        column = page.evaluate(
+            "document.querySelector('.wrap').getBoundingClientRect().width")
+        page.locator(".day[data-day]").nth(3).click()
+        page.wait_for_selector(".screen.open")
+        page.wait_for_timeout(300)
+        content = page.evaluate("document.getElementById('screen-body')"
+                                ".lastElementChild.getBoundingClientRect().width")
+        assert content == column
+
+    def test_the_screen_is_sized_to_the_visible_viewport(self, page):
+        """`position: fixed` resolves against the *large* viewport on iOS
+        Safari — the one including the area behind the auto-hiding toolbar — so
+        `inset: 0` put the bottom of a scroll container underneath that bar.
+        The symptom was content cut off that you could not scroll to.
+
+        Chromium here has no such toolbar, so this asserts the *mechanism*: the
+        screen is sized in dynamic viewport units, which track the visible area
+        on the browser that does.
+        """
+        css = page.request.get(
+            page.url.replace("/weather/", "/weather/index.html")).text()
+        rule = css[css.index(".screen{"):css.index(".screen.open")]
+        assert "dvh" in rule, \
+            "the pushed screen is not sized in dynamic viewport units"
+        assert "inset:0" not in rule.replace(" ", ""), \
+            "inset:0 sizes it to the large viewport, behind Safari's toolbar"
+        # ...and it still covers the viewport where there is no chrome.
+        box = page.locator(".screen").bounding_box()
+        assert box["height"] >= page.viewport_size["height"] - 1
+
+    def test_nothing_is_stranded_below_the_last_card(self, page):
+        """Reported from the phone as "empty space at the bottom, like a tab
+        bar". It was: a 28px floor on the body's bottom padding, plus the last
+        card's own 10px margin, on top of the home-indicator inset — forty-odd
+        pixels of empty sky under every day screen. The forecast page never
+        showed it because its footer fills that space.
+
+        The padding is the safe-area inset now and nothing else, so on a
+        viewport without one the last card ends flush.
+        """
+        page.locator(".day[data-day]").nth(3).click()
+        page.wait_for_selector(".screen.open")
+        page.wait_for_timeout(300)
+        gap = page.evaluate("""() => {
+          const b = document.getElementById('screen-body');
+          b.scrollTop = b.scrollHeight;
+          return b.getBoundingClientRect().bottom
+                 - b.lastElementChild.getBoundingClientRect().bottom; }""")
+        assert gap < 4, f"{gap}px of dead space under the last card"
+
+
 class TestLayoutDoesNotWrap:
     def test_the_footer_stays_on_one_line(self, page):
         assert page.locator(".foot .line").bounding_box()["height"] < 30
