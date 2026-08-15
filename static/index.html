@@ -32,6 +32,12 @@
 
 <meta name="theme-color" content="#0d1630" id="theme-color">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<!-- `black-translucent`: the sky runs under the clock, which is the point.
+
+     For a long time this was suspected of costing 59pt at the bottom of the
+     display. It was not. The viewport measures the full 393x852 with this tag
+     in place -- what had been shrinking it to 793 was `position: fixed` on
+     `<body>`, applied as a scroll lock. See DECISIONS.md §26. -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Погода">
 <meta name="color-scheme" content="dark light">
@@ -67,21 +73,27 @@
   --hour-w:58px;
   --hot:#ff9f5a; --cold:#5ec8ff;
   --r:20px;
-  /* How wide the content column is allowed to get. Written once because it is
-     needed in three places -- the forecast, the pushed screen's body and its
-     nav bar -- and the pushed screen was the one that forgot: on a desktop
-     window the day view sprawled edge to edge while the page behind it stayed
-     a neat column. */
+  /* How wide the content column is allowed to get. Written once because it
+     is needed in three places -- the forecast, the sheet's body and its nav
+     bar -- and the sheet was the one that forgot: on a desktop window the day
+     view sprawled edge to edge while the page behind stayed a neat column. */
   --col:560px;
   /* Written once and used twice: on the canvas (html) and on the visible sky
      layer. They have to agree exactly or the seam is visible on a phone. */
   --skygrad:linear-gradient(180deg,var(--sky1) 0%,
     var(--sky1) var(--skyhold,0%),var(--sky2) 62%,var(--bg) 100%);
-  /* How long a pushed screen takes to arrive, and on what curve. Read back by
-     app.js, which has to know when the animation is over to finish tidying up
-     -- the same read-it-back rule as --hour-w, for the same reason. */
-  --push-ms:300ms;
+  /* How long the sheet takes to arrive, and on what curve. Read back by
+     app.js, which has to know when the animation is over to finish tidying
+     up -- the same read-it-back rule as --hour-w. */
+  --push-ms:460ms;
   --push-ease:cubic-bezier(.32,.72,0,1);
+  /* One number for the close button's distance from the header's top, bottom
+     and right edges. It is `(header height - button height) / 2` for the
+     two-line header the day sheet always has: 74 and 30, so 22. Written down
+     here rather than inline because `debug.js` reads it back and asserts the
+     three gaps against each other on the device -- the same read-it-back rule
+     as `--hour-w` and `--push-ms`. */
+  --nav-inset:22px;
 }
 @media (prefers-color-scheme: light){
   :root{ --bg:#eef2fa; --bg2:#e2e9f7; --card:#fff; --card2:#f4f7fd;
@@ -105,9 +117,19 @@ html,body{margin:0;padding:0}
    So the canvas carries the *same gradient*, fixed to the viewport, and is
    therefore right at both ends at once. `.sky` still paints it too: if a
    browser mishandles `background-attachment:fixed` -- iOS has form here -- the
-   page itself is unaffected and only the strips outside it drift. */
+   page itself is unaffected and only the strips outside it drift.
+
+   **The `background-color` is `--bg`, not `--sky2`.** The gradient is
+   `100% 100%, no-repeat`: it covers the viewport and stops, so this flat
+   colour is what shows anywhere the gradient does not reach -- the rubber
+   band, and, for as long as the viewport was smaller than the display, the
+   bottom of the glass. `--sky2` is the gradient's colour at its *62%* stop,
+   not its end, so it painted a slice of the middle of the sky wherever it
+   showed. Invisible at night, when `--sky2` and `--bg` are both `#0a1020`,
+   which is when every screenshot in that investigation was taken.
+   DECISIONS.md §26; there is a test over every palette. */
 html{
-  background-color:var(--sky2);
+  background-color:var(--bg);
   background-image:var(--skygrad);
   background-attachment:fixed;
   background-repeat:no-repeat;
@@ -249,27 +271,164 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
      faintly, only where the sky is still deep. */
   .sky .stars{opacity:.5}
 }
+/* ---- weather, moving ------------------------------------------------------
+ * Every layer here is one `<i>` inside `#sky`, and every one of them animates
+ * `transform` or `opacity` and nothing else -- those two are the only
+ * properties the compositor can run without asking the main thread, and the
+ * main thread on this page is busy drawing a temperature curve.
+ *
+ * **Two ways a loop can show its seam, and both had shipped.**
+ *
+ * 1. A pattern that repeats every P pixels may only be moved by a whole
+ *    multiple of P, or the wrap is a jump. The rain was an angled
+ *    `repeating-linear-gradient(104deg, ... 46px)`: 46px along the gradient's
+ *    own axis, which is 46/cos14° = **190px measured vertically**, while the
+ *    animation moved 14% of a 1198px layer = **168px**. Every 0.85 seconds the
+ *    whole screen twitched 22 pixels sideways. Snow was worse -- 52px of a
+ *    220px tile -- and got away with it only by being nine times slower.
+ *
+ *    So the slant is a **skew**, not a gradient angle. `skewX` leaves y alone,
+ *    so the vertical period stays exactly `--tile`, which is also exactly what
+ *    the keyframe travels. Seamless by construction rather than by tuning, and
+ *    `--tile` may be changed to anything without re-deriving a trigonometric
+ *    constant. (Order matters in the keyframe: skew *then* translate, so the
+ *    translation happens in the skewed frame and the drops travel along their
+ *    own streaks -- which is both correct and the only way rain looks right.)
+ *
+ * 2. A drift that runs `from -6% to 6%` linearly has to teleport home. Nothing
+ *    forgives that on a 90-second cycle. Clouds and haze therefore run
+ *    `alternate`, which has no wrap at all; at these speeds an oscillation is
+ *    indistinguishable from weather milling about.
+ *
+ * The parameters are custom properties so a variant is a line, not a ruleset.
+ */
+.sky i{position:absolute;display:block;pointer-events:none}
+
+/* Everything above lives inside this, and it exists for the mask.
+ *
+ * The sky opens out to `--bg` at the foot of the screen -- to near-white in
+ * daylight -- so rain drawn at full strength all the way down is invisible for
+ * the bottom third and, worse, is drawn *behind the cards*, adding motion under
+ * text for no gain at all. Fading it out where the gradient pales keeps the
+ * weather in the part of the screen that is sky, which is also the only part
+ * anyone reads it from.
+ *
+ * The mask is on this wrapper and not on the layers themselves, and that is not
+ * tidiness: a mask lives in its element's own coordinate system, so a mask on a
+ * translating layer travels with it and the fade would slide down the screen
+ * once a second.
+ *
+ * **The top fade is a measurement, not a taste.** `.edge-top` is ten points of
+ * flat `--sky1` painted over the sky, so iOS 26 has an opaque element to sample
+ * for the status-bar tint (§14). Anything this wrapper adds lands *under* those
+ * ten points and *over* everything below them, so the sky brightens at exactly
+ * y=10 and the phone shows a hard line there. Sampling the render proved it:
+ * rgb(35,44,64) above, rgb(41,50,70) below, +6 per channel with no ramp. Small
+ * on paper; on an OLED at night it is the first thing you see.
+ *
+ * So the mask holds **zero until 3%** -- 25pt, comfortably past the strip --
+ * and only reaches full at 26%. At y=10 the sky is therefore untouched and
+ * matches `.edge-top` exactly, and the ramp below is spread over 190pt, which
+ * is far too gradual to read as an edge. Change the strip's height and this
+ * number has to move with it; there is a test that samples the pixels. */
+.sky .fx{position:absolute;inset:0;overflow:hidden;
+  mask-image:linear-gradient(180deg,transparent 0 3%,#000 26% 64%,
+    rgba(0,0,0,.62) 86%,transparent 100%)}
+
+/* Overcast, and the one shape that cannot go wrong on a screen nobody here
+   can see: **a flat tint with no spatial structure whatsoever.** Its only
+   variable is opacity. A gradient blob has a bright part and a dim part and
+   therefore an edge somewhere, and placing that edge correctly on a device you
+   are not holding turns out to be beyond this harness -- two attempts, two
+   reports of a visible band across the top of the phone, and a render here
+   that looked right both times. Flat cannot band. */
+.sky .h{inset:0;background:rgba(255,255,255,var(--a));
+  animation:breathe var(--t) ease-in-out infinite alternate}
+.sky .h.thin {--a:.030;--t:15s;--o0:.35;--o1:.85}
+.sky .h      {--a:.045;--t:13s;--o0:.40;--o1:.95}
+.sky .h.thick{--a:.062;--t:11s;--o0:.50;--o1:1}
+
+/* precipitation. `--tile` is the vertical repeat and the travel, and they are
+   the same token twice on purpose -- see above. `--gap` is the horizontal
+   spacing, and the two layers of any shower are given gaps with no common
+   factor (26 and 41, not 20 and 40): tiled patterns at related spacings line
+   up into a plaid, which is what the first draft of this looked like. */
+.sky .p{inset:-55% -25% -12%;animation:fall var(--t) linear infinite}
+.sky .rain{--tile:40px;--gap:26px;--t:1.15s;--sk:-13deg;--a:.30;
+  background:radial-gradient(.6px 7px at 50% 30%,rgba(178,212,255,var(--a)),transparent);
+  background-size:var(--gap) var(--tile)}
+.sky .snow{--tile:46px;--gap:46px;--t:13s;--sk:-4deg;--a:.75;
+  background:radial-gradient(1.6px 1.6px at 28% 20%,rgba(255,255,255,var(--a)),transparent),
+             radial-gradient(1.2px 1.2px at 71% 64%,rgba(255,255,255,var(--a)),transparent);
+  background-size:var(--gap) var(--tile)}
+.sky .hail{--tile:30px;--gap:22px;--t:.7s;--sk:-7deg;--a:.6;
+  background:radial-gradient(1.4px 2.2px at 50% 40%,rgba(226,238,255,var(--a)),transparent);
+  background-size:var(--gap) var(--tile)}
+/* the weights: morosity through downpour, and the near layer that gives a
+   shower its depth. `close` is bigger, brighter and faster -- parallax is
+   mostly a speed difference and the eye supplies the rest. */
+.sky .thin {--a:.20;--t:1.9s;--gap:34px;--tile:34px}
+.sky .hard {--a:.42;--t:.8s;--gap:17px;--tile:34px}
+.sky .close{--a:.40;--t:.82s;--gap:41px;--tile:62px;
+  background:radial-gradient(.9px 11px at 50% 30%,rgba(196,222,255,var(--a)),transparent);
+  background-size:var(--gap) var(--tile)}
+.sky .fast {--t:8s;--gap:34px;--tile:34px;--a:.85}
+.sky .slow {--t:19s;--gap:62px;--tile:62px;--a:.6}
+
+/* fog: bands that drift *down* rather than across, breathing as they go.
+   Horizontal motion in horizontal bands is invisible, which is the sort of
+   thing that is obvious only once you have animated it. Soft stops rather
+   than hard ones -- fog with an edge is a venetian blind. */
+.sky .b{inset:-60% -10% -10%;--tile:88px;--t:34s;--o0:.5;--o1:1;
+  background:repeating-linear-gradient(180deg,
+    rgba(255,255,255,0) 0,rgba(255,255,255,.10) 26px,
+    rgba(255,255,255,0) 52px,rgba(255,255,255,0) var(--tile));
+  animation:fall var(--t) linear infinite,breathe 11s ease-in-out infinite alternate}
+
+/* the sun, and the moon, which is the same gradient with the warmth taken out */
+.sky .g{inset:-30% -30% auto;height:70%;
+  animation:breathe var(--t) ease-in-out infinite alternate}
+.sky .sun {--o0:.55;--o1:1;--t:12s;
+  background:radial-gradient(46% 52% at 62% 12%,rgba(255,232,180,.42),
+             rgba(255,214,150,.14) 45%,transparent 72%)}
+.sky .moon{--o0:.4;--o1:.75;--t:16s;
+  background:radial-gradient(34% 40% at 70% 14%,rgba(206,224,255,.26),transparent 70%)}
+
+/* After dark the drops are dimmer and colder. Only `clear`, `partly` and
+   `cloudy` carry the hour inside their icon -- rain at midnight is still
+   spelled `rain` -- so the flag comes from the envelope and lands here. */
+:root[data-night] .sky .rain {--a:.24}
+:root[data-night] .sky .close{--a:.32}
+:root[data-night] .sky .snow {--a:.62}
+:root[data-night] .sky .h    {--o1:.7}
 .sky .stars circle{animation:tw 4s ease-in-out infinite}
 @keyframes tw{0%,100%{opacity:.25}50%{opacity:.95}}
-.sky .drift{position:absolute;inset:-10% -20%;opacity:.5;
-  background:radial-gradient(38% 34% at 18% 26%,rgba(255,255,255,.12),transparent 70%),
-             radial-gradient(30% 26% at 72% 18%,rgba(255,255,255,.09),transparent 70%),
-             radial-gradient(44% 30% at 48% 44%,rgba(255,255,255,.07),transparent 70%);
-  animation:drift 90s linear infinite}
-@keyframes drift{from{transform:translateX(-6%)}to{transform:translateX(6%)}}
-.sky .fall{position:absolute;inset:-40% -10% 0;opacity:.5}
-.sky .fall.rain{background:repeating-linear-gradient(104deg,
-  transparent 0 22px, rgba(150,195,255,.30) 22px 23px, transparent 23px 46px);
-  animation:fall 0.85s linear infinite}
-.sky .fall.snow{background:
-  radial-gradient(2.2px 2.2px at 20% 10%,rgba(255,255,255,.85),transparent),
-  radial-gradient(2px 2px at 62% 32%,rgba(255,255,255,.7),transparent),
-  radial-gradient(2.4px 2.4px at 84% 62%,rgba(255,255,255,.8),transparent),
-  radial-gradient(1.8px 1.8px at 38% 78%,rgba(255,255,255,.6),transparent);
-  background-size:220px 220px;animation:fall 9s linear infinite}
-@keyframes fall{from{transform:translateY(-14%)}to{transform:translateY(0)}}
+@keyframes fall{from{transform:skewX(var(--sk,0deg)) translate3d(0,calc(var(--tile) * -1),0)}
+                to  {transform:skewX(var(--sk,0deg)) translate3d(0,0,0)}}
+@keyframes sway{from{transform:translate3d(calc(var(--sw) * -1),0,0) scale(var(--sc))}
+                to  {transform:translate3d(var(--sw),0,0) scale(var(--sc))}}
+@keyframes breathe{from{opacity:var(--o0,.45)}to{opacity:var(--o1,.8)}}
+/* In daylight the sky is pale, and white-on-pale is nothing at all. The drops
+   go dark rather than light -- which is also what rain looks like against a
+   bright sky, so the honest colour and the legible one agree for once. Snow
+   stays white: it is only ever drawn over the deep half of the gradient, where
+   white is what it should be. */
+@media (prefers-color-scheme: light){
+  .sky .rain,.sky .hail{--a:.34;
+    background:radial-gradient(.6px 7px at 50% 30%,rgba(56,84,124,var(--a)),transparent);
+    background-size:var(--gap) var(--tile)}
+  .sky .close{--a:.4;
+    background:radial-gradient(.9px 11px at 50% 30%,rgba(48,74,112,var(--a)),transparent);
+    background-size:var(--gap) var(--tile)}
+  .sky .b{background:repeating-linear-gradient(180deg,
+    rgba(120,140,170,0) 0,rgba(120,140,170,.13) 26px,
+    rgba(120,140,170,0) 52px,rgba(120,140,170,0) var(--tile))}
+}
 @media (prefers-reduced-motion: reduce){
-  .sky .stars circle,.sky .drift,.sky .fall{animation:none}
+  /* Stopped, not removed: the still frame of every one of these is a
+     legitimate picture of the weather, and a reader who asked for less motion
+     asked for less motion, not for a flat rectangle. */
+  .sky .fx i,.sky .fx .stars circle{animation:none}
 }
 
 /* ---- top bar -------------------------------------------------------------
@@ -312,24 +471,96 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
  * a 4px rise on `.wrap` broke the old sheet, and sliding the page under the
  * screen would put that trap back. Nothing moves but the screen itself.
  */
-/* `inset: 0`, and **not** `height: 100dvh`. That was tried, on the reasoning
-   that a fixed element is sized by the large viewport and would therefore sit
-   under Safari's auto-hiding toolbar. It made things worse, and the screenshot
-   that proved it is worth writing down: on an iPhone 15 Pro (393x852pt, top
-   inset 59pt) the screen ended at 793pt with the last card sliced off by a
-   hard edge, and 852 - 793 is exactly 59.
-   In a standalone web app with `viewport-fit=cover` and a translucent status
-   bar, iOS measures `vh`/`dvh` against the *safe* area, not the display -- so
-   `100dvh` is short by the top inset and an element pinned to `top: 0` falls
-   that far short of the bottom. `inset: 0` pins to the real edges, which is
-   what a full-screen panel wants. There is no toolbar to hide from here: this
-   is only ever opened from the home screen. */
-.screen{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;
-  background-color:var(--sky1);background-image:var(--skygrad);
-  visibility:hidden;transform:translateX(100%);
+/* ---- the sheet -----------------------------------------------------------
+ *
+ * A resizable bottom sheet, not a full-bleed push. Six attempts went into
+ * making a push work here before the shape of the problem was clear: **a
+ * full-screen panel promises the whole display, and this display keeps 59
+ * points back** (DECISIONS.md §26). A panel that claims the glass and stops
+ * short looks broken; a sheet never claimed it.
+ *
+ * Modelled on `UISheetPresentationController`: two detents, a grabber, a
+ * dimming view behind, scroll locked at the smaller detent so a drag resizes
+ * instead of scrolling. The curve is `cubic-bezier(.32,.72,0,1)` over 460ms --
+ * Ionic's, matched to iOS's, already written down as `--push-ease`.
+ *
+ * `history.pushState` still drives dismissal, so the system edge-swipe still
+ * closes it. Invariant 13 governs *horizontal* gestures, which belong to the
+ * system; a vertical drag does not collide and is the one thing that makes a
+ * sheet feel real rather than drawn.
+ */
+:root{
+  /* The large detent: how far the sheet's top sits below the display's. Enough
+     that a strip of the forecast stays visible above it, which is what tells
+     you the page is still there. */
+  --sheet-top:calc(max(52px,env(safe-area-inset-top)) + 12px);
+  /* The medium detent, as a fraction of the sheet's own height. iOS's medium
+     is roughly half the screen; this is a shade taller because a day's four
+     parts are the thing worth showing without a second gesture. */
+  --sheet-mid:38%;
+}
+.screen{position:fixed;top:var(--sheet-top);left:0;right:0;bottom:0;z-index:60;
+  display:flex;flex-direction:column;
+  border-radius:22px 22px 0 0;overflow:hidden;
+  /* Flat `--bg`, not the sky gradient the push used, and both halves of that
+     matter. A sheet is a surface lifted off the page rather than a second sky
+     -- and its bottom row has to be exactly the colour the canvas paints below
+     the viewport, which a gradient cannot be asserted to be. There is a test. */
+  background-color:var(--bg);
+  box-shadow:0 -.5px 0 color-mix(in srgb,var(--fg) 10%,transparent),
+             0 -20px 50px rgba(0,0,0,.55);
+  visibility:hidden;transform:translateY(100%)}
+/* **`visibility` is delayed on the way out and instant on the way in**, and
+   writing it as one duration cost the whole first half of the entrance.
+   `transition: visibility 460ms` does not fade anything -- visibility is a
+   discrete property, and WebKit flips it at the midpoint of the duration. So
+   the sheet was invisible for the first 230ms of a 460ms travel and *appeared*
+   a third of the way up the screen, already moving. That is the "pop-up starts
+   from the wrong position" this project chased for weeks and never measured;
+   `static/debug.js` finally caught it on the device, reporting a first visible
+   Y of 533 where 781 was expected -- and 781 - (230/460) x 484 = 539.
+   The delay belongs only on the exit, where it keeps the sheet on screen until
+   it has finished leaving. */
+.screen{visibility:hidden;transform:translateY(100%);
   transition:transform var(--push-ms) var(--push-ease),
-             visibility var(--push-ms)}
-.screen.open{visibility:visible;transform:none}
+             visibility 0s linear var(--push-ms)}
+.screen.open{visibility:visible;
+  transition:transform var(--push-ms) var(--push-ease),visibility 0s}
+/* While a finger is on it the transform is set frame by frame, so the
+   transition has to be out of the way or every move is chasing a 460ms ease. */
+.screen.dragging{transition:none}
+/* At the medium detent the content does not scroll: dragging resizes the sheet
+   instead. That is `prefersScrollingExpandsWhenScrolledToEdge`, iOS's default,
+   and it is why the grabber is honest -- at this size the whole surface is a
+   handle. */
+.screen[data-detent="mid"] .body{overflow:hidden}
+.screen::before{content:'';position:absolute;top:7px;left:50%;margin-left:-18px;
+  width:36px;height:5px;border-radius:3px;z-index:3;
+  background:var(--fg);opacity:.28}
+/* The dimming view. Its opacity is driven from JS so it tracks the drag rather
+   than snapping at the ends -- that coupling is most of the illusion that the
+   sheet is a physical thing being moved. Tapping it dismisses, which is what
+   iOS's non-interactive dimming view does. */
+.scrim{position:fixed;inset:0;z-index:55;background:#000;opacity:0;
+  visibility:hidden;transition:opacity var(--push-ms) var(--push-ease),
+                              visibility 0s linear var(--push-ms)}
+.scrim.open{visibility:visible;
+  transition:opacity var(--push-ms) var(--push-ease),visibility 0s}
+.scrim.dragging{transition:none}
+/* The last 56 points of the *viewport*, faded to the colour beyond it.
+ *
+ * Fixed rather than inside the sheet, and that is not fussiness: at the medium
+ * detent the sheet's own bottom edge is somewhere below the fold, so a fade
+ * anchored to it would be invisible exactly when it is needed. This one is
+ * anchored to the glass. Its job is that no card ever meets the bottom of the
+ * view at a hard horizontal edge, at any detent or scroll position. */
+.sheetfade{position:fixed;left:0;right:0;bottom:0;height:56px;z-index:61;
+  pointer-events:none;opacity:0;visibility:hidden;
+  background:linear-gradient(to bottom,transparent,var(--bg));
+  transition:opacity var(--push-ms) var(--push-ease),
+             visibility 0s linear var(--push-ms)}
+.sheetfade.open{opacity:1;visibility:visible;
+  transition:opacity var(--push-ms) var(--push-ease),visibility 0s}
 @media (prefers-reduced-motion: reduce){
   .screen{transition:none}
 }
@@ -342,18 +573,70 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
    desktop and edge-to-edge chrome on a phone, with no extra element. */
 .navbar{flex:none;display:grid;grid-template-columns:1fr auto 1fr;
   align-items:center;gap:8px;
-  padding-top:max(8px,env(safe-area-inset-top));padding-bottom:8px;
+  /* No safe-area inset any more: the sheet starts below the status bar, so
+     spending 59pt here again would push the title into the middle of it.
+
+     The 22 is the grabber's room. */
+  padding-top:22px;padding-bottom:10px;
   padding-right:max(10px,env(safe-area-inset-right),calc((100% - var(--col))/2));
   padding-left:max(10px,env(safe-area-inset-left),calc((100% - var(--col))/2));
-  background:color-mix(in srgb,var(--sky1) 72%,transparent);
-  backdrop-filter:blur(16px);
-  border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
-.navbar .back{display:flex;align-items:center;gap:1px;justify-self:start;
-  color:var(--accent);font-size:17px;padding:6px 8px 6px 2px;margin:-6px 0}
-.navbar .back svg{width:19px;height:19px;stroke:currentColor;fill:none;
-  stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
-.navbar .back:active{opacity:.5}
-.navbar .t{font-size:16.5px;font-weight:600;text-align:center;
+  /* Opaque, unlike the push's translucent bar. Content scrolling under a
+     blurred bar is the right effect on a full screen and the wrong one on a
+     sheet, where the rounded top corners are the edge of an object and things
+     should not be visible sliding behind it. */
+  background:var(--bg);
+  border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);
+  /* The close button is positioned against this rather than laid out by the
+     grid -- see below for why. */
+  position:relative}
+/* Trailing close, **not** a leading back chevron. Shipped wrong once; the rule
+   is old and explicit -- a control's side encodes how the panel arrived. Slid
+   in from the right, further into the hierarchy: «Back», on the left. Slid up
+   from the bottom, a modal over a page that is still there: dismissed, on the
+   right. A chevron here claims a navigation that did not happen.
+
+   An X rather than «Готово»: Apple's own line is "avoid using Done buttons for
+   things other than completing the task", and there is no task -- you read a
+   day and close it. `UIBarButtonItem.SystemItem.close`, which is what the App
+   Store and Photos put on a sheet you only read. Grey, not accent: it is a way
+   out, not the point of the screen.
+
+   Not redundant with the grabber. That says the sheet resizes and can be
+   flicked away; this is the explicit, reachable, labelled version. */
+/* **Out of the grid, and centred on the header's border box.**
+ *
+ * Twice wrong before this. First it centred on the two-line title block, which
+ * put it 8pt below «Сегодня» and read as not-quite-centred. Then it centred on
+ * the title's *first line*, which is where the eye pairs it — but the header is
+ * taller than the title: the grabber lives above it, and the bar's padding is
+ * asymmetric (22 above for the grabber, 10 below). Anything laid out by the
+ * grid centres within the **content** box, and a content box with 12px more
+ * padding above than below is not centred in the bar you can see.
+ *
+ * `position: absolute` with `top: 0; bottom: 0; margin-block: auto` centres on
+ * the *padding* box — the whole header, grabber included — and does it for any
+ * title height, one line or two. That is the only version of this that is
+ * exact rather than tuned.
+ *
+ * `--nav-inset` is then the gap on all three sides at once: the button's
+ * distance from the header's top, bottom and right edges are one number. It is
+ * `(header height − 30) / 2` for the two-line header the day sheet always has,
+ * and `debug.js` checks the three against each other on the device rather than
+ * trusting this arithmetic. */
+.navbar .close{position:absolute;top:0;bottom:0;right:var(--nav-inset);
+  margin-block:auto;
+  display:flex;align-items:center;justify-content:center;width:30px;height:30px;
+  border-radius:50%;border:0;padding:0;
+  background:color-mix(in srgb,var(--fg) 12%,transparent)}
+/* The viewBox is the **ink**, which it was not before: the old path ran from 6
+   to 18 of a 24-unit box, so a "15px" icon drew a 7.5pt mark inside a 30pt
+   circle -- a quarter of its width, swimming in ring. `debug.js` measures this
+   with `getBBox`, which is why it is the one property here stated as a ratio:
+   iOS's is a little over a third. */
+.navbar .close svg{width:13px;height:13px;stroke:var(--dim);fill:none;
+  stroke-width:2.1;stroke-linecap:round}
+.navbar .close:active{opacity:.55}
+.navbar .t{grid-column:2;font-size:16.5px;font-weight:600;text-align:center;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .navbar .t small{display:block;font-size:12px;font-weight:500;
   color:var(--faint);letter-spacing:.02em}
@@ -373,6 +656,14 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
   padding-right:max(14px,env(safe-area-inset-right),calc((100% - var(--col))/2));
   padding-left:max(14px,env(safe-area-inset-left),calc((100% - var(--col))/2))}
 .screen .body > :last-child{margin-bottom:0}
+
+
+
+/* The screen ends with a quiet line rather than a card's hard edge -- the
+   forecast page has always ended this way and nobody has ever remarked on the
+   same 59pt of nothing below it. DECISIONS.md §26. */
+.screenfoot{margin:22px 0 0;padding-bottom:30px;text-align:center;
+  color:var(--faint);font-size:13px}
 .screen input{width:100%;padding:13px 15px;border-radius:14px;background:var(--card);
   border:1px solid var(--line);color:var(--fg);font-size:17px;outline:none;
   margin:10px 0 4px}
@@ -416,11 +707,34 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 .group .tick{width:17px;height:17px}
 .empty{padding:22px 4px;text-align:center;color:var(--faint);font-size:15px}
 
-/* iOS Safari ignores overflow:hidden on <body>. Pinning it is the only thing
-   that reliably stops the page scrolling underneath an open screen -- and the
-   scroll offset has to be preserved and restored by hand, because position:
-   fixed throws it away. */
-body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
+/* `overflow: hidden` on the scrolling element, and **not** `position: fixed`
+   on `<body>`.
+
+   The note that used to be here said iOS ignores `overflow: hidden` and that
+   pinning the body is the only thing that works. That was true, and stopped
+   being true in **iOS 16.3**, when WebKit fixed it. This phone is on 26.
+
+   Pinning the body is not merely unnecessary now, it is expensive in the one
+   place it cannot afford to be. Switching `<body>` from static to fixed
+   relayouts the entire document, and `openScreen` did it in the same task that
+   starts the sheet's transition -- so the main thread went off to reflow a
+   ten-day forecast while the animation was supposed to be painting its first
+   frames. Two screen recordings, measured frame by frame, showed the sheet
+   invisible for the first half of its travel and then appearing at 505pt and
+   573pt already moving. The scroll-offset save/restore (`window.scrollTo` on
+   the way out) did the same thing to the exit.
+
+   `overflow: hidden` changes no geometry, so there is no reflow, and the
+   scroll position is preserved for free -- nothing moved. `overscroll-behavior`
+   stops the rubber band underneath.
+
+   Sources: benfrain.com/preventing-body-scroll-for-modals-in-ios,
+   weser.io/blog/scroll-blocking-overlays (which dates the WebKit fix).
+
+   On `<html>`, not `<body>`: `document.scrollingElement` is the root, and the
+   sheet's own scroller is a descendant of `<body>` -- locking the body would
+   be locking an ancestor of the thing that still has to scroll. */
+html.locked{overflow:hidden;overscroll-behavior:none}
 
 /* ---- day detail ----------------------------------------------------------
  * Three sources, three shapes, deliberately. Яндекс publishes four parts of a
@@ -683,7 +997,8 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
  </defs>
 </svg>
 
-<div class="sky" id="sky" aria-hidden="true"></div>
+<div class="sky" id="sky" aria-hidden="true">
+  <div class="fx" id="fx"></div></div>
 <!-- The two strips iOS 26 Safari actually reads. See .edge in the stylesheet:
      they are invisible (each is the colour of the sky directly behind it) and
      exist solely to be sampled. -->
@@ -739,13 +1054,18 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
      lived inside `.wrap` and broke the first time an animation there grew a
      transform. Nothing fixed lives inside `.wrap` any more, and a test walks
      the ancestors to keep it that way. -->
+<div class="scrim" id="scrim" aria-hidden="true"></div>
+<div class="sheetfade" id="sheetfade" aria-hidden="true"></div>
 <div class="screen" id="screen" role="dialog" aria-modal="true" aria-hidden="true">
   <div class="navbar">
-    <button class="back" id="back" aria-label="Назад">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
-      <span>Назад</span>
-    </button>
+    <!-- Order matters, and not for layout: the close button is *last* in the
+         DOM so it is last in the tab and VoiceOver order, matching where it
+         sits on screen. It is placed in the trailing grid column by CSS. -->
     <div class="t" id="screen-title"></div>
+    <button class="close" id="close" aria-label="Закрыть">
+      <svg viewBox="0 0 13 13" aria-hidden="true">
+        <path d="M1 1l11 11M12 1L1 12"/></svg>
+    </button>
   </div>
   <div class="body" id="screen-body"></div>
 </div>

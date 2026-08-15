@@ -223,6 +223,16 @@ class Weather:
     selected: str = "yandex"
     sources: dict[str, SourceView] = field(default_factory=dict)
     health: Health = field(default_factory=Health)
+    # Is it dark in the city right now. A property of the moment and the place,
+    # so it lives on the envelope rather than on any one source -- all three
+    # would otherwise have to agree about it, and they have no idea.
+    #
+    # It exists because only `clear`, `partly` and `cloudy` have night forms of
+    # their icon: rain at midnight is still spelled `rain`, and the front end
+    # was lighting its drops for noon. Derived from solar position by `sun.py`
+    # like everything else here, never from "the hour looks late" -- this is
+    # Yoshkar-Ola, where June is light at eleven and December is dark at four.
+    night: bool = False
 
     @property
     def view(self) -> SourceView | None:

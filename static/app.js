@@ -99,8 +99,17 @@ const shortDir = (d) => SHORT_DIR[d] || d || '';
  * reads as empty; the same four lines on a sky read as calm. Costs no extra
  * data, which was the constraint.
  *
- * Redrawn only when the condition class actually changes -- a star field
- * rebuilt on every 10-minute refresh would flicker for no reason.
+ * Two mappings, and keeping them separate is the point. `SKY_OF` collapses
+ * eighteen icons into seven **colours**, because a palette wants to be coarse
+ * -- drizzle and a downpour are the same shade of grey and pretending
+ * otherwise makes the app flicker between near-identical blues on every
+ * refresh. `FX_OF` keeps all eighteen, because the *motion* is where the
+ * difference lives: drizzle is thin and slow, a downpour is dense and fast,
+ * and reading which one it is from across the room without focusing on a
+ * number is the entire trick.
+ *
+ * Redrawn only when the effect actually changes -- a star field rebuilt on
+ * every 10-minute refresh would flicker for no reason.
  */
 const SKY_OF = {
   'clear': 'clear-day', 'clear-night': 'clear-night',
@@ -111,43 +120,96 @@ const SKY_OF = {
   'rain-heavy': 'rain', 'thunder': 'rain', 'hail': 'rain',
   'snow-light': 'snow', 'snow': 'snow', 'snow-heavy': 'snow', 'sleet': 'snow',
 };
+
+/* Which layers each sky is built from, back to front.
+ *
+ * **There used to be a cloud layer here and it is gone, twice reported and
+ * twice mis-fixed.** It was a handful of radial gradients -- soft light blobs
+ * meant to read as cloud with a parallax behind them. On a desk they looked
+ * fine. On the phone, in standalone mode with the sky running the full 852pt,
+ * they read as a spotlight left on: a bright patch high on the screen with a
+ * visible edge above it, worse than the plain gradient it replaced.
+ *
+ * The second attempt spread them over the whole box and cleared the top few
+ * per cent so nothing crossed the status bar. That produced a *different*
+ * edge, in a different place, and the person looking at the actual device said
+ * plainly that it was worse than before. Two goes is enough: a localised bright
+ * shape on a gradient is a hard thing to place blind, and the harness here
+ * renders it correctly, which means the harness cannot referee it.
+ *
+ * What replaces it has **no spatial structure at all** -- a flat tint whose
+ * only variable is opacity, breathing over ten seconds or so. It cannot make
+ * an edge anywhere, because it is the same everywhere. That is a smaller idea
+ * than parallax cloud and it is the one that survives contact with a device
+ * nobody here can see.
+ *
+ * `*` used to mark a layer that differed after dark. Nothing left needs it:
+ * the drops carry their own night colour and a flat tint has nothing to vary.
+ */
+const FX_OF = {
+  'clear':        ['g sun'],
+  'clear-night':  ['g moon', 'stars'],
+  'partly':       ['h thin'],
+  'partly-night': ['stars', 'h thin'],
+  'cloudy':       ['h'],
+  'cloudy-night': ['h'],
+  'overcast':     ['h thick'],
+  'fog':          ['b'],
+  'drizzle':      ['p rain thin'],
+  'rain-light':   ['p rain thin', 'p rain close'],
+  'rain':         ['p rain', 'p rain close'],
+  'rain-heavy':   ['p rain hard', 'p rain close'],
+  'thunder':      ['p rain hard', 'p rain close'],
+  'hail':         ['p hail'],
+  'sleet':        ['p rain thin', 'p snow slow'],
+  'snow-light':   ['p snow slow'],
+  'snow':         ['p snow', 'p snow fast'],
+  'snow-heavy':   ['p snow', 'p snow fast'],
+};
+
 let skyNow = null;
+let fxNow = null;
 let lastIcon = null;
 
-function setSky(iconKey) {
+/** Deterministic star field. One that jumps around between renders is worse
+ *  than no star field. */
+function starField() {
+  let s = '';
+  for (let i = 0; i < 60; i++) {
+    s += `<circle cx="${((i * 37.7) % 100).toFixed(2)}%"
+      cy="${((i * 61.3) % 62).toFixed(2)}%"
+      r="${(0.5 + ((i * 13) % 7) / 9).toFixed(2)}" fill="#fff"
+      style="animation-delay:${((i * 7) % 40) / 10}s"/>`;
+  }
+  return `<svg class="stars" width="100%" height="100%">${s}</svg>`;
+}
+
+function setSky(iconKey, night) {
   lastIcon = iconKey;
   const kind = SKY_OF[iconKey] || 'cloudy-night';
-  if (kind === skyNow) return;
-  skyNow = kind;
-  document.documentElement.dataset.sky = kind;   // on the root: <html> paints the canvas
-
-  // Keep the status bar, the app-switcher card and the notch fill matching the
-  // top of the gradient. One source of truth: whatever CSS resolved --sky1 to.
-  setThemeColor(getComputedStyle(document.documentElement)
-    .getPropertyValue('--sky1').trim());
-
-  let inner = '';
-  if (kind === 'clear-night') {
-    // Deterministic placement: a star field that jumps around between renders
-    // is worse than no star field.
-    let stars = '';
-    for (let i = 0; i < 60; i++) {
-      const x = ((i * 37.7) % 100).toFixed(2);
-      const y = ((i * 61.3) % 62).toFixed(2);
-      const r = (0.5 + ((i * 13) % 7) / 9).toFixed(2);
-      const d = ((i * 7) % 40) / 10;
-      stars += `<circle cx="${x}%" cy="${y}%" r="${r}" fill="#fff"
-        style="animation-delay:${d}s"/>`;
-    }
-    inner = `<svg class="stars" width="100%" height="100%">${stars}</svg>`;
-  } else if (kind === 'rain') {
-    inner = '<div class="drift"></div><div class="fall rain"></div>';
-  } else if (kind === 'snow') {
-    inner = '<div class="drift"></div><div class="fall snow"></div>';
-  } else if (kind !== 'clear-day') {
-    inner = '<div class="drift"></div>';
+  if (kind !== skyNow) {
+    skyNow = kind;
+    document.documentElement.dataset.sky = kind;  // <html> paints the canvas
+    // Keep the status bar, the app-switcher card and the notch fill matching
+    // the top of the gradient. One source of truth: whatever CSS resolved
+    // `--sky1` to.
+    setThemeColor(getComputedStyle(document.documentElement)
+      .getPropertyValue('--sky1').trim());
   }
-  $('sky').innerHTML = inner;
+
+  // The night flag is the server's, from solar position -- not `hour > 20`.
+  // Only clear/partly/cloudy carry it in the icon itself; rain at midnight is
+  // still spelled `rain`, so without this the drops would be lit for noon.
+  const fx = (FX_OF[iconKey] ? iconKey : 'cloudy-night') + (night ? '/n' : '');
+  if (fx === fxNow) return;
+  fxNow = fx;
+  // On the root, not on the layers: the drops are the only thing that changes
+  // after dark now, and one attribute the stylesheet keys off beats a class
+  // threaded through a lookup table.
+  document.documentElement.toggleAttribute('data-night', !!night);
+  $('fx').innerHTML = (FX_OF[iconKey] || FX_OF['cloudy-night'])
+    .map((l) => (l === 'stars' ? starField() : `<i class="${l}"></i>`))
+    .join('');
 }
 
 /* --------------------------------------------------------------- rendering */
@@ -394,7 +456,7 @@ function render(d) {
   const feels = c.feels_like_c != null && Math.round(c.feels_like_c) !== Math.round(c.temp_c)
     ? `ощущается как ${fmtT(c.feels_like_c)}` : '';
 
-  setSky(c.icon);
+  setSky(c.icon, !!d.night);
 
   const hero = `<div class="hero">
     <div class="ic">${icon(c.icon)}</div>
@@ -544,7 +606,6 @@ function useGeolocation() {
  */
 const SCREENS = {};                 // name -> (arg) => {title, sub, html}
 let current = null;                 // {name, arg} or null
-let restoreScroll = 0;
 
 function pushMs() {
   // Read back from CSS rather than restated -- the same rule as --hour-w, and
@@ -553,6 +614,165 @@ function pushMs() {
   const raw = cssVar('--push-ms');
   const n = parseFloat(raw) || 0;
   return raw.endsWith('ms') ? n : raw.endsWith('s') ? n * 1000 : n;
+}
+
+/* ---- the sheet ------------------------------------------------------------
+ *
+ * A resizable bottom sheet with two detents, modelled on iOS's own
+ * `UISheetPresentationController`. The CSS half is documented at `.screen`;
+ * this is the half a stylesheet cannot do.
+ *
+ * Three behaviours are what separate a sheet that feels real from a panel that
+ * animates, and all three are here:
+ *
+ *   - **The dimming tracks the drag.** Not "dim on open, undim on close" --
+ *     the scrim's opacity is a function of where the sheet currently is, so
+ *     the page behind brightens under your finger. Most of the illusion that
+ *     you are moving an object lives in that one coupling.
+ *   - **A flick is not a drag.** Past ~0.5 px/ms the sheet goes one detent the
+ *     way you threw it regardless of where you let go; below that, it snaps to
+ *     whichever detent is nearest. Position-only sheets feel sticky and
+ *     velocity-only ones feel twitchy.
+ *   - **The drag defers to the scroll.** At the large detent a drag may only
+ *     begin at the top of the content, and a gesture that turns out to be
+ *     horizontal is handed back -- the hourly curve inside the sheet scrolls
+ *     sideways and must keep doing so.
+ *
+ * On invariant 13, deliberately: it forbids hand-rolling the *horizontal*
+ * swipe, because iOS runs its own edge-swipe-back in a standalone PWA and a
+ * second implementation makes the app navigate back twice. A vertical drag
+ * does not collide with it. Dismissal still goes through `history.back()`, so
+ * there remains exactly one way out and the system gesture still works.
+ */
+const DETENTS = ['large', 'mid', 'closed'];
+const FLICK = 0.5;                  // px/ms; above this, direction beats position
+let detent = 'mid';
+let sheetY = 0;
+let drag = null;
+
+/** The sheet's own height. `offsetHeight`, not the rect: the rect is measured
+ *  after the transform, and every detent is expressed against the untransformed
+ *  box. Reading the wrong one makes the detents drift as the sheet moves. */
+function sheetH() { return $('screen').offsetHeight || 1; }
+
+function detentY(name) {
+  if (name === 'large') return 0;
+  if (name === 'closed') return sheetH();
+  // Read back from CSS rather than restated -- `--sheet-mid` is the one place
+  // the medium detent is written down. Same rule as `--hour-w` and
+  // `--push-ms`, and the same test covers it.
+  return sheetH() * (parseFloat(cssVar('--sheet-mid')) || 38) / 100;
+}
+
+function setSheet(y) {
+  const h = sheetH();
+  sheetY = Math.max(0, Math.min(y, h));
+  $('screen').style.transform = `translateY(${sheetY}px)`;
+  const shown = 1 - sheetY / h;
+  // .62 at the large detent is about as dark as iOS goes; the fade over the
+  // bottom of the viewport comes in with the sheet so it never sits over a
+  // fully lit forecast.
+  $('scrim').style.opacity = (0.62 * shown).toFixed(3);
+  // Not `shown`. The fade has a job to do at *every* detent -- it is what stops
+  // a card meeting the bottom of the view at a hard edge -- so it has to be
+  // fully on by the time the sheet has arrived anywhere, not proportional to
+  // how far up it went. It was proportional first, which left it at 62% at the
+  // medium detent and put a measurable step back at the seam: (13,21,40)
+  // against a canvas of (10,16,32). Ramped at twice the rate, it is complete
+  // before the first detent and still fades out on the way to dismissed.
+  $('sheetfade').style.opacity = Math.min(1, shown * 2).toFixed(3);
+}
+
+function goDetent(name) {
+  // One way out, whichever gesture asked for it: the back button, the system
+  // edge swipe, a tap on the scrim and a flick down all end up here, and here
+  // it is always `history.back()`. Two dismissal paths is how a screen gets
+  // left in the history stack.
+  if (name === 'closed') { history.back(); return; }
+  detent = name;
+  $('screen').dataset.detent = name;
+  setSheet(detentY(name));
+}
+
+function dragging(on) {
+  for (const id of ['screen', 'scrim']) $(id).classList.toggle('dragging', on);
+}
+
+function onDragStart(e) {
+  if (!current || e.touches.length !== 1) return;
+  const body = $('screen-body');
+  // At the medium detent nothing scrolls, so the whole surface is a handle. At
+  // the large one a drag may only begin at the very top of the content --
+  // otherwise the sheet moves when you meant to scroll the list, which is the
+  // most annoying thing a hand-rolled sheet can do.
+  const onBar = !!(e.target.closest && e.target.closest('.navbar'));
+  if (!onBar && detent !== 'mid' && body.scrollTop > 0) return;
+  const t = e.touches[0];
+  drag = { x0: t.clientX, y0: t.clientY, base: sheetY,
+           last: t.clientY, lastT: e.timeStamp, v: 0, moved: false };
+}
+
+/** Does this gesture belong to the sheet, or to something inside it?
+ *
+ *  Pulled out and named because getting it wrong is silent: the sheet simply
+ *  swallows a gesture and whatever should have moved does not, with no error
+ *  anywhere. Both ways of getting it wrong have shipped.
+ *
+ *  `dx > |dy|` — sideways is the hourly strip's, which scrolls horizontally.
+ *
+ *  `dy < 0 && atTop` — **upward at the largest detent is the content's.** The
+ *  sheet has nowhere further to go, so claiming the gesture clamps it to 0 and
+ *  `preventDefault`s the native scroll: a full-height sheet whose content is
+ *  taller than it is becomes completely unscrollable. Reported as "it sticks
+ *  to the top and not all of the detail is visible". This is also what iOS
+ *  does — at the largest detent a sheet scrolls rather than resizes.
+ *
+ *  Exported on `window` for the tests, which drive it as a table rather than
+ *  trying to synthesise touch sequences.
+ */
+function dragBelongsToSheet(dy, dx, atTop) {
+  if (dx > Math.abs(dy)) return false;
+  if (dy < 0 && atTop) return false;
+  return true;
+}
+window.dragBelongsToSheet = dragBelongsToSheet;
+
+function onDragMove(e) {
+  if (!drag) return;
+  const t = e.touches[0];
+  const dy = t.clientY - drag.y0;
+  if (!drag.moved) {
+    const dx = Math.abs(t.clientX - drag.x0);
+    if (Math.abs(dy) < 6 && dx < 6) return;
+    if (!dragBelongsToSheet(dy, dx, drag.base <= 0)) { drag = null; return; }
+    drag.moved = true;
+    dragging(true);
+  }
+  if (e.cancelable) e.preventDefault();
+  const dt = e.timeStamp - drag.lastT;
+  if (dt > 0) drag.v = (t.clientY - drag.last) / dt;   // px/ms, + is downward
+  drag.last = t.clientY;
+  drag.lastT = e.timeStamp;
+  // No overscroll upwards: the sheet's bottom is the bottom of the viewport,
+  // and lifting it above the large detent would open a gap onto the canvas.
+  setSheet(Math.max(0, drag.base + dy));
+}
+
+function onDragEnd() {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  dragging(false);
+  if (!d.moved) return;
+  let next;
+  if (Math.abs(d.v) > FLICK) {
+    const i = DETENTS.indexOf(detent) + (d.v > 0 ? 1 : -1);
+    next = DETENTS[Math.max(0, Math.min(DETENTS.length - 1, i))];
+  } else {
+    next = DETENTS.reduce((best, n) =>
+      Math.abs(detentY(n) - sheetY) < Math.abs(detentY(best) - sheetY) ? n : best);
+  }
+  goDetent(next);
 }
 
 /** Renders `name` into the screen. Returns false when it has nothing to show,
@@ -576,29 +796,32 @@ function openScreen(name, arg) {
   if (already) return true;
 
   $('screen').setAttribute('aria-hidden', 'false');
-  $('screen').classList.add('open');
-  // The forecast is still in the document behind an opaque screen, so without
-  // this it stays tabbable and audible to a screen reader -- a second copy of
-  // the app underneath the one you are looking at.
+  for (const id of ['screen', 'scrim', 'sheetfade']) $(id).classList.add('open');
+  // Parked off-screen and reflowed *before* the detent is set. Without the
+  // reflow the browser coalesces both writes into one style change and the
+  // sheet simply appears at its detent, having travelled nowhere.
+  dragging(true);
+  setSheet(sheetH());
+  void $('screen').offsetHeight;
+  dragging(false);
+  goDetent('mid');
   document.querySelector('.wrap').inert = true;
-  // Pin the page underneath. iOS Safari ignores overflow:hidden on <body>, and
-  // position:fixed discards the scroll offset -- so it is saved here and put
-  // back on the way out, or dismissing the screen silently returns you to the
-  // top of the forecast. Captured *before* the pin, since pinning is what
-  // makes window.scrollY read zero.
-  restoreScroll = window.scrollY;
-  document.body.style.top = `-${restoreScroll}px`;
-  document.body.classList.add('locked');
+  // Pin the page underneath -- `overflow: hidden` on the root, which changes
+  // no geometry and therefore costs no reflow. It used to switch <body> to
+  // `position: fixed` and juggle the scroll offset by hand, which relayouts
+  // the whole document in the same task that starts the sheet's transition.
+  // See the `html.locked` rule for what that did to the animation.
+  document.documentElement.classList.add('locked');
   return true;
 }
 
 function closeScreen() {
-  $('screen').classList.remove('open');
+  setSheet(sheetH());
+  for (const id of ['screen', 'scrim', 'sheetfade']) $(id).classList.remove('open');
   $('screen').setAttribute('aria-hidden', 'true');
   document.querySelector('.wrap').inert = false;
-  document.body.classList.remove('locked');
-  document.body.style.top = '';
-  window.scrollTo(0, restoreScroll);
+  // Nothing to restore: the document never moved.
+  document.documentElement.classList.remove('locked');
   current = null;
   // Emptied only after it has finished sliding out, or the screen goes blank
   // in front of you for the length of the animation.
@@ -913,11 +1136,27 @@ SCREENS.day = (date) => {
   const lab = dayLabel(date);
   const tz = d.place && d.place.tz;
 
+  /* The screen has to *end*, and this line is not decoration.
+   *
+   * The web view this app gets is 59pt shorter than the display (DECISIONS.md
+   * §26), so whatever is last in the scroll sits 59pt above the glass with
+   * flat background beneath it. The forecast page has always done exactly the
+   * same thing and nobody has ever once noticed, because it ends in a quiet
+   * line of text on the sky: the eye reads "page over" and the strip below is
+   * simply where the page stopped. The day screen ended flush against a card's
+   * hard rounded edge, and the identical strip read as a tab bar that had
+   * forgotten to draw itself.
+   *
+   * Reported three times and guessed at five, and the difference between the
+   * two screens was never a length. One of them looked finished. */
+  const foot = () => `<p class="screenfoot">${esc(view ? view.label : '')}`
+    + `${d.fetched_at ? ' · ' + ago(d.fetched_at) : ''}</p>`;
+
   let body = sourceStrip(d, active);
   if (!day) {
     body += `<div class="card nodata">У источника «${esc(view ? view.label : '')}»
       нет данных на этот день.<br>Попробуйте другой источник выше.</div>`;
-    return { title: lab.a, sub: lab.b, html: body };
+    return { title: lab.a, sub: lab.b, html: body + foot() };
   }
 
   const range = day.temp_max_c != null
@@ -951,7 +1190,7 @@ SCREENS.day = (date) => {
     body += `<div class="card nodata">Этот источник даёт на этот день только
       максимум и минимум.</div>`;
   }
-  return { title: lab.a, sub: lab.b, html: body };
+  return { title: lab.a, sub: lab.b, html: body + foot() };
 };
 
 /* ------------------------------------------------------------------- boot */
@@ -977,7 +1216,21 @@ function boot() {
   if (history.state && history.state.yw) history.replaceState(null, '');
 
   $('btn-place').addEventListener('click', () => push('place'));
-  $('back').addEventListener('click', pop);
+  $('close').addEventListener('click', pop);
+  // Tapping the dimmed page dismisses, the way iOS's dimming view does.
+  $('scrim').addEventListener('click', pop);
+  // Vertical only, and only while a sheet is up -- see the block above
+  // `openScreen` for why this does not collide with the system's edge swipe.
+  // Not passive: a drag that has claimed the gesture has to be able to stop
+  // the page underneath from scrolling with it.
+  $('screen').addEventListener('touchstart', onDragStart, { passive: true });
+  $('screen').addEventListener('touchmove', onDragMove, { passive: false });
+  $('screen').addEventListener('touchend', onDragEnd);
+  $('screen').addEventListener('touchcancel', onDragEnd);
+  // Rotating the phone changes the sheet's height, and every detent is a
+  // fraction of it. Without this the sheet keeps yesterday's offset and sits
+  // at no detent at all.
+  window.addEventListener('resize', () => { if (current) goDetent(detent); });
   $('btn-refresh').addEventListener('click', () => load(state.place, { force: true }));
 
   // One delegated listener on the screen shell, which never gets replaced --
@@ -1058,6 +1311,22 @@ function boot() {
     const b = document.createElement('div');
     b.className = 'build';
     b.textContent = window.YW_BUILD;
+    // Tapping it loads the diagnostic. Deliberately the least discoverable
+    // control in the app and deliberately not behind a URL: a home-screen web
+    // app has one fixed `start_url` and no address bar to type into.
+    //
+    // Fetched rather than bundled, because it is the one feature here that is
+    // allowed to need the network -- it exists to be run while someone is
+    // looking at the phone. That keeps it out of the cold-load budget
+    // entirely. See `static/debug.js`.
+    b.addEventListener('click', () => {
+      if ($('dbg') || document.getElementById('dbg-js')) return;
+      const s = document.createElement('script');
+      s.id = 'dbg-js';
+      s.src = BASE + 'debug.js';
+      s.onload = () => s.remove();
+      document.head.appendChild(s);
+    });
     $('install').after(b);
   }
 }

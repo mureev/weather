@@ -16,6 +16,13 @@ from fastapi.testclient import TestClient
 from app import service
 from app.main import app
 from app.sources import gismeteo, openmeteo, yandex_html
+from tests.test_extract import NOW_C, RECORDED
+
+# The stub agrees with the fixture rather than with a number typed in July.
+# `NOW_C` is read straight out of the recorded page; the 0.6 is the *gap*,
+# which is what the divergence assertions are actually about.
+OM_NOW = round(NOW_C - 0.6, 1)
+STAMP = f"{RECORDED.isoformat()}T22:00"
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -41,15 +48,15 @@ def client_(request, monkeypatch):
         # Close enough to agree with the fixture's +16°, so the referee stays
         # quiet and we are testing the happy path rather than the alarm.
         return {
-            "current": {"time": "2026-07-31T21:00", "temperature_2m": 15.4,
+            "current": {"time": STAMP, "temperature_2m": OM_NOW,
                         "apparent_temperature": 15.0, "relative_humidity_2m": 88,
                         "surface_pressure": 993.0, "wind_speed_10m": 1.2,
                         "wind_direction_10m": 270, "weather_code": 0},
-            "hourly": {"time": ["2026-07-31T21:00"], "temperature_2m": [15.4],
+            "hourly": {"time": [STAMP], "temperature_2m": [OM_NOW],
                        "weather_code": [0], "precipitation": [0.0],
                        "precipitation_probability": [0]},
-            "daily": {"time": ["2026-07-31"], "temperature_2m_max": [20.0],
-                      "temperature_2m_min": [14.0], "weather_code": [61],
+            "daily": {"time": [RECORDED.isoformat()], "temperature_2m_max": [NOW_C + 8],
+                      "temperature_2m_min": [NOW_C - 2], "weather_code": [61],
                       "precipitation_probability_max": [40]},
         }
 
@@ -74,7 +81,7 @@ class TestWeatherEndpoint:
         d = r.json()
         assert d["place"]["name"] == "Йошкар-Ола"
         ya = d["sources"]["yandex"]
-        assert ya["current"]["temp_c"] == 16.0
+        assert ya["current"]["temp_c"] == NOW_C
         assert len(ya["daily"]) == 10
         assert len(ya["hourly"]) == 24
 
@@ -106,7 +113,7 @@ class TestWeatherEndpoint:
         assert d["sources"]["yandex"]["fallback_profile"] is False
 
     def test_divergence_is_recorded_but_decides_nothing(self, client_):
-        """Yandex says 16.0, Open-Meteo says 15.4. Both are served, both are
+        """The two disagree by 0.6°. Both are served, both are
         selectable, and the delta is on the record for whoever is debugging."""
         d = client_.get("/weather/api/weather").json()
         assert d["health"]["divergence_c"]["yandex/openmeteo"] == pytest.approx(0.6)
@@ -115,7 +122,7 @@ class TestWeatherEndpoint:
     def test_lat_lon_addressing(self, client_):
         r = client_.get("/weather/api/weather?lat=56.63&lon=47.9")
         assert r.status_code == 200
-        assert r.json()["sources"]["yandex"]["current"]["temp_c"] == 16.0
+        assert r.json()["sources"]["yandex"]["current"]["temp_c"] == NOW_C
 
     def test_coordinates_out_of_range_are_refused(self, client_):
         assert client_.get("/weather/api/weather?lat=999&lon=0").status_code == 400
@@ -138,8 +145,8 @@ class TestDegradation:
             raise RuntimeError("connection refused")
 
         async def fake_om(_client, _place):
-            return {"current": {"time": "2026-07-31T21:00",
-                                "temperature_2m": 15.4, "weather_code": 0}}
+            return {"current": {"time": STAMP,
+                                "temperature_2m": OM_NOW, "weather_code": 0}}
 
         monkeypatch.setattr(yandex_html, "fetch_html", boom)
         monkeypatch.setattr(gismeteo, "fetch_html", boom)
@@ -148,7 +155,7 @@ class TestDegradation:
 
         d = TestClient(app).get("/weather/api/weather").json()
         assert d["selected"] == "openmeteo"
-        assert d["sources"]["openmeteo"]["current"]["temp_c"] == 15.4
+        assert d["sources"]["openmeteo"]["current"]["temp_c"] == OM_NOW
         assert d["sources"]["yandex"]["available"] is False
         assert d["health"]["status"] == "degraded"
 
@@ -189,7 +196,7 @@ class TestDegradation:
             raise RuntimeError("stubbed out")
 
         async def cold_om(_c, _p):
-            return {"current": {"time": "2026-07-31T21:00",
+            return {"current": {"time": STAMP,
                                 "temperature_2m": -12.0, "weather_code": 0}}
 
         monkeypatch.setattr(yandex_html, "fetch_html", fake_fetch)
@@ -199,9 +206,13 @@ class TestDegradation:
 
         d = TestClient(app).get("/weather/api/weather").json()
         assert d["selected"] == "yandex"
-        assert d["sources"]["yandex"]["current"]["temp_c"] == 16.0
+        assert d["sources"]["yandex"]["current"]["temp_c"] == NOW_C
         assert d["sources"]["openmeteo"]["current"]["temp_c"] == -12.0
-        assert d["health"]["divergence_c"]["yandex/openmeteo"] == pytest.approx(28.0)
+        # The gap, computed rather than typed: the point of this test is that
+        # a wide divergence is *recorded and does not decide*, not that it is
+        # any particular width.
+        assert d["health"]["divergence_c"]["yandex/openmeteo"] == \
+            pytest.approx(NOW_C - (-12.0))
 
     def test_stale_cache_beats_nothing(self, request, monkeypatch):
         raw = (request.path.parent / "fixtures" / "current.html").read_text(
@@ -222,14 +233,14 @@ class TestDegradation:
         service.invalidate()
         c = TestClient(app)
         first = c.get("/weather/api/weather").json()
-        assert first["sources"]["yandex"]["current"]["temp_c"] == 16.0
+        assert first["sources"]["yandex"]["current"]["temp_c"] == NOW_C
 
         async def boom(*_a, **_k):
             raise RuntimeError("gone")
 
         monkeypatch.setattr(yandex_html, "fetch_html", boom)
         d = c.get("/weather/api/weather?force=1").json()
-        assert d["sources"]["yandex"]["current"]["temp_c"] == 16.0
+        assert d["sources"]["yandex"]["current"]["temp_c"] == NOW_C
         assert d["health"]["status"] == "stale"
         assert any("устарели" in w for w in d["health"]["warnings"])
 
@@ -431,19 +442,75 @@ class TestItIsCheapToLoad:
         What should refuse a third raise: anything that is not paid for by
         something visible offline. Growth in `app.js` for a feature that only
         works online belongs behind a fetch, not in the shell.
+
+        **Raised a third time anyway, to 48.5 kB, and it is worth being honest
+        that this one is decoration.** The weather now moves differently for
+        each of eighteen conditions instead of three, day and night apart. It
+        is paid for by the offline rule -- the sky is stylesheet and a lookup
+        table, so it works with the radio off and it is what the app looks like
+        every time it is opened. But it buys no information, and if a fourth
+        raise is ever wanted for something that does, this is the 3 kB to take
+        it out of.
         """
         total = 0
         for path in (*self.SHELL, "api/weather"):
             r = client_.get(f"/weather/{path}", headers={"Accept-Encoding": "gzip"})
             total += self.wire_bytes(r)
-        assert total < 43_000, (
+        assert total < 49_000, (
             f"a cold load is now {total/1000:.1f} kB compressed; it was 41 kB. "
             f"Something sizeable joined the shell -- check before raising this.")
 
     def test_the_uncompressed_shell_has_not_ballooned_either(self, client_):
-        """Compression can hide a lot of growth. Watch the source too."""
+        """Compression can hide a lot of growth. Watch the source too.
+
+        112_000 rather than the 98_000 it was, and that is a 14% raise asked
+        for in one sitting, so it had better be justified.
+
+        Two things bought it. The sheet is real code -- detents, a drag that
+        defers to the scroll, a dimming view driven off the sheet's position --
+        and it replaced a panel that was three CSS rules. And the rest is
+        comment: the canvas colour, the `.screen` rules and `phone.py` between
+        them carry the account of a bug that took six attempts, three of which
+        shipped announced as fixes.
+
+        The compressed budget above did not move, and that is the one the phone
+        pays -- prose gzips to almost nothing. So the cost of this raise is
+        disk, and the thing it buys is that nobody spends another week on the
+        59 points at the bottom of that display.
+
+        What should still refuse a raise: anything that is neither shipped
+        behaviour nor the record of a mistake. Dead code and restated docs are
+        what this number exists to catch, and it catches them less well now.
+
+        **126_000, and this one is the weather actually moving.** Eighteen
+        conditions used to share seven skies and three effects, so drizzle,
+        a downpour and a thunderstorm were the same picture. They now differ in
+        the two things a glance picks up -- how dense and how fast -- and day
+        and night differ too, which is why the envelope grew a `night` flag:
+        only clear, partly and cloudy carry the hour in their icon, and rain at
+        midnight was being lit for noon.
+
+        The bill is about 5 kB of stylesheet and 1.5 kB of table, and roughly a
+        third of the stylesheet is the account of why the old loop jerked --
+        a pattern repeating every 190px vertically, moved 168px, twitching 22px
+        eleven hundred times a minute. That is the kind of arithmetic nobody
+        reconstructs from the code, and this file has already paid once for a
+        comment that was not written (§26).
+
+        129_000 after one more round: the cloud field went from three gradients
+        shared by both depths to five distinct ones each. That sounds like
+        polish and was not -- with identical geometry the two layers stacked
+        into a single bright blob in the upper third and the rest of a 852pt
+        standalone screen stayed empty, which reads as a spotlight rather than
+        a sky. Reported from the device, as these things are.
+
+        Compressed, the number the phone actually pays, this cost 3.1 kB, and
+        the budget above moved with it. Both are fetched once and then held by
+        the service worker for good, which is the only reason a raise of this
+        size is arguable at all.
+        """
         raw = sum(len(client_.get(f"/weather/{n}").content) for n in self.SHELL)
-        assert raw < 98_000, f"the shell source is now {raw/1000:.1f} kB"
+        assert raw < 131_000, f"the shell source is now {raw/1000:.1f} kB"
 
     def test_static_assets_say_how_long_they_may_be_kept(self, client_):
         """Unhashed shell files must revalidate -- a cached copy that never

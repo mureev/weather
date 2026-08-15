@@ -11,6 +11,7 @@ question came up once and will come up again.
 | `probe403.py` | The same matrix from inside the built image, using the app's own headers. |
 | `flight_probe.py` | Dumps Yandex's RSC flight stream and pulls out any JSON value by key. This is how the `fact` object was found in the first place. |
 | `shoot.py` | Screenshots at iPhone size, light and dark, against the mock server. |
+| `phone.py` | **Reach for this before theorising about a phone-only layout bug.** Renders into the 393×793 web view iOS actually gives this app, applies the safe-area insets Chromium reports as zero, and composites the 59pt strip the system draws below it — so the image is what the display shows rather than what the window contains. |
 
 `gm-probe.sh` earned its keep: it proved Gismeteo blocks by **IP**, not by
 request shape, after two rounds of header and transport theorising. Every row

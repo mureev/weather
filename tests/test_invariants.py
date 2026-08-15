@@ -197,6 +197,24 @@ class TestSingleResponsibilityWhereItCosts:
                      if re.search(r"^\s*print\(", source(p), re.M)]
         assert not offenders, f"{offenders} use print() instead of logging"
 
+    def test_only_ru_text_decides_how_a_sentence_starts(self):
+        """Capitalising a condition was written out by hand at eight call
+        sites -- `cond[0].upper() + cond[1:]`, once per parser, once per series
+        -- and the ninth path simply forgot. Gismeteo's tier-2 recovery reads
+        the site's header sentence, where the phrase follows a city name and is
+        lowercase, so switching tabs turned «Пасмурно» into «пасмурно».
+
+        The bug was not any of the eight sites. It was that a rule with eight
+        copies has no owner, and the tenth caller will forget too. Same species
+        as `--hour-w` in two languages, and the same remedy: one place decides,
+        everyone else asks.
+        """
+        idiom = re.compile(r"\[0\]\.upper\(\)\s*\+")
+        offenders = [p.name for p in PY_MODULES
+                     if p.name != "ru_text.py" and idiom.search(source(p))]
+        assert not offenders, (
+            f"{offenders} capitalise by hand; call `ru_text.sentence` instead")
+
     @pytest.mark.parametrize("path", PY_MODULES, ids=lambda p: p.name)
     def test_every_module_says_what_it_is_for(self, path):
         """The first thing a stranger reads. A module with no docstring is a
@@ -353,6 +371,153 @@ class TestMistakesThatCannotBeRepeated:
             assert value not in js, (
                 f"{name} is {value} in the stylesheet and the same literal "
                 f"appears in app.js -- read it back, do not restate it")
+
+
+class TestTheFixturesAreOneRecording:
+    """All three sources must describe the same fortnight.
+
+    Re-recording one source and not the others produces a fixture set that is
+    internally impossible: in August 2026 Gismeteo was re-recorded alone, and
+    its ten days (13–22 Aug) shared **not one date** with Yandex's (31 Jul–9
+    Aug). Everything downstream then failed for reasons that had nothing to do
+    with the code — the day screen showed an empty table when you switched
+    source, because the day being asked for did not exist in the other source.
+
+    That failure took a while to read, so it is asserted directly here. The
+    message is the fix: `make fixtures && make fixtures-gm`, both, together.
+    """
+
+    @staticmethod
+    def _days(name: str) -> list[str]:
+        raw = (ROOT / "tests" / "fixtures" / name).read_text(
+            encoding="utf-8", errors="replace")
+        return sorted(set(re.findall(r"20\d\d-[01]\d-[0-3]\d", raw)))
+
+    def test_the_sources_overlap(self):
+        ya = self._days("current.html")
+        gm = self._days("mf-10days.html")
+        if not ya or not gm:
+            pytest.skip("a fixture is missing its dates")
+        shared = set(ya) & set(gm)
+        assert shared, (
+            f"the fixtures are different recordings: Yandex spans "
+            f"{ya[0]}..{ya[-1]} and Gismeteo {gm[0]}..{gm[-1]}, with no date "
+            f"in common. Re-record both -- `make fixtures && make fixtures-gm`")
+
+
+class TestNothingPinsTheDocument:
+    """The single most expensive line this project has ever contained was
+
+        body.locked { position: fixed; ... }
+
+    a scroll lock, and the standard one. In a standalone iOS web app it does
+    two things nobody expects:
+
+    1. **It collapses the viewport to the small viewport.** `innerHeight` goes
+       from 852 to 793 -- the display minus the status-bar inset -- and stays
+       there for as long as the lock is on. Every consequence of that was
+       investigated for six deploys as though it were a layout bug: an
+       unpaintable 59pt band along the bottom of the phone, content cut off at
+       the fold, `dvh` disagreeing with `lvh`. It was the lock.
+    2. **It relayouts the whole document**, and it was doing so in the same
+       task that starts the sheet's transition -- so the animation's opening
+       frames were never painted. Two screen recordings measured the sheet
+       first appearing at 505pt and 573pt of a travel starting at 793.
+
+    Both symptoms vanished together the moment `position: fixed` came off. The
+    diagnostic on the device now reports `inner 393x852` and `ниже вьюпорта
+    0pt`, where it used to report 793 and 59.
+
+    The replacement is `overflow: hidden` on the scrolling element, which is
+    what WebKit has honoured since **iOS 16.3**. The note that justified the
+    pin predated that fix by three years and was inherited without re-dating.
+
+    This is asserted at the source, because it is a rule about what may not be
+    *written*: a browser that does not collapse its viewport -- every desktop
+    one -- cannot show the failure.
+    """
+
+    ROOTS = ("html", "body")
+
+    @pytest.mark.parametrize("el", ROOTS)
+    def test_the_scroll_lock_never_pins_the_root(self, el):
+        css = source(STATIC / "index.html")
+        for m in re.finditer(rf"^{el}[.#\[][^{{]*\{{([^}}]*)\}}", css, re.S | re.M):
+            body = m.group(1).replace(" ", "").replace("\n", "")
+            assert "position:fixed" not in body, (
+                f"a `{el}` rule sets `position: fixed`. In a standalone iOS "
+                f"web app that shrinks the viewport by the status-bar inset "
+                f"and relayouts the document -- see DECISIONS.md §26. Lock "
+                f"with `overflow: hidden` instead.")
+
+    def test_the_lock_is_there_and_is_overflow_based(self):
+        css = source(STATIC / "index.html").replace(" ", "").replace("\n", "")
+        assert "html.locked{" in css, "the scroll lock is gone entirely"
+        rule = css.split("html.locked{", 1)[1].split("}", 1)[0]
+        assert "overflow:hidden" in rule, \
+            "the lock no longer blocks scrolling"
+
+    def test_the_front_end_restores_no_scroll_offset(self):
+        """A lock that changes no geometry has nothing to put back. Saving and
+        restoring `scrollY` is the tell that something is being pinned again --
+        and `window.scrollTo` on the way out relayouts the document exactly
+        when the exit animation needs the main thread."""
+        # `\b...\(` and not a substring search: `scrollTop` contains
+        # `scrollTo`, and the sheet reads `scrollTop` legitimately to decide
+        # whether a drag may start. The first version of this test fired on
+        # that, which is the same species of mistake as a grep matching its
+        # own warning label.
+        js = js_code_only(STATIC / "app.js")
+        assert not re.search(r"\bscrollTo\s*\(", js), (
+            "app.js restores a scroll offset, which means something moved the "
+            "page. Nothing should have to.")
+
+
+class TestAFullScreenPanelIsSizedByTheViewportNotTheDisplay:
+    """Five attempts at one 59pt band, and this is the one that catches the
+    fifth -- which was mine, and which made things worse rather than nothing.
+
+    On this phone the web view is 393x793 sitting at the top of an 852pt
+    display. `100dvh`, `100svh`, `innerHeight` and `bottom: 0` all report 793,
+    which is **right**: 793 is what the device shows. `100vh` and `100lvh`
+    report 852, which is the glass, not the canvas.
+
+    Sizing a panel with `lvh` therefore does not extend it down the screen. It
+    was tried, and the box obediently measured 852 while the paint still
+    stopped at 793 -- so the last 59pt of the scroll content moved into a
+    region the device never draws. A band you can see beats content you
+    cannot. The band is not a CSS problem; it is where iOS puts the web view,
+    which is the status-bar style in the <head>.
+    """
+
+    PANELS = ("screen", "sky")
+
+    @staticmethod
+    def _rule(css: str, selector: str) -> str:
+        m = re.search(rf"^\.{selector}\{{(.*?)\}}", css, re.S | re.M)
+        assert m, f"no `.{selector}` rule in index.html -- did it get renamed?"
+        return m.group(1)
+
+    @pytest.mark.parametrize("selector", PANELS)
+    def test_it_is_not_sized_by_the_large_viewport(self, selector):
+        rule = self._rule(source(STATIC / "index.html"), selector)
+        for unit in ("lvh", "vh"):
+            assert not re.search(rf"\d\s*{unit}\b", rule), (
+                f"`.{selector}` is sized with `{unit}`, which is the display "
+                f"(852pt) and not the web view (793pt). The extra 59pt is "
+                f"never painted, so this hides the end of the panel's content "
+                f"instead of revealing more of it. Use `inset: 0` or `dvh`.")
+
+    @pytest.mark.parametrize("selector", PANELS)
+    def test_its_bottom_edge_is_the_bottom_of_the_viewport(self, selector):
+        """Not the height -- the *bottom*. `.screen` is a sheet now and starts
+        partway down on purpose, so what has to hold is that nothing is left
+        between it and the fold. Everything past the fold is canvas nobody can
+        paint, and a gap above it is the original bug."""
+        rule = self._rule(source(STATIC / "index.html"), selector).replace(" ", "")
+        assert "inset:0" in rule or "bottom:0" in rule or "dvh" in rule, (
+            f"`.{selector}` no longer reaches the bottom of the viewport -- see "
+            f"the comment above the rule, and DECISIONS.md §26.")
 
 
 class TestThePrivacyPromiseIsStructural:

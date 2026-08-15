@@ -36,6 +36,8 @@ the harness before the code.
 
 from __future__ import annotations
 
+import datetime as dt
+import io
 import json
 import os
 import re
@@ -44,10 +46,20 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
+from app import cities
+from app.sun import zone
+
 ROOT = Path(__file__).resolve().parent.parent
+
+# Read out of `app.js` rather than restated here. A copy of a table is a table
+# that disagrees with the original the first time someone adds a condition.
+FX_TABLE = set(re.findall(
+    r"^\s*'([a-z-]+)':\s*\[", (ROOT / "static" / "app.js").read_text(
+        encoding="utf-8").split("const FX_OF")[1].split("};")[0], re.M))
 
 # Imported lazily rather than with `importorskip` at module scope, so these
 # tests are always *collected* even where they cannot run. Collection count is
@@ -58,6 +70,28 @@ try:
     from playwright.sync_api import sync_playwright
 except ImportError:                                  # pragma: no cover
     sync_playwright = None
+
+
+def _fixtures_share_a_day() -> bool:
+    """Do the Yandex and Gismeteo recordings describe overlapping days?
+
+    `TestTheFixturesAreOneRecording` is the test that *fails* when they do not,
+    and it should be the only one -- when a source is down and only one half
+    can be re-recorded, half a dozen browser tests otherwise go red at once and
+    every one of them reads as a bug in the app. One loud failure with the
+    remedy in its message beats six confusing ones.
+    """
+    def days(name):
+        p = ROOT / "tests" / "fixtures" / name
+        return set(re.findall(r"20\d\d-[01]\d-[0-3]\d",
+                              p.read_text(encoding="utf-8", errors="replace")))
+    try:
+        return bool(days("current.html") & days("mf-10days.html"))
+    except OSError:
+        return True
+
+
+MIXED = "the fixtures are from different days -- see test_the_sources_overlap"
 
 
 def _rgba(text: str) -> tuple[float, ...] | None:
@@ -115,7 +149,11 @@ def _chromium_path() -> str | None:
 def server():
     """The real app, with the real parsers, against the recorded fixtures."""
     port = _free_port()
-    env = dict(os.environ, YW_MOCK="ok", PORT=str(port))
+    # Both ends on the fixtures' clock: the browser via `_pin`, the server via
+    # this. They have to agree or the per-day fetch asks for a date the day
+    # page is not about, and the parser rejects it exactly as designed.
+    env = dict(os.environ, YW_MOCK="ok", PORT=str(port),
+               YW_TODAY=FIXTURE_DAY.isoformat())
     proc = subprocess.Popen([sys.executable, "-m", "tests.mock_server"],
                             cwd=ROOT, env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -154,11 +192,68 @@ def browser():
         pytest.skip(f"playwright unavailable: {e}")
 
 
+# The whole browser suite renders fixtures recorded on 13 August 2026, and half
+# of what it checks is date-relative: today's row carries a dot, "Сегодня" is a
+# label and not a weekday, the day screen fetches detail for the date it is
+# showing. All of that quietly stopped being true on 1 August.
+#
+# It went unnoticed until a container's clock jumped eleven days mid-session
+# and nine tests failed at once, none of them for the reason they were written.
+# A suite that passes only during the week its fixtures were recorded is a
+# suite with an expiry date on it.
+#
+# So the browser's clock is pinned to the fixtures' own day. `set_fixed_time`
+# rather than `install`: it freezes `Date` and leaves timers alone, and the
+# sheet's transitions are driven by timers.
+#
+# **An instant, not a wall-clock time, and the difference is a whole day.**
+# `set_fixed_time` takes UTC; the front end asks what day it is **in the city**
+# (`cityToday`, via `place.tz`). This was first written as a bare `22:00` -- the
+# city's clock, handed to a function that reads UTC. Three hours out, and 22:00
+# is close enough to midnight that three hours crosses it: the browser believed
+# it was the 14th while the server, pinned through `YW_TODAY`, believed the
+# 13th.
+#
+# Nothing failed. `dayLabel` got a consistent answer and rendered it faithfully,
+# so the ten-day list simply opened on yesterday, «Сегодня» sat in the second
+# row, the hourly strip put «сейчас» at 01:00, and every screenshot this harness
+# produced looked subtly like a bug in the app. Both ends were pinned. They were
+# pinned to different moments, which is the same failure as fixtures from two
+# recordings, wearing a clock.
+#
+# So neither end is typed any more. The instant is **read off the fixture** --
+# Gismeteo stamps its own pages, `<time-value class="current-time" timestamp>`
+# -- and the server's day is that instant *in the city's zone*, not in UTC.
+# Both matter, and the second one is the subtle half: a capture at 21:30 UTC is
+# already the next morning in Yoshkar-Ola, so a `YW_TODAY` taken from the UTC
+# date would put the two ends a day apart again for every recording made after
+# nine in the evening. The last one was made at 20:27, with thirty-three
+# minutes to spare.
+def _fixture_now() -> dt.datetime:
+    p = ROOT / "tests" / "fixtures" / "mf-current.html"
+    m = re.search(r'current-time"[^>]*timestamp="(\d+)"',
+                  p.read_text(encoding="utf-8", errors="replace"))
+    if not m:
+        raise AssertionError(
+            f"{p.name} no longer stamps itself; the browser clock has nothing "
+            f"to pin to. Find the page's own time or record it beside them.")
+    return dt.datetime.fromtimestamp(int(m.group(1)), tz=dt.UTC)
+
+
+FIXTURE_NOW = _fixture_now()
+FIXTURE_DAY = FIXTURE_NOW.astimezone(zone(cities.get("yoshkar-ola").tz)).date()
+
+
+def _pin(pg):
+    pg.clock.set_fixed_time(FIXTURE_NOW)
+    return pg
+
+
 @pytest.fixture
 def page(browser, server):
     ctx = browser.new_context(viewport={"width": 393, "height": 852},
                               color_scheme="dark", locale="ru-RU")
-    pg = ctx.new_page()
+    pg = _pin(ctx.new_page())
     pg.goto(server, wait_until="networkidle")
     pg.wait_for_selector(".hero .t", timeout=10_000)
     yield pg
@@ -231,8 +326,38 @@ class TestRendersAtAll:
 
     def test_day_rows_have_range_bars(self, page):
         assert page.locator(".day .bar i").count() == page.locator(".day").count()
+        if not _fixtures_share_a_day():
+            pytest.skip(MIXED)
         # Today's row carries a dot at the current temperature.
         assert page.locator(".day .bar u").count() == 1
+
+    def test_both_halves_of_the_harness_agree_what_day_it_is(self, page):
+        """A test of the pins, not of the app -- and it belongs here because
+        nothing else was ever going to notice.
+
+        The browser is frozen at an instant and the server is pinned to a date,
+        and for a while those were two different days: `FIXTURE_NOW` held the
+        *city's* wall clock, `page.clock.set_fixed_time` reads UTC, and three
+        hours' error at 22:00 lands on tomorrow. Every assertion in this file
+        still passed. The app was internally consistent -- it asks what day it
+        is in the city and got one answer -- so the ten-day list simply opened
+        with yesterday, «Сегодня» sat in the second row, «сейчас» pointed at
+        01:00, and every screenshot the harness produced looked like a bug
+        somebody would then go and hunt for in the stylesheet.
+
+        Asserted through what is on the screen rather than by comparing the two
+        pinned values to each other, because the thing worth protecting is that
+        the picture is honest. The first row of a ten-day forecast is today.
+        """
+        if not _fixtures_share_a_day():
+            pytest.skip(MIXED)
+        first = page.locator(".day[data-day]").first
+        assert "Сегодня" in first.inner_text(), (
+            f"the forecast opens on {first.inner_text()!r}. The browser's clock "
+            f"({FIXTURE_NOW.isoformat()}) and the server's YW_TODAY "
+            f"({FIXTURE_DAY}) are naming different days in the city's zone -- "
+            f"check that FIXTURE_NOW is a UTC instant, not a local one.")
+        assert first.get_attribute("data-day") == FIXTURE_DAY.isoformat()
 
 
 class TestPrivacy:
@@ -288,6 +413,36 @@ class TestSourceSwitching:
         page.wait_for_selector(".src.sel", timeout=10_000)
         assert page.locator(".src.sel").get_attribute("data-src") == "openmeteo"
 
+    def test_the_three_tabs_are_written_by_the_same_hand(self, page):
+        """Reported by eye, and only visible by switching tabs: Gismeteo said
+        «пасмурно» where the other two said «Пасмурно».
+
+        The cause was the recovery path added when Gismeteo's state blob went
+        away (§27). It reads the site's *header sentence* -- «в Йошкар-Оле
+        пасмурно, небольшой дождь» -- where the phrase follows a city name and
+        is naturally lowercase, and it was the ninth place in this codebase to
+        need `cond[0].upper() + cond[1:]` and the first to forget it. The other
+        eight had it written out by hand.
+
+        So the fix was one function in `ru_text`, and this asserts the property
+        across all three tabs rather than the eight call sites, because the
+        thing that broke was never a call site -- it was that nobody owned the
+        rule.
+        """
+        seen = {}
+        for src in ("yandex", "gismeteo", "openmeteo"):
+            tab = page.locator(f'.src[data-src="{src}"]')
+            if tab.is_disabled():
+                continue
+            tab.click()
+            page.wait_for_timeout(350)
+            text = page.locator(".hero .cond").inner_text().strip()
+            if text:
+                seen[src] = text
+        assert len(seen) >= 2, f"only {list(seen)} rendered a condition"
+        wrong = {k: v for k, v in seen.items() if v[0] != v[0].upper()}
+        assert not wrong, f"lower-cased where the others capitalise: {wrong}"
+
 
 class TestThePushedScreen:
     """The one navigation primitive, shared by the place picker and the day
@@ -308,10 +463,19 @@ class TestThePushedScreen:
         page.click("#btn-place")
         page.wait_for_selector(".screen.open")
         page.go_back()
-        page.wait_for_timeout(400)
-        assert not page.locator(".screen").evaluate(
-            "e => e.classList.contains('open')")
-        assert page.evaluate("document.body.classList.contains('locked')") is False
+        # `aria-hidden` and the scroll lock flip on the instant. `.open` now
+        # carries `visibility: visible` and has to survive the whole exit --
+        # visibility used to be transitioned instead, and Safari answered by
+        # not rasterising the layer until the animation was two thirds done.
+        # So this waits the animation out rather than 400ms flat.
+        page.wait_for_timeout(200)
+        assert page.locator(".screen").get_attribute("aria-hidden") == "true"
+        assert page.evaluate(
+            "document.documentElement.classList.contains('locked')") is False
+        # Polled rather than `wait_for_function`: the page's CSP is
+        # `script-src 'self'` with no `unsafe-eval`, and Playwright's predicate
+        # form compiles a string. That CSP is the point of the project.
+        page.wait_for_selector(".screen:not(.open)", state="attached", timeout=3000)
 
     def test_the_back_button_and_the_gesture_are_the_same_path(self, page):
         """The in-app control calls `history.back()` rather than closing
@@ -323,28 +487,65 @@ class TestThePushedScreen:
         page.click("#btn-place")
         page.wait_for_selector(".screen.open")
         before = page.evaluate("history.length")
-        page.click("#back")
-        page.wait_for_timeout(400)
-        assert not page.locator(".screen").evaluate(
-            "e => e.classList.contains('open')")
+        page.click("#close")
+        # `.open` outlives the click by the length of the exit -- it is what
+        # holds `visibility: visible` now. `aria-hidden` is the instant signal.
+        page.wait_for_timeout(200)
+        assert page.locator(".screen").get_attribute("aria-hidden") == "true"
+        page.wait_for_selector(".screen:not(.open)", state="attached",
+                               timeout=3000)
         # Popped, not pushed: leaving must not grow the history.
         assert page.evaluate("history.length") == before
 
-    def test_nothing_hand_rolls_the_swipe(self, page):
-        """iOS runs its own edge-swipe in a standalone PWA and there is no way
-        to switch it off. A second implementation does not replace it, it runs
-        alongside it, and the app goes back twice. So: no touch handlers."""
-        js = (ROOT
-              / "static" / "app.js").read_text(encoding="utf-8")
-        for evt in ("touchstart", "touchmove", "touchend", "pointerdown"):
-            assert evt not in js, (
-                f"app.js listens for {evt} -- a hand-rolled swipe fights the "
-                f"system gesture and navigates back twice")
+    def test_nothing_hand_rolls_the_horizontal_swipe(self, page):
+        """iOS runs its own edge-swipe-back in a standalone PWA and there is no
+        way to switch it off. A second implementation does not replace it, it
+        runs alongside it, and the app goes back twice.
 
-    def test_it_pins_the_page_and_restores_the_position(self, page):
-        """The bug: iOS Safari ignores overflow:hidden on <body>, so the page
-        scrolled under the open screen. Pinning discards the scroll offset, so
-        it has to be saved and restored by hand.
+        This used to assert that `app.js` registers **no** touch handlers at
+        all, which was the right shape while the day detail was a screen pushed
+        in from the right. It is a bottom sheet now, and a vertical drag is the
+        one thing that makes a sheet feel like an object rather than an
+        animation. Vertical does not collide with the system gesture.
+
+        So the rule is narrowed rather than dropped, and this is the narrowed
+        form: whatever `app.js` does with a touch, it must not act on
+        **horizontal** movement, and it must not own dismissal. Every way out
+        still goes through `history.back()`, which is what keeps the system
+        swipe working and the history stack honest.
+        """
+        js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        # Matched as *registrations*, not as substrings. The bare-substring
+        # form fired on the paragraph explaining why the system owns the
+        # edge-swipe -- a test that trips on its own warning label, which the
+        # next session fixes by deleting the label.
+        listens = set(re.findall(r"addEventListener\(\s*['\"]([a-z]+)['\"]", js))
+        for evt in ("pointerdown", "pointermove", "gesturestart", "gesturechange"):
+            assert evt not in listens, f"app.js listens for {evt}"
+        # `clientX` appears exactly once, and only to *give a gesture back*:
+        # a mostly-sideways drag is the hourly strip's, not the sheet's.
+        assert js.count("clientX") <= 2, (
+            "app.js reads clientX more than the hand-back check needs -- "
+            "something is acting on horizontal movement")
+        assert "history.back()" in js, \
+            "dismissal no longer goes through history; the system swipe breaks"
+
+    def test_it_locks_the_page_without_moving_it(self, page):
+        """The page must not scroll under an open sheet, and the scroll
+        position must survive — but *nothing may move* to achieve either.
+
+        This used to pin `<body>` to `position: fixed` and put the offset back
+        by hand, on a note saying iOS ignores `overflow: hidden`. That was true
+        until iOS 16.3. What it cost after that was invisible on a desktop and
+        expensive on the phone: switching the body to fixed relayouts the whole
+        document, and it happened in the same task that starts the sheet's
+        transition, so the animation's first frames went missing. Two screen
+        recordings measured the sheet appearing at 505pt and 573pt of a travel
+        that starts at 793.
+
+        Hence the strongest assertion here, and the one the old approach could
+        never have passed: **`scrollY` never changes at all.** No save, no
+        restore, no relayout.
 
         NOTE: push() is called directly rather than clicking the button --
         Playwright scrolls an element into view before clicking it, which would
@@ -357,16 +558,153 @@ class TestThePushedScreen:
 
         page.evaluate("push('place')")
         page.wait_for_timeout(300)
-        assert page.evaluate("document.body.classList.contains('locked')")
+        assert page.evaluate(
+            "document.documentElement.classList.contains('locked')")
+        assert page.evaluate("window.scrollY") == before, \
+            "opening the sheet moved the page; the lock is not free"
 
         page.mouse.move(196, 300)
         page.mouse.wheel(0, 600)
         page.wait_for_timeout(300)
-        assert page.evaluate("window.scrollY") == 0, "page scrolled underneath"
+        assert page.evaluate("window.scrollY") == before, \
+            "the page scrolled underneath the sheet"
 
         page.keyboard.press("Escape")
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(600)
         assert page.evaluate("window.scrollY") == before
+
+    def test_the_sheet_is_visible_from_the_first_frame_of_its_entrance(self, page):
+        """The entrance used to lose its first half, and nothing said so.
+
+        `visibility` was in the same `transition` shorthand as `transform`, with
+        the same 460ms duration. It does not fade -- it is a discrete property,
+        and the flip lands at the midpoint. So for 230ms the sheet was already
+        travelling and still `hidden`, and what a person saw was a panel
+        materialising a third of the way up the screen, in motion. Reported for
+        weeks as "the pop-up starts from the wrong position", fixed twice by
+        adjusting positions, and only identified when `static/debug.js` sampled
+        it on the phone: first visible Y of 533 against an expected 781, which
+        is exactly 781 - (230/460) x 484.
+
+        Asserted where the bug lived -- the computed transition -- because the
+        symptom is a frame that never reaches the glass, and a test that waits
+        for frames is a test that measures the CI machine's load.
+        """
+        page.click(".day[data-day]")
+        page.wait_for_selector(".screen.open")
+        got = page.evaluate(
+            "() => getComputedStyle(document.getElementById('screen'))"
+            "  .transitionDuration.split(', ')"
+            "  .map((d, i) => [getComputedStyle(document.getElementById('screen'))"
+            "    .transitionProperty.split(', ')[i], d])")
+        vis = [d for prop, d in got if prop == "visibility"]
+        assert vis, f"visibility is no longer transitioned at all: {got}"
+        assert all(float(d.rstrip("s")) == 0 for d in vis), (
+            f"while open, visibility transitions over {vis} -- WebKit flips a "
+            f"discrete property at the midpoint, so the sheet spends that long "
+            f"invisible and appears already in motion")
+
+    def test_the_sheet_stays_on_screen_until_it_has_finished_leaving(self, page):
+        """The other half: on the way out the delay has to be there, or the
+        sheet vanishes at the midpoint and the last half of the exit plays to
+        an empty screen."""
+        closed = page.evaluate(
+            "() => { const e = document.getElementById('screen');"
+            "  const cs = getComputedStyle(e);"
+            "  const p = cs.transitionProperty.split(', ');"
+            "  const d = cs.transitionDelay.split(', ');"
+            "  return p.map((n, i) => [n, d[i]]); }")
+        vis = [d for prop, d in closed if prop == "visibility"]
+        assert vis and any(float(d.rstrip("s")) > 0 for d in vis), (
+            f"closed, visibility has no exit delay: {closed}")
+
+    def test_the_sheet_gives_the_gesture_back_when_it_should(self, page):
+        """The rule that decides between resizing the sheet and scrolling what
+        is inside it. Driven as a table rather than by synthesising touch
+        sequences, because the failure mode is a *missing* behaviour and a
+        synthetic drag that quietly does nothing looks exactly like a pass.
+
+        The case that shipped broken is the third: at the largest detent, an
+        upward drag has to go to the content. The sheet has nowhere further to
+        go, so claiming it clamps the transform to 0 *and* `preventDefault`s
+        the native scroll — which makes a sheet whose content is taller than
+        the screen completely unscrollable. Reported as "it sticks to the top
+        and not all of the detail is visible".
+        """
+        cases = [
+            # dy,  dx, atTop, sheet's?      why
+            (40, 5, False, True, "вниз, не наверху — тянем лист"),
+            (40, 5, True, True, "вниз с самого верха — закрываем"),
+            (-40, 5, True, False, "вверх наверху — это скролл контента"),
+            (-40, 5, False, True, "вверх со среднего — раскрываем"),
+            (10, 60, False, False, "вбок — это часовая полоса"),
+            (-10, 60, True, False, "вбок наверху — тоже полоса"),
+        ]
+        for dy, dx, at_top, want, why in cases:
+            got = page.evaluate(
+                "([dy, dx, t]) => dragBelongsToSheet(dy, dx, t)",
+                [dy, dx, at_top])
+            assert got is want, (
+                f"dragBelongsToSheet({dy}, {dx}, atTop={at_top}) вернул {got}, "
+                f"ожидалось {want} — {why}")
+
+    def test_the_diagnostic_is_reachable_and_costs_the_shell_nothing(self, page):
+        """`debug.js` runs the whole battery on the device and prints a verdict
+        per line, so one screenshot answers what would otherwise be four
+        rounds of "try this and tell me what you see".
+
+        Two properties matter and neither is about what it measures. It has to
+        be **reachable without a URL** -- a home-screen web app has one fixed
+        `start_url` and no address bar -- so it hangs off the build badge. And
+        it has to be **fetched, not bundled**: it is the one thing here allowed
+        to require the network, so it belongs outside the cold load.
+        """
+        js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        assert "debug.js" in js, "nothing loads the diagnostic"
+        # Matched as a *reference*, not as a substring: a stylesheet comment
+        # may name the file when explaining which measurement it produced, and
+        # a test that fires on its own documentation gets the documentation
+        # deleted rather than the bug fixed.
+        shell = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        assert not re.search(r"""(src|href)\s*=\s*["'][^"']*debug\.js""", shell), \
+            "the diagnostic is referenced from the shell; it must be on demand"
+        r = page.request.get(page.url.rstrip("/") + "/debug.js")
+        assert r.status == 200, "debug.js is not served"
+        assert "requestAnimationFrame" in r.text(), \
+            "debug.js does not sample frames, which is its whole purpose"
+
+    def test_the_diagnostic_actually_runs_and_reports_every_section(self, page):
+        """That it is *served* was all this file checked, and serving a file
+        that throws on line one is indistinguishable from serving a good one.
+
+        The diagnostic is the tool of last resort here -- it is what gets used
+        when a defect exists only on a phone nobody in the session is holding,
+        and the moment it is needed is the worst possible moment to discover it
+        has a typo in it. So this runs the whole battery in the harness and
+        requires that it finished: every section heading present, a verdict on
+        each line, and nothing thrown along the way.
+
+        It cannot check the *values* -- Chromium has no safe area and no iOS
+        compositor, which is exactly why the device version exists -- so it
+        checks that the instrument works, not what it reads.
+        """
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.evaluate("""() => { const s = document.createElement('script');
+          s.src = 'debug.js'; document.head.appendChild(s); }""")
+        page.wait_for_selector("#dbg", timeout=15_000)
+        # The battery drives a full open and close of the sheet; give it the
+        # two 900ms samples plus slack rather than guessing at a single number.
+        page.wait_for_timeout(4000)
+        text = page.locator("#dbg").inner_text()
+        assert not errors, f"the diagnostic threw: {errors}"
+        for section in ("сборка", "холостой ход", "открытие:", "закрытие:",
+                        "верх экрана", "слоёв неба", "маска .fx",
+                        "кто сверху", "круг", "зазор справа"):
+            assert section in text, (
+                f"the diagnostic printed no {section!r} line -- it stopped "
+                f"early, or a section was renamed without updating this list")
+        assert text.count("\n") > 30, f"only {text.count(chr(10))} lines printed"
 
     def test_the_forecast_underneath_stops_being_reachable(self, page):
         """An opaque screen hides the app visually and not otherwise: without
@@ -576,7 +914,7 @@ class TestDayDetail:
         # regress into a spinner.
         assert page.locator("#screen .part").count() == 4
 
-        page.wait_for_selector("#screen .hour", timeout=8000)
+        page.wait_for_selector("#screen .hour", state="attached", timeout=8000)
         times = page.locator("#screen .hour .hh").all_inner_texts()
         assert len(times) == 8, f"expected eight columns, got {times}"
         assert times[0].strip() == "00:00"
@@ -589,7 +927,7 @@ class TestDayDetail:
         row = page.locator(".day[data-day]").nth(4)
         date = row.get_attribute("data-day")
         row.click()
-        page.wait_for_selector("#screen .hour", timeout=8000)
+        page.wait_for_selector("#screen .hour", state="attached", timeout=8000)
         day_calls = [u for u in asked if "api/day" in u]
         assert len(day_calls) == 1, f"one request per day opened: {day_calls}"
         assert f"date={date}" in day_calls[0]
@@ -598,14 +936,14 @@ class TestDayDetail:
         page.click('.src[data-src="yandex"]')
         page.wait_for_timeout(200)
         page.locator(".day[data-day]").nth(4).click()
-        page.wait_for_selector("#screen .hour", timeout=8000)
+        page.wait_for_selector("#screen .hour", state="attached", timeout=8000)
         page.keyboard.press("Escape")
         page.wait_for_timeout(500)
 
         asked = []
         page.on("request", lambda r: asked.append(r.url))
         page.locator(".day[data-day]").nth(4).click()
-        page.wait_for_selector("#screen .hour", timeout=8000)
+        page.wait_for_selector("#screen .hour", state="attached", timeout=8000)
         assert not [u for u in asked if "api/day" in u], \
             "the day was fetched again after it had already been fetched"
 
@@ -658,10 +996,174 @@ class TestSky:
         page.wait_for_timeout(300)
         assert page.locator("#sky .stars circle").count() == 60
 
-    def test_precipitation_skies_animate(self, page):
-        page.evaluate("skyNow=null; setSky('rain'); 0")
-        page.wait_for_timeout(200)
-        assert page.locator("#sky .fall.rain").count() == 1
+    # Every icon the back end can emit, which is what `setSky` is handed. The
+    # night forms are the three `sun.nightify` produces; the rest keep one
+    # spelling round the clock, which is exactly why the night flag has to
+    # arrive beside the icon rather than inside it.
+    EVERY_ICON: ClassVar[list[str]] = [
+        "clear", "clear-night", "partly", "partly-night", "cloudy",
+        "cloudy-night", "overcast", "fog", "drizzle", "rain-light", "rain",
+        "rain-heavy", "thunder", "hail", "sleet", "snow-light", "snow",
+        "snow-heavy"]
+
+    @pytest.mark.parametrize("icon", EVERY_ICON)
+    def test_every_condition_has_a_sky_of_its_own(self, page, icon):
+        """No icon may fall through to the default.
+
+        The old mapping collapsed eighteen conditions into seven, so drizzle
+        and a downpour drew the same rain and a thunderstorm drew rain as well.
+        The point of the second table is that the motion carries the intensity;
+        an icon that quietly lands on `cloudy-night` has lost that and looks
+        like a bug in the forecast rather than a gap in a lookup.
+        """
+        got = page.evaluate(
+            "(k) => { fxNow=null; setSky(k, false);"
+            " return [...document.querySelectorAll('#fx > *')]"
+            "   .map(e => e.getAttribute('class')); }", icon)
+        assert got, f"{icon} renders an empty sky"
+        assert icon in FX_TABLE, f"{icon} is not in FX_OF"
+
+    def test_the_intensities_are_told_apart(self, page):
+        """Drizzle, rain and a downpour have to differ in the thing a glance
+        picks up -- how fast and how dense -- not merely in the caption."""
+        seen = {}
+        for icon in ("drizzle", "rain", "rain-heavy"):
+            seen[icon] = page.evaluate(
+                "(k) => { fxNow=null; setSky(k, false);"
+                " const e = document.querySelector('#fx .p');"
+                " const s = getComputedStyle(e);"
+                " return [s.animationDuration, s.backgroundSize]; }", icon)
+        assert len({tuple(v) for v in seen.values()}) == 3, seen
+
+    def test_night_changes_the_weather_and_not_only_the_palette(self, page):
+        """Rain at midnight is still spelled `rain`, so without the envelope's
+        night flag the drops stay lit for noon.
+
+        Asserted on the drops, which are what the flag now reaches: it lands as
+        `data-night` on the root and the stylesheet keys off it. The cloud layer
+        this used to read is gone -- see `FX_OF`.
+        """
+        look = ("(n) => { fxNow=null; setSky('rain', n);"
+                " return getComputedStyle(document.querySelector('#fx .rain'))"
+                "   .backgroundImage; }")
+        day, night = page.evaluate(look, False), page.evaluate(look, True)
+        assert day != night, f"the drops look the same at midnight: {day}"
+        assert page.evaluate("document.documentElement.hasAttribute('data-night')")
+
+    @pytest.mark.parametrize("icon", ["overcast", "cloudy", "rain", "fog", "clear"])
+    def test_no_seam_where_the_status_bar_strip_ends(self, page, icon):
+        """The band across the top of the phone, reported twice, asserted in
+        pixels because two rounds of reasoning about it were both wrong.
+
+        `.edge-top` is ten points of flat `--sky1` painted over the sky so iOS
+        has an opaque element to sample for the status-bar tint. Every sky
+        effect lives *under* those ten points and *over* everything below, so
+        anything that brightens the sky brightens it starting at exactly y=10
+        and the phone draws a hard line there. Measured on the render at the
+        time: rgb(35,44,64) above, rgb(41,50,70) below, six per channel with no
+        ramp between them -- small on paper, and the first thing the eye finds
+        on an OLED at night.
+
+        Neither the DOM nor the computed styles show this; the elements are all
+        exactly where they should be. Only the pixels show it, so the pixels
+        are what this reads. Anything above three levels in one step, anywhere
+        in the top sixty points, is an edge somebody will see.
+        """
+        Image = pytest.importorskip("PIL.Image", reason="pillow not installed")
+        page.evaluate("(k) => { fxNow=null; setSky(k, false); }", icon)
+        page.wait_for_timeout(250)
+        # Six points in from the left edge, not the middle: the city name sits
+        # in the middle and white text is a step of two hundred levels, which
+        # is a true reading of something this test is not about.
+        shot = page.screenshot(clip={"x": 0, "y": 0, "width": 20, "height": 70})
+        im = Image.open(io.BytesIO(shot)).convert("RGB")
+        col = [im.getpixel((6, y)) for y in range(im.size[1])]
+        jumps = [(y, col[y - 1], col[y]) for y in range(1, len(col))
+                 if max(abs(a - b)
+                        for a, b in zip(col[y - 1], col[y], strict=True)) >= 3]
+        assert not jumps, (
+            f"{icon}: a visible step down the top of the screen at "
+            f"{[j[0] for j in jumps]} -- {jumps[0][1]} then {jumps[0][2]}. "
+            f"The sky effect starts under `.edge-top` and the mask's top hold "
+            f"is too short to clear it.")
+
+    def test_nothing_animates_a_property_the_compositor_cannot_run(self, page):
+        """`transform` and `opacity` only.
+
+        Anything else -- `background-position`, `top`, `filter` -- is a job for
+        the main thread on every frame, and the main thread here is drawing a
+        temperature curve. This reads the keyframes out of the stylesheet
+        rather than trusting the rules, because a `@keyframes` block is where
+        such a property actually gets in.
+        """
+        props = page.evaluate("""() => {
+          const out = new Set();
+          for (const sheet of document.styleSheets)
+            for (const rule of sheet.cssRules)
+              if (rule instanceof CSSKeyframesRule)
+                for (const kf of rule.cssRules)
+                  for (const p of kf.style) out.add(p);
+          return [...out]; }""")
+        allowed = {"transform", "opacity", "visibility",
+                   # The one exception, and it is bounded: `sheen` is the
+                   # loading skeleton, which exists only until the first render
+                   # and is the one moment on this page when the main thread has
+                   # nothing else to do.
+                   "background-position-x", "background-position-y"}
+        assert set(props) <= allowed, f"animated off the compositor: {props}"
+        assert "transform" in props, "no keyframes read at all; check the query"
+
+    @pytest.mark.parametrize("icon", ["rain", "snow", "hail", "fog"])
+    def test_a_falling_layer_travels_exactly_one_tile(self, page, icon):
+        """The bug this whole rewrite is about, asserted as arithmetic.
+
+        A pattern that repeats every P pixels may only be translated by a whole
+        multiple of P, or the wrap is a jump. The rain used an angled
+        `repeating-linear-gradient` whose 46px period was 190px measured
+        *vertically*, while the animation moved 168px -- so every 0.85s the
+        screen twitched 22 pixels sideways, which is what a person watching it
+        described as the lines jerking.
+
+        The fix is structural: the vertical repeat is `background-size`'s
+        height, the travel is the same custom property, and the slant is a
+        skew, which leaves the vertical period alone. So this compares the two
+        numbers the browser actually resolved. If they ever part, the seam is
+        back.
+        """
+        page.evaluate("(k) => { fxNow=null; setSky(k, false); }", icon)
+        page.wait_for_timeout(150)
+        rows = page.evaluate("""() =>
+          [...document.querySelectorAll('#fx .p, #fx .b')].map(e => {
+            const s = getComputedStyle(e);
+            return [s.backgroundSize, s.getPropertyValue('--tile').trim()]; })""")
+        assert rows, f"{icon} has no falling layer"
+        for size, tile in rows:
+            # `background-size: 26px 40px` -> the vertical repeat is 40px.
+            # A fog band has no background-size; its repeat is the gradient's
+            # own last stop, which is also `--tile`.
+            if size and size != "auto":
+                assert size.split()[-1] == tile, (
+                    f"{icon}: the pattern repeats every {size.split()[-1]} but "
+                    f"the animation travels {tile} -- the loop will jump")
+            assert tile.endswith("px"), f"{icon}: --tile is {tile!r}, not px"
+
+    def test_reduced_motion_stops_all_of_it(self, browser, server):
+        """Stopped, not stripped: the still frame of any of these is a
+        legitimate picture of the weather."""
+        ctx = browser.new_context(viewport={"width": 393, "height": 852},
+                                  color_scheme="dark", locale="ru-RU",
+                                  reduced_motion="reduce")
+        pg = _pin(ctx.new_page())
+        pg.goto(server, wait_until="networkidle")
+        pg.wait_for_selector(".hero .t", timeout=10_000)
+        pg.evaluate("fxNow=null; setSky('snow-heavy', true); 0")
+        pg.wait_for_timeout(200)
+        names = pg.evaluate(
+            "[...document.querySelectorAll('#fx *')]"
+            ".map(e => getComputedStyle(e).animationName)")
+        ctx.close()
+        assert names, "nothing rendered, so nothing was tested"
+        assert set(names) == {"none"}, f"still moving under reduce: {names}"
 
     def test_theme_color_follows_the_sky(self, page):
         """So the status bar and the app-switcher card match the gradient
@@ -696,9 +1198,11 @@ class TestSky:
                 "e => { const s = getComputedStyle(e);"
                 "  return {pos: s.position, bg: s.backgroundColor,"
                 "          img: s.backgroundImage, border: s.borderBottomWidth}; }")
+            named = (f"getComputedStyle(document.documentElement)"
+                     f".getPropertyValue('{var}').trim()"
+                     if var.startswith("--") else f"'{var}'")
             want = page.evaluate(
-                f"(() => {{const c = getComputedStyle(document.documentElement)"
-                f"  .getPropertyValue('{var}').trim();"
+                f"(() => {{const c = {named};"
                 f"  const d = document.createElement('div');"
                 f"  d.style.color = c; document.body.appendChild(d);"
                 f"  const rgb = getComputedStyle(d).color; d.remove(); return rgb;}})()")
@@ -713,6 +1217,84 @@ class TestSky:
                 "a border-bottom on a sampled element outranks its background"
             assert css["bg"] == want, \
                 f"{cls} is {css['bg']}, the sky there is {want}"
+
+    @pytest.mark.parametrize("sky", ["clear-day", "cloudy-day", "overcast",
+                                     "rain", "snow", "clear-night"])
+    def test_the_canvas_continues_the_sky_rather_than_interrupting_it(
+            self, page, sky):
+        """The one that hid behind nightfall for six attempts.
+
+        `html`'s gradient is `background-size: 100% 100%, no-repeat`, so it
+        covers the viewport and stops. On this phone the viewport is 59pt
+        shorter than the display, and those 59 points get the root's
+        `background-color` — permanently, on every screen. It was `--sky2`,
+        which is the gradient's colour at its 62% stop, so the bottom of the
+        display wore a strip of the *middle* of the sky.
+
+        Invisible at night, because `clear-night` and `cloudy-night` both set
+        `--sky2: #0a1020` and so does `--bg`. Every measurement taken while
+        chasing this was taken in the evening. The first daylight screenshot
+        showed the strip at (25,35,59) under content faded to (11,16,32).
+
+        Parametrised over every sky for that reason and no other: one palette
+        agreeing proves nothing here, and the two that agree are the two that
+        were looked at.
+        """
+        # `html` carries `transition: background-color 1.2s`, so a computed
+        # colour read straight after switching skies is a frame from the middle
+        # of a fade. Suppressed rather than waited out -- the question here is
+        # which colour the rule resolves to, not how it gets there.
+        got = page.evaluate(
+            "(() => { const s = document.createElement('style');"
+            "  s.textContent = 'html{transition:none!important}';"
+            "  document.head.appendChild(s); window.__t = s; })()")
+        got = page.evaluate(
+            f"(() => {{ document.documentElement.dataset.sky = '{sky}';"
+            "  const h = getComputedStyle(document.documentElement);"
+            "  const d = document.createElement('div');"
+            "  d.style.color = h.getPropertyValue('--bg').trim();"
+            "  document.body.appendChild(d);"
+            "  const bg = getComputedStyle(d).color; d.remove();"
+            "  return {canvas: h.backgroundColor, bg,"
+            "          grad: h.backgroundImage}; })()")
+        assert got["canvas"] == got["bg"], (
+            f"with a {sky} sky the canvas is {got['canvas']} but the gradient "
+            f"ends on {got['bg']} — so the strip below the viewport is a slice "
+            f"of the middle of the sky stuck to the bottom of the display")
+        assert got["grad"].rstrip(")").endswith(got["bg"] + " 100%"), (
+            "the canvas gradient no longer ends on --bg; the assertion above "
+            "is now comparing against the wrong end of it")
+
+    def test_the_screens_fade_ends_on_the_colour_the_strip_is_painted(self, page):
+        """Two values that have to be the same colour or the fix does nothing.
+
+        The bottom 59pt of the phone's display is drawn by iOS, not by us, and
+        it takes its colour from `.edge-bot`. The day screen dissolves its last
+        56 points into a gradient so no content ends at a hard edge above it --
+        but that only hides the seam if the gradient's final stop is *exactly*
+        the colour the strip is painted. Move one and the fade lands on a
+        slightly different dark blue, which is a band again, and nothing on a
+        desktop browser would show it: there is no strip there to mismatch.
+
+        Same species as `--hour-w` and `--push-ms`: a value that must agree in
+        two places, asserted as an agreement rather than as either value.
+        """
+        got = page.evaluate(
+            "(() => { const s = getComputedStyle(document.getElementById('sheetfade'));"
+            "  const h = getComputedStyle(document.documentElement);"
+            "  const b = h.getBoundingClientRect ? null : null;"
+            "  return {fade: s.backgroundImage, bottom: s.bottom,"
+            "          pos: s.position, canvas: h.backgroundColor}; })()")
+        assert "gradient" in got["fade"], \
+            "there is no bottom fade; a cut-off card sits on a hard edge"
+        assert got["pos"] == "fixed" and got["bottom"] == "0px", (
+            "the fade is not anchored to the viewport. Inside the sheet it "
+            "travels with it, and at the medium detent the sheet's own bottom "
+            "edge is below the fold -- so it would be absent exactly when a "
+            "card is being cut off")
+        assert got["canvas"] in got["fade"], (
+            f"the fade ends on something other than {got['canvas']}, which is "
+            f"what the canvas paints below the viewport -- so the seam is back")
 
     def test_the_top_strip_is_at_the_top_and_the_bottom_one_at_the_bottom(self, page):
         """Within a few pixels of the edge, which the sampler also requires --
@@ -737,23 +1319,47 @@ class TestSky:
         assert "gradient" in canvas
         assert canvas == sky, "the canvas and the sky have drifted apart"
 
-    def test_the_pushed_screen_covers_the_strips_rather_than_tinting_them(self, page):
-        """The scrim is gone, and with it three years of trying to tint browser
-        chrome from inside the page.
+    def test_the_sheet_reaches_the_bottom_and_matches_what_is_beyond_it(self, page):
+        """The load-bearing test of the whole affair. Three assertions, and the
+        third is the one that cost three deploys.
 
-        A translucent drawer needed the strips behind Safari's bars to dim with
-        it, and they cannot be reached: `theme-color` is ignored by iOS 26 and
-        the sampler reads only at first render. The pushed screen sidesteps the
-        whole problem by being *opaque* and covering them -- there is nothing
-        left to keep in sync. That is not a smaller fix than the last three, it
-        is a different shape of solution, and this test says so."""
+        The sheet cannot be translucent: an earlier drawer was, and needed the
+        strips behind Safari's bars to dim along with it, which cannot be done
+        from inside a page -- `theme-color` is ignored by iOS 26 and the sampler
+        reads only at first render. So it is opaque.
+
+        It has to reach the bottom of the viewport, because a panel that stops
+        short of the fold has a hard edge floating in the middle of the glass.
+
+        And its background has to be the same colour as the **canvas**, because
+        the last 59pt of this phone's display is below the viewport entirely --
+        no element reaches it, the root's `background-color` paints it, and if
+        the sheet ends on any other colour there is a visible band there for as
+        long as the app exists. It ended on `--sky1`-through-a-gradient while
+        the canvas painted `--sky2`; both are `#0a1020` at night, which is when
+        every screenshot in the investigation was taken.
+        """
         page.evaluate("push('place')")
         page.wait_for_timeout(400)
         box = page.locator(".screen").bounding_box()
-        css = page.locator(".screen").evaluate(
-            "e => getComputedStyle(e).backgroundColor")
-        assert box["y"] <= 1 and box["height"] >= page.viewport_size["height"] - 1
-        assert _rgba(css)[3:] != [0], "the screen is translucent; it must cover"
+        got = page.evaluate(
+            "(() => { const s = getComputedStyle(document.getElementById('screen'));"
+            "  return {bg: s.backgroundColor, img: s.backgroundImage,"
+            "          canvas: getComputedStyle(document.documentElement)"
+            "                    .backgroundColor}; })()")
+        bottom = box["y"] + box["height"]
+        assert bottom >= page.viewport_size["height"] - 1, \
+            f"the sheet ends at {bottom} in a {page.viewport_size['height']}px view"
+        assert _rgba(got["bg"])[3:] != [0], \
+            "the sheet is translucent; it must cover what is behind it"
+        assert got["bg"] == got["canvas"], (
+            f"the sheet is {got['bg']} and the canvas below the viewport is "
+            f"{got['canvas']} -- that difference is a permanent band along the "
+            f"bottom of the phone, and it is invisible at night")
+        assert got["img"] == "none", (
+            "the sheet carries a background *image*; only its flat colour can "
+            "be matched against the canvas, so a gradient here means the edge "
+            "is unverifiable and was wrong last time")
         page.keyboard.press("Escape")
         page.wait_for_timeout(400)
 
@@ -785,7 +1391,7 @@ class TestSky:
 def light_page(browser, server):
     ctx = browser.new_context(viewport={"width": 393, "height": 852},
                               color_scheme="light", locale="ru-RU")
-    pg = ctx.new_page()
+    pg = _pin(ctx.new_page())
     pg.goto(server, wait_until="networkidle")
     pg.wait_for_selector(".hero .t", timeout=10_000)
     yield pg
@@ -852,7 +1458,7 @@ class TestNothingScrollsThatShouldNotScroll:
         page.click('.src[data-src="yandex"]')
         page.wait_for_timeout(200)
         page.locator(".day[data-day]").nth(4).click()
-        page.wait_for_selector("#screen .hour", timeout=8000)
+        page.wait_for_selector("#screen .hour", state="attached", timeout=8000)
         found = self._strips(page)
         assert found, "no hourly strip on screen to check"
         for s in found:
@@ -869,7 +1475,7 @@ def wide_page(browser, server):
     a screen that ignored the content column went unnoticed."""
     ctx = browser.new_context(viewport={"width": 1280, "height": 900},
                               color_scheme="dark", locale="ru-RU")
-    pg = ctx.new_page()
+    pg = _pin(ctx.new_page())
     pg.goto(server, wait_until="networkidle")
     pg.wait_for_selector(".hero .t", timeout=10_000)
     yield pg
@@ -908,30 +1514,51 @@ class TestTheDayScreenSitsWhereTheForecastDoes:
                                 ".lastElementChild.getBoundingClientRect().width")
         assert content == column
 
-    def test_the_screen_is_pinned_to_the_edges_not_to_a_viewport_unit(self, page):
-        """`height: 100dvh` was tried here and made things worse.
+    def test_the_sheet_is_inset_at_the_top_and_flush_at_the_bottom(self, page):
+        """A sheet, so the top is deliberately *not* flush.
 
-        In a standalone web app with `viewport-fit=cover` and a translucent
-        status bar, iOS measures `vh`/`dvh` against the *safe* area rather than
-        the display. On an iPhone 15 Pro — 852pt tall, 59pt top inset — the
-        screen came out 793pt and sliced the last card off with a hard edge.
-        852 − 793 = 59, which is how the cause was identified from a photograph
-        rather than from a theory.
+        Which is half of why it is a sheet. A panel that covers the whole
+        display promises the whole display, and this phone keeps 59pt of it
+        back; a panel that visibly starts below the status bar with the page
+        behind it never made that promise, so the same 59pt at the bottom stops
+        reading as a failure to deliver.
 
-        `inset: 0` pins to the real edges. Chromium cannot reproduce the inset,
-        so this asserts the rule rather than the rendering — which is honest
-        about what a desktop browser can and cannot tell you about a phone.
+        The bottom still has to be flush — everything below the sheet is
+        unreachable canvas, and a gap there would be the original bug.
+
+        Two earlier versions of this test lived here, one asserting `inset: 0`
+        and one asserting a full-height box, and both passed throughout the
+        whole investigation. A desktop browser cannot see this bug, so the
+        assertions that matter are the colour ones in `TestSky`.
         """
-        css = page.request.get(
-            page.url.replace("/weather/", "/weather/index.html")).text()
-        rule = css[css.index(".screen{"):css.index(".screen.open")]
-        assert "inset:0" in rule.replace(" ", ""), \
-            "the pushed screen is not pinned to the viewport edges"
-        assert "dvh" not in rule, (
-            "dvh is short by the top safe-area inset in a standalone iOS web "
-            "app; it cut the bottom off the day screen once already")
-        box = page.locator(".screen").bounding_box()
-        assert box["height"] >= page.viewport_size["height"] - 1
+        # Opened first, and that is not boilerplate: the version of this test
+        # before the sheet measured the *closed* panel and passed, because a
+        # closed panel translated sideways still has top: 0. Translated
+        # downwards it does not, which is the only reason anyone noticed.
+        page.locator(".day[data-day]").nth(2).click()
+        page.wait_for_selector(".screen.open")
+        page.wait_for_timeout(400)
+        def box():
+            return page.evaluate(
+                "(() => { const b = document.getElementById('screen')"
+                ".getBoundingClientRect();"
+                " return [b.top, b.bottom, window.innerHeight]; })()")
+
+        top, bottom, h = box()
+        assert h * 0.3 <= top <= h * 0.62, (
+            f"the medium detent puts the sheet's top at {top} in a {h}px view: "
+            f"either it is covering the forecast it is supposed to sit over, "
+            f"or there is no room left to show a day")
+        assert bottom >= h - 1, f"the sheet ends at {bottom}, above the fold"
+
+        page.evaluate("goDetent('large')")
+        page.wait_for_timeout(600)
+        top, bottom, h = box()
+        assert 30 <= top <= h * 0.16, (
+            f"the large detent starts {top}px down: too flush to read as a "
+            f"sheet at all, and a sheet that fills the display is the push "
+            f"this replaced")
+        assert bottom >= h - 1, f"the sheet ends at {bottom}, above the fold"
 
     def test_nothing_is_stranded_below_the_last_card(self, page):
         """Reported from the phone as "empty space at the bottom, like a tab

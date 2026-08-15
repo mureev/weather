@@ -17,6 +17,7 @@ as the hourly column width being written down twice, and it gets the same fix.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -89,9 +90,43 @@ class TestTheInventoriesAreComplete:
         # this set is a decision rather than an omission.
         internal = {"help", "lint", "fmt", "test", "test-fast", "mock", "shots",
                     "build", "restart", "reload-nginx", "sync-config", "ps",
-                    "clean", "selftest"}
+                    "clean", "selftest", "test-if-possible"}
         assert not (targets - documented - internal), \
             f"targets with no `make help` line: {sorted(targets - documented - internal)}"
+
+    def test_recording_a_fixture_survives_a_machine_without_pytest(self, tmp_path):
+        """Reported twice, from a Mac, as `make fixtures-ya` being broken.
+
+        It was not: the fixture recorded perfectly both times and then the
+        target announced a failure, because the machine that can *record* often
+        cannot *test* -- a laptop has curl and no pytest, and that is a fine
+        machine to record from.
+
+        The first fix was a guard that probed for pytest and `exit 0`-ed. It
+        printed its message and then ran pytest anyway, which reads as the
+        guard having no effect at all. **Make gives every line of a recipe its
+        own shell**, so `exit 0` ended a shell that had nothing left to do and
+        the next line ran regardless. The whole thing has to be one line.
+
+        So this drives the real target with a `python3` on PATH that has no
+        pytest, and asserts both halves: it succeeds, and it does not try.
+        """
+        shim = tmp_path / "python3"
+        shim.write_text(
+            "#!/bin/sh\n"
+            '[ "$1" = "-c" ] && [ "$2" = "import pytest" ] && exit 1\n'
+            f'exec {sys.executable} "$@"\n')
+        shim.chmod(0o755)
+        env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}")
+        r = subprocess.run(["make", "test-if-possible"], cwd=ROOT, env=env,
+                           capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, (
+            f"recording a fixture fails on a machine without pytest:\n"
+            f"{r.stdout}\n{r.stderr}")
+        assert "pytest is not installed" in r.stdout
+        assert "-m pytest" not in r.stdout, (
+            "the guard printed its message and then ran the suite anyway -- "
+            "check that the whole probe is a single recipe line")
 
 
 class TestEverySettingIsDiscoverable:
@@ -140,6 +175,34 @@ class TestTheBuildStampCanDistinguishBuilds:
             f"the build stamp falls back to something constant: {fallback.strip()}"
 
 
+# Decisions that state no reversal condition, each with the reason it does not.
+#
+# Not a suppression list. It was assembled the day the test above was found to
+# have been passing without checking anything (see its docstring), and every
+# entry here is a section that had been exempt by accident for months. Writing
+# them down turns each one into a choice somebody made; the test fails both when
+# a new decision joins them **and** when one of them grows a reversal condition
+# and this list is not updated, so it cannot quietly become the place unreviewed
+# entries go.
+WITHOUT_A_REVERSAL = {
+    "3. Values are dropped, never clamped":
+        "invariant 1 restated; reversing it is reversing the invariant",
+    "5. Geolocation is a button, never automatic":
+        "invariant 5; the reversal is 'stop caring what leaves the phone'",
+    "6. Gismeteo has partial city coverage, and does not fake the rest":
+        "invariant 2; the reversal is serving one city's numbers under "
+        "another's name, which is the failure the project is about",
+    "8. The hero has no card": "taste, argued in prose, no condition to state",
+    "9. The place name is the control": "same -- a layout preference",
+    "10. The service-worker version is derived, not typed":
+        "invariant 9 restated for the build hash",
+    "11. Everything on the sky uses fixed-alpha translucency, not palette "
+    "colours": "a consequence of the gradient, not a choice over it",
+    "12. A retry is for refusals, never for parse failures": "invariant 6",
+    "21. Things deliberately not built":
+        "a list of non-decisions; each entry carries its own argument",
+}
+
 class TestDecisionsStayNumbered:
     def test_the_sections_are_consecutive(self):
         """They get cross-referenced by number from the code, so a duplicate or
@@ -165,9 +228,34 @@ class TestDecisionsStayNumbered:
         """The file's own rule, in its own header: a decision recorded without
         its reversal condition becomes dogma. Enforced loosely -- some entries
         argue the point in prose rather than under a heading -- but a section
-        with neither is one nobody can safely revisit."""
-        sections = re.split(r"^## \d+\.", DECISIONS, flags=re.M)[1:]
-        thin = [s.split("\n")[0].strip() for s in sections
-                if "what would change it" not in s.lower()
-                and "why" not in s.lower()]
-        assert not thin, f"decisions with no reasoning or reversal: {thin}"
+        with neither is one nobody can safely revisit.
+
+        **Two ways this used to pass without checking anything**, and both are
+        the reason it is worth reading a green test occasionally:
+
+        The split left the *last* section running to the end of the file, so it
+        swallowed the trap list and every appendix below it. Whatever was down
+        there supplied the keyword, and the newest decision -- always the last
+        one, always the one nobody has reviewed -- was the single entry exempt
+        from the rule. It only surfaced when a later section was appended and
+        the previous last one suddenly had to stand on its own.
+
+        And `"why"` matches `anywhere`, `whatever`, and the word "why" used in
+        passing in any sentence at all, which is most of them. The phrases below
+        are the ones this file actually uses as a heading.
+        """
+        parts = re.split(r"^## (?=\d+\.|\w)", DECISIONS, flags=re.M)
+        sections = [s for s in parts if re.match(r"\d+\.", s)]
+        assert len(sections) >= 25, (
+            f"only {len(sections)} decisions found -- the split stopped "
+            f"matching the headings and this test is now checking nothing")
+        want = ("what would reverse it", "what would change it",
+                "what should refuse", "what would undo")
+        thin = {s.split("\n")[0].strip() for s in sections
+                if not any(w in s.lower() for w in want)}
+        missed = thin - set(WITHOUT_A_REVERSAL)
+        assert not missed, f"decisions with no stated reversal condition: {missed}"
+        gone = set(WITHOUT_A_REVERSAL) - thin
+        assert not gone, (
+            f"{sorted(gone)} grew a reversal condition -- good; take them out "
+            f"of WITHOUT_A_REVERSAL so the exemption does not outlive the gap")

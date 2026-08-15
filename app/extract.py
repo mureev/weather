@@ -592,7 +592,7 @@ def _part_from_prose(name: str, line: str) -> DayPart | None:
     if dp.temp_c is None:
         return None
     if dp.condition:
-        dp.condition = dp.condition[0].upper() + dp.condition[1:]
+        dp.condition = R.sentence(dp.condition)
     dp.icon = R.icon_key(dp.condition, night=(name == "ночь"))
     return dp
 
@@ -721,7 +721,7 @@ def _hour_from_prose(prose: str) -> Hour | None:
         return None
     cond = R.condition(body)
     if cond:
-        cond = cond[0].upper() + cond[1:]
+        cond = R.sentence(cond)
     # Day or night is decided once, centrally, in `service._sunlit` -- computed
     # from the place and the clock rather than guessed here. This line used to
     # read `hour >= 21 or hour < 5`, which is right in Yoshkar-Ola in August

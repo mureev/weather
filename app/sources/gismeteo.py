@@ -40,6 +40,7 @@ import datetime as dt
 import json
 import logging
 import re
+from itertools import pairwise
 from typing import Any
 
 import httpx
@@ -340,11 +341,18 @@ def parse(html_text: str, *, days_html: str | None = None,
     # the same fact by construction instead of two independent guesses that
     # happened to agree on the day the fixture was recorded.
     if out.current is not None:
-        hit = covering(out.hourly, out.current.observed_epoch)
-        if hit is not None and hit.condition:
-            out.current.condition = hit.condition
-            out.current.icon = hit.icon
-            out.provenance["condition"] = int(Tier.LABELLED)
+        # The header sentence wins where it exists: it describes *now*, while
+        # the strip column is a forecast for the hour that happens to contain
+        # now. The strip stays as the fallback for the day the header changes
+        # shape too -- and it is guarded on the epoch, which without the state
+        # blob is no longer always known.
+        if not out.current.condition and out.current.observed_epoch:
+            hit = covering(out.hourly, out.current.observed_epoch)
+            if hit is not None and hit.condition:
+                out.current.condition = hit.condition
+                out.provenance["condition"] = int(Tier.LABELLED)
+        if out.current.condition and not out.current.icon:
+            out.current.icon = R.icon_key(out.current.condition)
 
     if out.current is None or out.current.temp_c is None:
         # Raise rather than return zero. A scraper returning 0 shows +0° in
@@ -423,6 +431,33 @@ def _current(doc: Any, st: dict) -> tuple[Current | None, dict[str, int]]:
     # unnoticed for the reason such things always do -- the fixture was
     # captured at 00:54, the one hour of the day when the two agree.
 
+    # Tier 2: the header's own sentence.
+    #
+    # `weather.cw` -- the hydration blob every field above is read from --
+    # disappeared from all four pages in August 2026. Nothing about that was
+    # loud: the temperature kept arriving, because tier 3 finds the first
+    # `<temperature-value>` on the page whatever it is, and everything else
+    # simply became `None`. What reached the phone was a hero with a question
+    # mark where the icon goes, and a number read by shape alone -- in range,
+    # plausible, and sourced the least trustworthy way there is.
+    #
+    # What is left is prose, in the site's own header:
+    #
+    #     <div class="place">в Йошкар-Оле пасмурно, небольшой дождь,
+    #       <temperature-value value="12"></temperature-value></div>
+    #
+    # which is a *labelled* reading rather than a positional one: the sentence
+    # names the city it is about, and `ru_text` was built to read exactly this
+    # kind of Russian. It also restores the condition, and with it the icon.
+    if cur.temp_c is None or cur.condition is None:
+        t, cond = _place_line(doc, st)
+        if cur.temp_c is None and t is not None:
+            cur.temp_c = t
+            prov["temp_c"] = int(Tier.LABELLED)
+        if cond:
+            cur.condition = cond
+            prov["condition"] = int(Tier.LABELLED)
+
     if cur.temp_c is None:
         # Tier 3: the headline value as a typed attribute, wherever it sits.
         for tv in doc.xpath("//temperature-value[@value]")[:1]:
@@ -431,7 +466,145 @@ def _current(doc: Any, st: dict) -> tuple[Current | None, dict[str, int]]:
                 cur.temp_c = v
                 prov["temp_c"] = int(Tier.SHAPE)
 
+    _fill_from_strip(doc, cur, prov)
     return (cur if cur.temp_c is not None else None), prov
+
+
+def _fill_from_strip(doc: Any, cur: Current, prov: dict[str, int]) -> None:
+    """Everything else `weather.cw` used to carry, from the column covering now.
+
+    Losing the blob cost more than the icon. `feels_like_c`, `humidity_pct`,
+    `pressure_mmhg`, `wind_ms` and `wind_dir` all came from it, and with them
+    gone the whole «Подробности» card disappeared from the Gismeteo tab --
+    silently, because a card that renders nothing looks identical to a source
+    that never had those fields. Yandex kept its card; Gismeteo lost its card;
+    nothing said why.
+
+    The landing page still publishes all five, in the same captioned grid the
+    hourly strip is read from, under their own `data-row` keys. Two things make
+    reading them honest rather than convenient:
+
+    **The column is chosen by time, not by position.** The page states its own
+    «now» -- `<time-value class="current-time" timestamp>` -- and the column
+    taken is the one covering that instant. Column 0 is midnight, not now; this
+    file has already shipped that bug once, with a description of 00:00 sitting
+    next to a temperature observed at 23:00.
+
+    **The provenance is the weaker of the two readings.** The rows themselves
+    answer at tier 1, but the alignment that picks a cell out of them is tier 2,
+    and a value is only as trustworthy as the weakest step that produced it.
+    Recording tier 1 here would tell `health.fallback_profile` that the ground
+    is firmer than it is -- and that profile is the one signal that says a
+    source needs looking at.
+    """
+    want = (("feels_like_c", "feels"), ("humidity_pct", "humidity"),
+            ("pressure_mmhg", "pressure"), ("wind_ms", "wind"))
+    if all(getattr(cur, a) is not None for a, _ in want) and cur.wind_dir:
+        return                       # `cw` was there after all; nothing to do
+
+    col, when = _now_column(doc)
+    if col is None:
+        return
+    if cur.observed_epoch is None and when is not None:
+        cur.observed_epoch = when
+
+    for attr, row in want:
+        if getattr(cur, attr) is not None:
+            continue
+        node, tier = _find_row(doc, row)
+        if node is None:
+            continue
+        vals = _row_values(doc, row)
+        if col < len(vals) and vals[col] is not None:
+            setattr(cur, attr, vals[col])
+            prov[attr] = max(tier, int(Tier.LABELLED))
+
+    if not cur.wind_dir:
+        node, tier = _find_row(doc, "wind_dir")
+        if node is not None:
+            cells = _cells(node)
+            if col < len(cells):
+                got = _dir_from(cells[col])
+                if got:
+                    cur.wind_dir = got
+                    prov["wind_dir"] = max(tier, int(Tier.LABELLED))
+
+
+def _now_column(doc: Any) -> tuple[int | None, int | None]:
+    """Which column of the strip covers the page's own «now», and when that is.
+
+    `<time-value class="current-time" timestamp="...">` is the site telling us
+    what time it thinks it is, in markup, next to the breadcrumbs. It is the
+    replacement for `weather.cw["date"]`, and it is a better one: it is on the
+    page a reader sees rather than in a hydration payload they do not.
+
+    Refuses rather than guesses in both directions -- no stamp, no answer; a
+    «now» that falls outside the strip entirely, no answer. A strip that ends
+    hours before the observation is a page mid-redesign, and the last column of
+    it is not «now» just because it is the last thing there.
+    """
+    stamps = doc.xpath(_TOKEN.format(cls="current-time") + "/@timestamp")
+    if not stamps:
+        stamps = doc.xpath('//time-value[contains(concat(" ",'
+                           ' normalize-space(@class), " "), " current-time ")]'
+                           "/@timestamp")
+    now = R.to_float(stamps[0]) if stamps else None
+    if now is None:
+        return None, None
+    now = int(now)
+
+    cols = [int(t) for t in doc.xpath(
+        _TOKEN.format(cls="widget-row-datetime-time")
+        + "//time-value[@timestamp]/@timestamp") if t.lstrip("-").isdigit()]
+    if not cols:
+        return None, now
+
+    # The latest column at or before now, and only if now is inside the strip's
+    # own span plus one step. The strip is three-hourly on this page and hourly
+    # on /hourly/, so the tolerance is measured rather than assumed.
+    step = min((b - a for a, b in pairwise(cols) if b > a), default=3600)
+    at_or_before = [i for i, t in enumerate(cols) if t <= now]
+    if not at_or_before:
+        return None, now
+    i = at_or_before[-1]
+    if now - cols[i] > step:
+        return None, now
+    return i, now
+
+
+def _place_line(doc: Any, st: dict) -> tuple[float | None, str | None]:
+    """The header sentence: «в <городе> <условия>, <температура>».
+
+    The city has to be **removed before the condition is classified**, not
+    tolerated inside it. `ru_text` matches weather words as substrings, and
+    Russia has towns called Снежинск and Дождевое: left in place, a city name
+    would be read as the weather. So the prepositional form is taken from the
+    page's own state (`city.translations.ru.city.nameP`, which ships *with*
+    the preposition), and if it is not there the condition is dropped rather
+    than guessed. A blank is information; the wrong sky is not.
+    """
+    nodes = doc.xpath(_TOKEN.format(cls="place"))
+    if not nodes:
+        return None, None
+    node = nodes[0]
+
+    temp = None
+    for tv in node.xpath(".//temperature-value[@value]")[:1]:
+        temp = R.to_float(tv.get("value") or "")
+
+    # `.text` and not `.text_content()`: everything before the first child is
+    # the sentence, and the child is the temperature we have already read.
+    said = R.clean(node.text or "")
+    city = (((st.get("city") or {}).get("translations") or {}).get("ru") or {})
+    named = ((city.get("city") or {}).get("nameP") or "").strip()
+    if not said or not named or not said.lower().startswith(named.lower()):
+        return temp, None
+    rest = said[len(named):].strip(" , ")
+    # Capitalised on the way out, like every other condition the app emits.
+    # In the sentence it follows a city name and so is lowercase there; on
+    # the hero it is the whole line, and «пасмурно» beside Yandex's
+    # «Пасмурно» one tab over reads as two people having written the app.
+    return temp, R.sentence(rest) or None
 
 
 
@@ -476,7 +649,7 @@ def _hours(doc: Any, st: dict) -> tuple[list[Hour], dict[str, int], list[int]]:
         tip = tips[i] if i < len(tips) else None
         out.append(Hour(time=when, at=ts, temp_c=temps[i],
                         precip_mm=precip[i] if i < len(precip) else None,
-                        condition=(tip[0].upper() + tip[1:]) if tip else None,
+                        condition=R.sentence(tip) if tip else None,
                         icon=R.icon_key(tip) if tip else None))
         at.append(ts)
     if not out:
@@ -712,7 +885,7 @@ def _days(doc: Any, *, today: dt.date) -> tuple[list[Day], dict[str, int]]:
         d = Day(date=date.isoformat(),
                 title=R.clean(dates[i]) if i < len(dates) else None,
                 temp_min_c=lo, temp_max_c=hi,
-                condition=(tip[0].upper() + tip[1:]) if tip else None,
+                condition=R.sentence(tip) if tip else None,
                 icon=R.icon_key(tip) if tip else None,
                 wind_dir=dirs[i] if i < len(dirs) else None)
         for name, _row, _part in _DAY_FIELDS:
@@ -784,7 +957,7 @@ def _parts(doc: Any, *, today: dt.date) -> tuple[dict[str, list[DayPart]],
         tip = tips[i] if i < len(tips) else None
         part = DayPart(
             name=name,
-            condition=(tip[0].upper() + tip[1:]) if tip else None,
+            condition=R.sentence(tip) if tip else None,
             icon=R.icon_key(tip) if tip else None,
             wind_dir=dirs[i] if i < len(dirs) else None)
         for attr, _row in _PART_FIELDS:

@@ -94,7 +94,44 @@ async def _gm_fetch(_client, url, **_kw):
 # follow a diurnal curve rather than `h % 5`, because the validator rejects a
 # series that steps more than 8° between adjacent hours and a sawtooth is
 # indistinguishable from the row misalignment that check exists to catch.
-_DAY0 = dt.date(2026, 7, 31)
+TODAY = (dt.date.fromisoformat(os.environ["YW_TODAY"])
+         if os.environ.get("YW_TODAY") else dt.date.today())
+
+# The synthetic series starts on **the pinned day**, not on a date typed here.
+# It used to be a literal `dt.date(2026, 8, 13)` beside a `TODAY` that moves,
+# which is the same two-clocks-one-app failure as §28 in miniature: re-record
+# the fixtures on any other morning and Open-Meteo's ten days begin in the past
+# while the rest of the app has moved on. The day-detail screen slices the
+# hourly series *by date*, so the symptom is a tab that silently has nothing to
+# show rather than an error.
+_DAY0 = TODAY
+
+if os.environ.get("YW_TODAY"):
+    # The app's own clock, moved to the fixtures' day along with everything
+    # else. Without this the service computes "how many days from today is the
+    # 4th of August" against a real calendar, gets a negative offset for a date
+    # the payload is full of, and declines to fetch the per-day page at all --
+    # which looks exactly like a source that has stopped publishing one.
+    #
+    # `local_now` is the single place the app asks what time it is, which is
+    # what makes this one line instead of a sweep. Invariant 11 keeps it that
+    # way: parsers take `today=`, and only the argument's default may read a
+    # clock.
+    # Patched in both places, and that is not belt and braces: `service.py`
+    # does `from .sun import local_now`, so the name it calls was bound at
+    # import and rebinding only `sun.local_now` leaves the caller on the real
+    # clock. Half-patching this is worse than not patching it -- the two halves
+    # of the app then disagree about what day it is.
+    from app import service as _service
+    from app import sun as _sun
+    _real_now = _sun.local_now
+
+    def _pinned_now(tz: str) -> dt.datetime:
+        now = _real_now(tz)
+        return now.replace(year=TODAY.year, month=TODAY.month, day=TODAY.day)
+
+    _sun.local_now = _pinned_now
+    _service.local_now = _pinned_now
 _HOURS = 24 * 10
 
 
@@ -109,15 +146,17 @@ async def _om(_client, place):
         return None
     base = -14.0 if MODE == "winter" else 15.4
     code = 71 if MODE == "winter" else 3
-    stamps = [(dt.datetime(2026, 7, 31) + dt.timedelta(hours=i)).isoformat(
-        timespec="minutes") for i in range(_HOURS)]
+    midnight = dt.datetime.combine(_DAY0, dt.time())
+    stamps = [(midnight + dt.timedelta(hours=i)).isoformat(timespec="minutes")
+              for i in range(_HOURS)]
     dates = [(_DAY0 + dt.timedelta(days=d)).isoformat() for d in range(10)]
     return {
         # Every timestamp above is in this offset; the parser needs it to say
         # which instant any of them names.
         "utc_offset_seconds": 10800,
         "timezone": "Europe/Moscow",
-        "current": {"time": "2026-07-31T21:00", "temperature_2m": base,
+        "current": {"time": f"{_DAY0.isoformat()}T22:00",
+                    "temperature_2m": base,
                     "apparent_temperature": base - 1,
                     "relative_humidity_2m": 88, "surface_pressure": 993.0,
                     "wind_speed_10m": 1.2, "wind_direction_10m": 270,
@@ -161,7 +200,13 @@ async def _ya_day(_client, url):
     m = re.search(r"/day-(\d+)", url)
     if not m:
         return await _fetch(_client, url)
-    want = dt.date.today() + dt.timedelta(days=int(m.group(1)))
+    # Relative to the *fixtures'* day, not the machine's. The recorded pages
+    # describe 31 July 2026 onwards, so a server that restamps against a real
+    # clock hands the browser a date the rest of the payload has never heard
+    # of -- and `yandex_day.parse` correctly rejects a page about a different
+    # day than the one requested, so the detail silently never arrives.
+    # `YW_TODAY` lets the browser suite pin both ends to the same day.
+    want = TODAY + dt.timedelta(days=int(m.group(1)))
     return YA_DAY.replace("2026-08-07T", f"{want.isoformat()}T")
 
 

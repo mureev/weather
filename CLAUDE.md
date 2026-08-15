@@ -10,14 +10,66 @@ lost once and rebuilt from documentation in an afternoon.
 
 ---
 
+## Where this was left
+
+**One test is red on purpose, and it is not a bug.**
+
+```
+FAILED tests/test_invariants.py::TestTheFixturesAreOneRecording::test_the_sources_overlap
+  Yandex spans ..2026-08-16 and Gismeteo ..2026-08-14, with no date in common
+```
+
+Meteofor had an outage on 15 August 2026 -- every page answering 200 with
+`widget-no-data` where the forecast belongs (§32) -- so the Yandex fixtures were
+re-recorded that day and the Gismeteo ones could not be. Two browser tests that
+depend on both describing the same day skip themselves and point at this one, so
+it is the only noise.
+
+**The fix is one command, once the source is back:**
+
+```bash
+make fixtures-gm && make fixtures && make check
+```
+
+Check first that it is back -- `fixtures-gm` now refuses to record a placeholder
+and will tell you if it is still down. If everything else is green and only that
+line is red, nothing is broken; do not go looking.
+
+---
+
 ## First, always
 
 ```bash
-make check          # ruff + the whole suite, no network. Must be green.
+make check          # ruff + the whole suite, no network
+python -m tools.phone   # render at the phone's real 393x852 view
 ```
 
-If `make check` is red when you arrive, fix that before anything else, and
-suspect the harness before the code (see the bottom of `DECISIONS.md`).
+**If the complaint came from the phone, do not form a theory.** This is the
+single most expensive habit this project has, and it has now cost three
+separate multi-day hunts. Two tools exist so that it does not cost a fourth:
+
+- `tools/phone.py` renders at the device's geometry with the safe-area insets
+  injected, and pins its clock to the fixtures so a September session gets the
+  same picture as an August one.
+- `static/debug.js` runs the whole battery **on the device** -- viewport units,
+  canvas colours, the close button, the top of the screen, and both sheet
+  animations sampled frame by frame -- and prints a verdict per line. Tap the
+  build hash in the footer. One screenshot replaces four rounds of "try this
+  and tell me what you see".
+
+The second one earned its keep the first time it was asked. It found the
+sheet's entrance losing its first 230ms to a `visibility` transition (§31) --
+a defect reported for weeks, mis-fixed twice, and invisible to five hundred
+passing tests because every computed style was correct and only the frames were
+missing. **If you find yourself explaining why the device is wrong, add a probe
+to `debug.js` instead and ask for one screenshot.**
+
+Note what the harness cannot referee: Chromium reports `env(safe-area-inset-*)`
+as 0 and `svh == lvh`, where the phone says 59/34 and 793/852. Anything that
+depends on those is unprovable here.
+
+If `make check` is red when you arrive, read the section above first, then fix
+it, and suspect the harness before the code (see the bottom of `DECISIONS.md`).
 
 Before you finish: `make check` again, and update `README.md` if you added a
 module, a `make` target, a diagnostic, or an environment variable. Tests enforce
@@ -82,11 +134,16 @@ Everything below follows from that.
    number — they produced a right number attached to the wrong thing. On the
    front end this means a date, not an index; in a parser it means a container,
    not an offset into a flat list.
-13. **The gesture is not ours to implement, only to opt into.** iOS runs its own
-   edge-swipe-back in a standalone PWA and it cannot be switched off. A screen
-   is pushed onto `history` so the platform gesture dismisses it; a hand-rolled
-   swipe would run *alongside* the system one and navigate back twice. There is
-   a test asserting `app.js` registers no touch handlers.
+13. **The horizontal gesture is not ours to implement, only to opt into.** iOS
+   runs its own edge-swipe-back in a standalone PWA and it cannot be switched
+   off. A screen is pushed onto `history` so the platform gesture dismisses it;
+   a hand-rolled *horizontal* swipe would run alongside the system one and
+   navigate back twice. Narrowed from "no touch handlers at all" when the day
+   detail became a bottom sheet: a **vertical** drag does not collide, and it
+   is the one thing that makes a sheet feel like an object. Dismissal still
+   goes through `history.back()` from every path, which is what keeps the
+   system swipe working. Tested as: no pointer/gesture listeners, `clientX`
+   read only to hand a sideways gesture back, `history.back()` present.
 
 ---
 
@@ -129,54 +186,24 @@ Full list at the bottom of `DECISIONS.md`. The ones that recur:
 - The forecast block renders **twice**; a naive walk gives 20 days.
 - `"безоблачно"` contains `"облачно"`. Substring order is load-bearing.
 - An `<svg>` with no width/height defaults to 300×150 and wrecks the layout.
-- iOS Safari ignores `overflow:hidden` on `<body>`.
-- **iOS 26 Safari ignores `theme-color`.** It tints the strips above and below
-  the page by sampling the `background-color` of a `position: fixed` element at
-  that edge — a *colour*, so gradients are invisible to it, and only at first
-  render, so JavaScript cannot change it. `.edge-top` / `.edge-bot` exist
-  solely to be sampled; keep them fixed, full width, ≥6px, no border.
-- **Measure the thing that leaves the machine.** The byte-budget test read
-  `len(response.content)`; the test client decompresses transparently, so it
-  measured the file on disk and reported 82 kB for a 26 kB load.
-- **A skipped test is not a passing test, and one that has never run may be
-  asserting nonsense.** Four tests waited on a fixture for weeks; the moment one
-  existed, one of them failed on an assertion that could never have been true.
-  CI now fails on any skip outside the browser suite.
-- **A parser that under-reads never fails.** An always-`None` field looks like
-  a field the source does not publish; a series of zeros looks like a dry day.
-  Ask "what does the page contain that we never touch" — `test_mapping.py`.
-- **The values that matter are the typed ones.** A dry hour is the text `0`, a
-  wet hour is `<precipitation-value value="3.7">`. Read the text and exactly the
-  interesting cells go missing.
-- **Nearest is not the same question as covering.** `series.covering` picks the
-  best match for comparison; `series.align_to_now` picks the entry that contains
-  the moment. Conflating them dropped the current hour from the strip.
-- **A fixture captured at a convenient moment is a test that agrees with you.**
-  The Gismeteo headline read the strip's *first* column — midnight — instead of
-  the observed hour, for weeks. The fixture was recorded at 00:54, the one hour
-  when those coincide, so the test asserted the bug. There is now a test that
-  rejects such a fixture.
-- **Comparing two times without saying which clock they are on** is how most of
-  the above start. Pass the timezone; never assume UTC.
-- **A test asserting a meta tag changed is not a test that the browser acted on
-  it.** Two `theme-color` fixes passed their tests and did nothing on a phone.
-  When a fix is green and the screenshot is unchanged, you are measuring the
-  wrong end of the mechanism.
-- **A row can be missing a half.** Gismeteo's pressure row has a max for ten
-  days and a min for eight. Read flat, every day after the gap takes its
-  neighbour's number — in range, right unit, wrong day. Count containers.
-- **A page can be named for something it is not.** Gismeteo's `/3-days/` is a
-  *ten*-day grid at four columns a day. It was left unparsed for a while on the
-  strength of its URL. Open the page before believing its name.
-- **A source's absence can be a reading.** Gismeteo prints «штиль» and no number
-  at all for a calm part of the day. Gating the cell on the speed dropped the
-  one value that said something.
-- **`100dvh` is short by the top inset in a standalone iOS web app.** With
-  `viewport-fit=cover` and a translucent status bar, iOS measures `vh`/`dvh`
-  against the *safe* area, not the display. A panel at `top: 0; height: 100dvh`
-  therefore ends 59pt above the bottom on an iPhone 15 Pro and slices its
-  content off. Pin full-screen panels with `inset: 0`. This was tried the other
-  way round first, on a theory about Safari's toolbar, and made the bug worse.
+- **`position: fixed` on `<body>` collapses a standalone iOS web app to the
+  *small* viewport.** `innerHeight` drops by the status-bar inset — 852 to 793
+  — for as long as the lock is on, and every consequence looks like a CSS bug:
+  an unpaintable band along the bottom of the phone, content cut at the fold,
+  `dvh` disagreeing with `lvh`. It also relayouts the whole document, which
+  ate the sheet's opening animation. **Six deploys were spent on the symptoms
+  before anyone suspected the scroll lock.** Lock with
+  `html.locked{overflow:hidden;overscroll-behavior:none}` — honoured since iOS
+  16.3, changes no geometry, keeps the scroll position for free. There are
+  invariant tests; `static/debug.js` reports `inner при открытом` on the device.
+- **Re-date a workaround before you inherit it.** The pin above was justified
+  by "iOS ignores `overflow:hidden` on `<body>`", which was true until iOS 16.3
+  and then wrong for three years. Nothing recorded when it was written or
+  against which version. If a comment explains a browser bug, it should say
+  *when*.
+- **A symptom in the stylesheet can have its cause in the JavaScript.** Every
+  hypothesis for six deploys was a CSS hypothesis, because the symptom was a
+  band of colour. The cause was a class name added in `openScreen`.
 - **`overflow-x: auto` does not leave the other axis alone.** When one axis is
   not `visible`, a `visible` on the other computes to `auto`. Two pixels of
   overflow made the hourly strip its own vertical scroller, so dragging the
@@ -207,6 +234,37 @@ Full list at the bottom of `DECISIONS.md`. The ones that recur:
 - **Fixtures from two recordings are not a smaller reality.** Pairing a landing
   page from one day with an hourly strip from another makes the coherence check
   report the app as broken, correctly.
+- **An outage answers 200.** Meteofor spent 15 August 2026 serving every page
+  with the right title, the right city, and `<div class="widget
+  widget-no-data">Данные уточняются` where the forecast goes. `curl -f` was
+  happy, so `make fixtures-gm` overwrote four good fixtures with four empty
+  ones, and the parser then refused them exactly as designed — which made a
+  source outage look like a parser bug, having just destroyed the recording
+  that would have proved otherwise. `fixtures-gm` now downloads to a scratch
+  directory and refuses to install a page with no `data-row=` grid. **Before
+  believing a source is broken, check whether it is merely empty**, and never
+  let a recorder write over its own evidence.
+- **A periodic animation has a divisibility constraint.** A pattern that
+  repeats every P pixels may only be translated by a whole multiple of P. The
+  rain's 46px gradient period was 190px measured *vertically* while the
+  animation moved 168px, so it jumped 22px eleven hundred times a minute and
+  had done since it was written. Express the constraint in the code — one
+  custom property for both the repeat and the travel — or it is being met by
+  luck. §30.
+- **A pinned clock is an instant, not a time of day.** `set_fixed_time` takes
+  UTC; the front end asks what day it is *in the city*. `FIXTURE_NOW` held the
+  city's 22:00 wall clock, so the browser ran three hours ahead of the server's
+  `YW_TODAY` — across midnight. All 66 browser tests stayed green, because the
+  app was consistent with itself: it just rendered yesterday at the top of the
+  ten-day list and «сейчас» at 01:00, in every screenshot the harness made.
+  Both ends were pinned; they were pinned to different moments.
+- **When a source drops a data blob, only one symptom looks broken.** Gismeteo's
+  `weather.cw` went away and the report was "the icon is a question mark". Also
+  true, unreported: the temperature had fallen to tier 3 — found by document
+  position — and five fields went blank, which silently removed the whole
+  «Подробности» card, because a block that renders nothing looks exactly like a
+  source that never had those fields. Check `health.fallback_profile` and the
+  *shape* of the screen, not just the thing that was noticed. §27.
 
 ---
 

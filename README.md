@@ -17,7 +17,7 @@ three are asserted by tests rather than hoped for.
 
 ```bash
 make            # list every command
-make check      # lint + 496 tests, no network required
+make check      # lint + 560 tests, no network required
 make run        # localhost:8080 against live upstreams
 make deploy     # build amd64, push to GHCR, restart on the VPS, check health
 ```
@@ -29,7 +29,7 @@ make deploy     # build amd64, push to GHCR, restart on the VPS, check health
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 496 tests, no
+1. **`make check` must pass before you believe anything.** 560 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -180,9 +180,34 @@ toolbar. It ignores `theme-color` and samples a fixed element's
 
 **The hero has no card** — it sits on an animated, condition-aware sky. That is
 not decoration: a box with four lines in it reads as *empty*, whereas the same
-four lines on a sky read as *calm*. Clear nights get a star field, rain gets
-streaks, snow gets flakes; `prefers-reduced-motion` turns the motion off and
-keeps the colour.
+four lines on a sky read as *calm*.
+
+Eighteen conditions, each with its own motion, on two axes that are deliberately
+kept apart. `SKY_OF` collapses them into **seven colours**, because a palette
+wants to be coarse — drizzle and a downpour are the same shade of grey, and
+pretending otherwise makes the app flicker between near-identical blues on every
+refresh. `FX_OF` keeps all eighteen, because the **motion** is where the
+difference lives: thin and slow through dense and fast, so how hard it is
+raining is legible from across the room without focusing on a number. Clear days
+get a sun glow, clear nights a star field, fog gets bands that breathe, and
+overcast gets a flat tint whose only variable is brightness.
+
+Three rules hold it in check, each learned the hard way and each recorded beside
+the line it governs: **`transform` and `opacity` only** (a test reads every
+`@keyframes` block and fails on a third property); **seamless by construction**,
+since a pattern repeating every *P* pixels may only be translated by a multiple
+of *P* (§30); and **out of the way of the text**, in a masked wrapper that holds
+clear of the status-bar strip and fades before the cards (§29).
+
+`prefers-reduced-motion` stops all of it and keeps the colour — stopped, not
+stripped, because the still frame of each is a legitimate picture of the
+weather.
+
+The **night flag rides on the envelope**, not on any source: only `clear`,
+`partly` and `cloudy` carry the hour inside their icon, so rain at midnight is
+still spelled `rain` and its drops were being lit for noon. It is derived from
+solar position like everything else here, never from "the hour looks late" —
+this is Yoshkar-Ola, where June is light at eleven and December dark at four.
 
 **Icons know what time it is.** Two of the three sources ship no day/night
 information whatsoever, so the sun is computed from the coordinates and the
@@ -315,6 +340,7 @@ reality. Tests failing tells you exactly which assumption broke.
 make routes                             # which way in to Gismeteo works from here
 make routes-remote                      # ...and from the VPS, the one that counts
 make routes ARGS='http://1.2.3.4:8080'  # ...and would this proxy help?
+make fixtures-ya                        # re-record Yandex from this machine (no DEBUG_TOKEN needed)
 make fixtures-gm                        # re-record Gismeteo from whichever host answers
 make fixtures-day                       # record the two per-day pages nothing parses yet
 make selftest                           # per-source fetch/parse/identity breakdown
@@ -374,8 +400,8 @@ app/
     gismeteo.py      id registry, M.state, typed attrs
     openmeteo.py     no key, no quota
     geocode.py       text city search
-static/              index.html, app.js, sw.js, icons — no build step
-tests/               496 tests: parsers, degradation, invariants, docs, API, browser
+static/              index.html, app.js, sw.js, debug.js, icons — no build step
+tests/               560 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 deploy/              nginx-proxy vhost snippet + compose service block
 ```

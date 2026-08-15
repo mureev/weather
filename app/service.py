@@ -112,6 +112,7 @@ def _sunlit(weather: Weather) -> Weather:
     place = weather.place
     now = local_now(place.tz)
     dark_now = is_night(place.lat, place.lon, now)
+    weather.night = dark_now
     for sv in weather.sources.values():
         if sv.current is not None:
             sv.current.icon = nightify(sv.current.icon, dark_now)

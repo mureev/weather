@@ -187,7 +187,7 @@ def _fill(hour: Hour, cols: dict[str, list[Any]], i: int) -> None:
         hour.temp_c = R.temperature(rest)
         hour.condition = R.condition(rest)
         if hour.condition:
-            hour.condition = hour.condition[0].upper() + hour.condition[1:]
+            hour.condition = R.sentence(hour.condition)
         icon = temp.xpath('.//*[contains(@class,"weatherIcon")]/@style')
         hour.icon = (R.icon_from_yandex(icon[0]) if icon else None) \
             or R.icon_key(hour.condition)

@@ -8,6 +8,7 @@
 #   make health        what the live box thinks of itself
 #   make logs          tail the container on the VPS
 #   make fixtures      re-record test fixtures from the box that does the fetching
+#   make fixtures-ya   re-record Yandex from this machine (no DEBUG_TOKEN)
 #   make fixtures-gm   re-record the Gismeteo pages from whichever host answers
 #   make fixtures-day  record the two per-day pages nothing parses yet
 #   make probe         diagnose a source that is refusing us
@@ -32,6 +33,7 @@ SUDO       ?=
 PORT       ?= 8080
 SITE       ?= https://mureev.com/weather
 CITY       ?= yoshkar-ola
+YA_URL     ?= https://yandex.ru/pogoda/ru/yoshkar-ola
 
 # The Gismeteo page the fixtures are recorded from. `meteofor.lv` is the same
 # service under its export brand and answers addresses `gismeteo.ru` refuses,
@@ -61,8 +63,9 @@ BUILDARGS   = --build-arg APP_BUILD=$(BUILD) --build-arg APP_BUILT_AT=$(BUILT_AT
 SSH = ssh $(HOST)
 COMPOSE = cd $(REMOTE_DIR) && $(SUDO) docker compose
 
-.PHONY: help test test-fast lint fmt check run mock shots build push deploy \
-        restart reload-nginx sync-config health logs ps fixtures fixtures-gm \
+.PHONY: help test test-fast test-if-possible lint fmt check run mock shots build push deploy \
+        restart reload-nginx sync-config health logs ps fixtures fixtures-ya \
+        fixtures-gm \
         fixtures-day selftest probe routes routes-remote canary clean
 
 help:
@@ -150,14 +153,50 @@ ps:
 
 # --- maintenance ------------------------------------------------------------
 
+# Recording is not the same job as testing, and the machine that can do one
+# often cannot do the other: a laptop with curl and no pytest recorded a
+# fixture perfectly and then reported `make fixtures-ya` as a failure. The
+# recording is the deliverable; running the suite is a courtesy when it is
+# available.
+#
+# **One recipe line, and that is the whole fix.** The version before this
+# probed for pytest on one line and ran the suite on the next -- and make gives
+# every line of a recipe its own shell, so `exit 0` ended that shell
+# successfully and make cheerfully proceeded to the next line. The probe
+# printed "pytest is not installed here", and then the target ran pytest
+# anyway, failed, and reported the recording as broken. It looked like the
+# guard had no effect at all; it had exactly the effect it asked for, on a
+# shell that had nothing left to do.
+test-if-possible:
+	@if python3 -c 'import pytest' 2>/dev/null; then \
+	  $(MAKE) test; \
+	else \
+	  echo "recorded. pytest is not installed here -- run \`make check\` where it is"; \
+	fi
+
 # The loop this project is designed around. Re-record from the box that
 # actually does the fetching, then let the tests say what moved.
 # Needs DEBUG_TOKEN set in the container's environment and exported here.
 fixtures:
-	@test -n "$(DEBUG_TOKEN)" || (echo "set DEBUG_TOKEN=... first" && exit 1)
+	@test -n "$(DEBUG_TOKEN)" || (echo "set DEBUG_TOKEN=... first, or use \`make fixtures-ya\`" && exit 1)
 	curl -fsS -H "X-Debug-Token: $(DEBUG_TOKEN)" \
 	  "$(SITE)/api/debug/raw?city=$(CITY)" > tests/fixtures/current.html
-	@$(MAKE) test
+	@$(MAKE) test-if-possible
+
+# Yandex, recorded straight from this machine instead of through the server's
+# debug route. For when `DEBUG_TOKEN` is not enabled -- it is commented out in
+# `deploy/compose-service.yml`, so `/api/debug/raw` answers 404 until someone
+# turns it on, and re-recording should not be blocked behind a deploy.
+#
+# `make fixtures` is still the better one and stays the default: it records
+# what the *VPS* receives, and the VPS is the machine whose network conditions
+# the parser has to survive. This records what a laptop receives. For Gismeteo
+# that distinction was the whole story (it blocks by IP); for Yandex it has
+# never mattered, but if a fixture taken this way ever parses differently from
+# one taken through the server, believe the server's.
+fixtures-ya:
+	curl -fsS --compressed -A '$(UA)' '$(YA_URL)' > tests/fixtures/current.html
+	@$(MAKE) test-if-possible
 
 # Record the Gismeteo pages from whichever host currently answers. Run it where
 # the fetch actually happens -- a fixture recorded on a machine that is not
@@ -165,27 +204,49 @@ fixtures:
 #     make fixtures-gm
 #     make fixtures-gm GM_URL=https://www.gismeteo.ru/weather-yoshkar-ola-11975 GM_PREFIX=gm
 fixtures-gm:
-	curl -fsS --compressed -A '$(UA)' '$(GM_URL)/' \
-	  > tests/fixtures/$(GM_PREFIX)-current.html
-	curl -fsS --compressed -A '$(UA)' '$(GM_URL)/hourly/' \
-	  > tests/fixtures/$(GM_PREFIX)-hourly.html
-	curl -fsS --compressed -A '$(UA)' '$(GM_URL)/10-days/' \
-	  > tests/fixtures/$(GM_PREFIX)-10days.html
-	@# Named /3-days/ and showing ten, four columns a day. All four pages are
-	@# recorded together and that matters more here than it looks: they are
-	@# fetched in the same second in production, and a set captured across
-	@# midnight makes the parts of Tuesday hang off Monday in the fixtures and
-	@# nowhere else -- a test failure with no bug behind it, or worse, a test
-	@# that agrees with a bug.
-	curl -fsS --compressed -A '$(UA)' '$(GM_URL)/3-days/' \
-	  > tests/fixtures/$(GM_PREFIX)-3days.html
-	@wc -c tests/fixtures/$(GM_PREFIX)-*.html
-	@# Recording succeeded above. Running the suite is the *next* step, not part
-	@# of this one -- and it needs pytest, which the machine that can reach the
-	@# site may well not have. Failing the whole target there threw away a good
-	@# capture and read as "the fixtures did not work".
-	@python3 -c "import pytest" 2>/dev/null && $(MAKE) test || \
-	  echo "\n  Fixtures recorded. pytest is not installed here -- run \`make test\`\n  where it is, or \`pip3 install pytest\` first.\n"
+	@# **Downloaded to a scratch directory and inspected before anything is
+	@# overwritten**, and that ordering is the whole point of this recipe.
+	@#
+	@# On 15 August 2026 the source had an outage: every page answered 200, with
+	@# the right title, the right city, and this where the forecast goes --
+	@#
+	@#     <div class="widget widget-no-data">
+	@#       <div class="desc">Данные уточняются. Пожалуйста, зайдите чуть позже.</div>
+	@#
+	@# -- so `curl -f` was perfectly happy and the `>` redirect replaced four good
+	@# fixtures with four empty ones before anyone looked. The parser then refused
+	@# them exactly as designed, which made a source outage look like a parser
+	@# bug, and the recording that would have proved otherwise had just been
+	@# destroyed. An hour went into telling those two apart.
+	@#
+	@# The page says which it is, in its own markup. `data-row=` is the forecast
+	@# grid every one of the four carries; no grid, no recording.
+	@#
+	@# One recipe line throughout, because make gives each line its own shell and
+	@# `exit 1` on line one does not stop line two -- this Makefile has already
+	@# paid for that lesson once, in `test-if-possible`.
+	@set -e; \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	for p in "/:current" "/hourly/:hourly" "/10-days/:10days" "/3-days/:3days"; do \
+	  path=$${p%%:*}; name=$${p##*:}; \
+	  curl -fsS --compressed -A '$(UA)' "$(GM_URL)$$path" > "$$tmp/$$name.html"; \
+	  if ! grep -q 'data-row=' "$$tmp/$$name.html"; then \
+	    echo; echo "  refusing to record: $(GM_URL)$$path carries no forecast grid."; \
+	    grep -q 'widget-no-data' "$$tmp/$$name.html" \
+	      && echo "  it says so itself (widget-no-data): an outage on their side, not a parser bug."; \
+	    echo "  Your existing fixtures are untouched. Try again when it is back."; \
+	    echo; exit 1; \
+	  fi; \
+	done; \
+	for name in current hourly 10days 3days; do \
+	  mv "$$tmp/$$name.html" "tests/fixtures/$(GM_PREFIX)-$$name.html"; \
+	done; \
+	wc -c tests/fixtures/$(GM_PREFIX)-*.html
+	@# All four together, and that matters more than it looks: they are fetched
+	@# in the same second in production, and a set captured across midnight makes
+	@# the parts of Tuesday hang off Monday in the fixtures and nowhere else --
+	@# a test failure with no bug behind it, or worse, a test that agrees with one.
+	@$(MAKE) test-if-possible
 
 # Yandex's per-day page, which nothing parses yet.
 #

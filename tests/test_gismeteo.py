@@ -22,6 +22,7 @@ import pathlib
 import re
 from itertools import pairwise
 
+import lxml.html as LH
 import pytest
 
 from app import cities
@@ -77,6 +78,24 @@ def parsed(request):
                                                    errors="replace"),
         today=TODAY,
     )
+
+
+@pytest.fixture(scope="module")
+def mf(request):
+    """The mirror's four pages, parsed together.
+
+    Module-level so anything can ask for it. Two classes below define their own
+    `mf` with the same contents and those still shadow this one inside their
+    own scope -- left alone deliberately, because merging them is a tidy-up
+    with a real risk of changing which pages a test is reading, and this file
+    exists to be sure about exactly that.
+    """
+    d = request.path.parent / "fixtures"
+    read = lambda n: (d / n).read_text(encoding="utf-8", errors="replace")  # noqa: E731
+    return G.parse(read("mf-current.html"),
+                   days_html=read("mf-10days.html"),
+                   hourly_html=read("mf-hourly.html"),
+                   parts_html=read("mf-3days.html"))
 
 
 class TestAddressing:
@@ -412,8 +431,30 @@ class TestTheMetricRows:
 
     def test_wind_direction_speaks_the_same_language_as_every_other_source(self, mf):
         """The cell says «СЗ». Open-Meteo says «северо-западный». One
-        vocabulary reaches the client or the front end needs three tables."""
-        assert mf.daily[0].wind_dir == "северо-западный"
+        vocabulary reaches the client or the front end needs three tables.
+
+        This read `== "северо-западный"` and broke on the first re-record,
+        because on that day the wind was westerly. That is the documented trap:
+        a test that hardcodes a value out of a fixture is a test of the
+        weather, and its only repair is to paste in the new number -- which
+        would just as happily bless a parser that had started reading the wrong
+        row. So it asserts the *property*, and cross-checks the vocabulary
+        against the raw markup by a different mechanism, the way `_row_pairs`
+        does for the chart.
+        """
+        dirs = [d.wind_dir for d in mf.daily if d.wind_dir]
+        assert dirs, "no wind direction survived at all"
+        for got in dirs:
+            assert got in G._DIRS or got == "штиль", (
+                f"{got!r} is not one of the eight long Russian forms -- an "
+                f"abbreviation reaching the client means three lookup tables "
+                f"on the front end instead of one")
+        # The abbreviations the page actually prints, found without the parser.
+        said = set(re.findall(r">\s*(С|Ю|В|З|СВ|СЗ|ЮВ|ЮЗ)\s*<", RAW_DAYS))
+        assert said, "no abbreviation found in the markup to check against"
+        assert len(set(dirs)) > 1 or len(said) == 1, (
+            "every day has the same direction while the page prints several -- "
+            "the column is being read by position")
         assert all(d.wind_dir is None or " " not in d.wind_dir
                    for d in mf.daily)
 
@@ -557,19 +598,41 @@ class TestThePartsOfDayGrid:
 
 
 class TestIndependence:
-    def test_it_actually_disagrees_with_yandex(self, parsed, request):
-        """The whole point of a second source. Same city, same minute, from a
-        different model: 15° against Yandex's 16°, 748 mmHg against 745, 100%
-        humidity against 90%.
+    def test_it_actually_disagrees_with_yandex(self, mf, request):
+        """The whole point of a second source: same city, same day, different
+        model. If the two ever agreed on *everything*, the likely explanation
+        is that one parser is reading the other's page.
 
-        If these ever match exactly, suspect that one parser is reading the
-        other's page.
+        Two things changed here. It compared the `gm-` pair against Yandex,
+        which after a partial re-record meant comparing July against August --
+        the comparison was meaningless before the assertion even ran, so it now
+        uses the `mf-` set, which is the same recording session as the Yandex
+        fixture. And it asserted `abs(delta) < 3.0`, which is a fact about one
+        afternoon: on the day this was rewritten both sources said exactly 12°,
+        and two models agreeing to the degree is ordinary rather than
+        suspicious.
+
+        So it asserts independence across the *set* of readings rather than
+        disagreement in any one of them, and sanity rather than a threshold:
+        two forecasts for the same city on the same day cannot be 15° apart.
         """
         from app import extract as X
         ya = X.parse((request.path.parent / "fixtures" / "current.html")
-                     .read_text(encoding="utf-8", errors="replace"), today=TODAY)
-        assert parsed.current.temp_c != ya.current.temp_c
-        assert abs(parsed.current.temp_c - ya.current.temp_c) < 3.0
+                     .read_text(encoding="utf-8", errors="replace"))
+        gm, y = mf.current, ya.current
+        assert abs(gm.temp_c - y.temp_c) <= 8.0, (
+            f"{gm.temp_c} against {y.temp_c} for the same city on the same "
+            f"day -- one of these is not the place we asked for")
+
+        readings = [(gm.temp_c, y.temp_c),
+                    (mf.daily[0].temp_max_c, ya.daily[0].temp_max_c),
+                    (mf.daily[0].temp_min_c, ya.daily[0].temp_min_c)]
+        comparable = [(a, b) for a, b in readings
+                      if a is not None and b is not None]
+        assert comparable, "nothing comparable survived from either source"
+        assert any(a != b for a, b in comparable), (
+            f"every reading is identical across both sources: {comparable} -- "
+            f"suspect one parser is being handed the other's page")
 
 
 class TestMirror:
@@ -634,11 +697,33 @@ class TestMirror:
         if not (request.path.parent / "fixtures" / "mf-hourly.html").exists():
             pytest.skip("no hourly fixture")
         first = mirror.hourly[0]
-        assert first.at is not None and mirror.current.observed_epoch is not None
-        gap = first.at - mirror.current.observed_epoch
-        assert 0 <= gap <= 3600, (
-            f"the hourly strip starts {gap}s from the observation -- it should "
-            f"begin at the observed hour or the next one, never before")
+        assert first.at is not None
+
+        # `observed_epoch` came from `weather.cw`, which the source removed in
+        # August 2026. The parser now takes it from the page's own clock --
+        # `<time-value class="current-time" timestamp>`, the thing the site is
+        # telling a reader the time is -- so this usually still has a reference
+        # point. The fallback below reads the same element by hand, and matters
+        # on the day that element moves too.
+        #
+        # Skipped rather than faked if both go. An alignment test with no
+        # reference point is a test that always passes, which is worse than no
+        # test: it would have gone on being green through exactly the change
+        # that broke everything else here.
+        page_now = mirror.current.observed_epoch
+        if page_now is None:
+            raw = (request.path.parent / "fixtures" / "mf-current.html")
+            stamps = LH.fromstring(
+                raw.read_text(encoding="utf-8", errors="replace")).xpath(
+                '//time-value[contains(@class,"current-time")]/@timestamp')
+            page_now = int(stamps[0]) if stamps else None
+        if page_now is None:
+            pytest.skip("the page no longer states a time to align against")
+
+        gap = first.at - page_now
+        assert -3600 <= gap <= 3600, (
+            f"the hourly strip starts {gap}s from the page's own clock -- it "
+            f"should begin at the current hour or the next one")
 
     def test_the_dedicated_hourly_page_is_worth_fetching(self, request, mirror):
         """The reason for the third request. The landing page gives eight
@@ -654,15 +739,33 @@ class TestMirror:
         assert G.check_identity(mirror.ident, place) is None
         assert mirror.ident.geo_id == 11975
 
-    def test_the_state_blob_is_there_too(self, mirror):
-        """Tier 1. If the mirror only yielded tier 3, it would still work and
-        the parser would be one redesign from reading the wrong cell -- so it
-        is worth knowing which is true before relying on it."""
-        # Per *field*, because that is how provenance is keyed -- there is no
-        # "current" entry and asserting one passed vacuously as `None != 1`
-        # until a real fixture existed to run it against.
-        for field in ("temp_c", "humidity_pct", "pressure_mmhg", "wind_ms"):
+    def test_no_field_has_slipped_to_tier_three(self, mirror):
+        """Which rung of the ladder each field arrives on.
+
+        **This test earned its keep in August 2026 and is rewritten because of
+        it.** `weather.cw` -- the hydration blob the whole current block was
+        read from -- disappeared from all four pages. Nothing failed. The
+        temperature kept arriving, because tier 3 takes the first
+        `<temperature-value>` on the page whatever it is; everything else
+        silently became `None`. What reached the phone was a hero with a
+        question mark where the icon goes, and a number found by position.
+
+        So it no longer demands tier 1 for the current block, which is gone.
+        It demands what actually protects the reader: **nothing at tier 3.**
+        Tier 3 means a value was located by shape, and a value located by
+        shape can be any cell on the page -- that is precisely how a pressure
+        reading becomes a temperature.
+        """
+        assert mirror.provenance.get("temp_c") == int(Tier.LABELLED), (
+            "the current temperature is not coming from the header sentence; "
+            "at tier 3 it is whatever `<temperature-value>` is first in the "
+            "document, which is not a promise about anything")
+        assert mirror.provenance.get("condition") == int(Tier.LABELLED)
+        for field in ("daily.temp", "daily.pressure", "daily.wind"):
             assert mirror.provenance.get(field) == int(Tier.NAMED), field
+        slipped = [k for k, v in mirror.provenance.items()
+                   if isinstance(v, int) and v >= int(Tier.SHAPE)]
+        assert not slipped, f"read by position, not by name: {slipped}"
         assert mirror.ident.lat is not None
 
     def test_it_yields_a_usable_forecast(self, mirror):
@@ -687,3 +790,206 @@ class TestMirror:
         place = cities.get("yoshkar-ola")
         assert G.urls_for(place, "https://meteofor.lv/ru/")[0] == \
             "https://meteofor.lv/ru/weather-yoshkar-ola-11975/"
+
+
+# --- what the state blob took with it ---------------------------------------
+
+MSK = dt.timezone(dt.timedelta(hours=3))
+
+
+def _page_now(html: str) -> int | None:
+    """The page's own clock, read without lxml.
+
+    `<time-value class="current-time" timestamp="...">` sits next to the
+    breadcrumbs, spread over five lines of markup, so the pattern has to cross
+    newlines -- which `[^>]*` does, since a newline is not a `>`. Written the
+    obvious way with `\\s+` it matches nothing and every test below passes by
+    skipping, which is the failure mode this file keeps having to design around.
+    """
+    m = re.search(r'current-time"[^>]*timestamp="(\d+)"', html)
+    return int(m.group(1)) if m else None
+
+
+def _strip_stamps(html: str) -> list[int]:
+    """The epoch under each column of the landing page's widget, by regex."""
+    i = html.find("widget-row-datetime-time")
+    if i < 0:
+        return []
+    j = html.find("widget-row-", i + 30)
+    return [int(t) for t in
+            re.findall(r'timestamp="(\d+)"', html[i: j if j > 0 else len(html)])]
+
+
+def _strip_values(html: str, row: str) -> list[float]:
+    """One captioned row of that widget, as numbers, sharing no code with the
+    parser -- no lxml, no XPath, no `_ROWS` table.
+
+    The same second-opinion trick as `_row_pairs` above, and for the same
+    reason: a test that pastes in the numbers a fixture happened to contain
+    would bless a parser that had started reading the wrong column just as
+    readily as a correct one. Two readings by different means that agree are
+    evidence. One reading checked against itself is a tautology.
+
+    Rows come in two shapes on this page -- typed elements (`<speed-value
+    value="3">`) and bare text in a cell (`<div class="row-item item-9"> 92
+    </div>`) -- so both are tried, typed first.
+    """
+    start = html.find(f'data-row="{row}"')
+    if start < 0:
+        return []
+    end = html.find("data-row=", start + 1)
+    block = html[start: end if end > 0 else len(html)]
+    block = block[block.find("</p>") + 4:]                 # past the caption
+    typed = re.findall(r'<[a-z-]+-value value="(-?[\d.]+)"', block)
+    if typed:
+        return [float(v) for v in typed]
+    return [float(v.replace(",", ".")) for v in
+            re.findall(r'row-item[^>]*>\s*(-?\d+(?:[.,]\d+)?)\s*<', block)]
+
+
+class TestWhatTheStateBlobTookWithIt:
+    """August 2026: `weather.cw` disappeared from all four Gismeteo pages.
+
+    The visible symptom was one question mark where the hero's icon goes, and
+    that is the whole problem with this class of failure -- the icon was the
+    only part that *looked* wrong. Underneath it, `feels_like_c`,
+    `humidity_pct`, `pressure_mmhg`, `wind_ms`, `wind_dir` and the observation
+    time had all silently become `None`, which took the entire «Подробности»
+    card off the Gismeteo tab. A card that renders nothing is indistinguishable
+    from a source that never published those fields, so nothing said why. And
+    the temperature -- the one number a weather app cannot be wrong about --
+    was still arriving, from tier 3, which finds the first
+    `<temperature-value>` in the document whatever it happens to be.
+
+    Everything the blob carried is still on the page, in the captioned grid the
+    hourly strip is read from. Two properties make taking it honest rather than
+    convenient, and both are tested here:
+
+    * the **column is chosen by time**, not by position -- column 0 is
+      midnight, and this parser has already shipped that bug once;
+    * the **provenance records the weaker step**. The rows answer at tier 1,
+      the alignment that picks a cell out of them is tier 2, and a value is
+      only as good as the weakest link that produced it. Claiming tier 1 would
+      tell `health.fallback_profile` the ground is firmer than it is.
+    """
+
+    @pytest.fixture(scope="class")
+    def raw(self, request):
+        p = request.path.parent / "fixtures" / "mf-current.html"
+        if not p.exists():
+            pytest.skip("no mirror fixture -- capture one with `make fixtures-gm`")
+        return p.read_text(encoding="utf-8", errors="replace")
+
+    def test_the_recording_really_is_one_without_the_blob(self, request):
+        """A guard on the fixture, not on the parser.
+
+        Everything below is about a page that has no `weather.cw`. If a future
+        `make fixtures-gm` captures one that has it again -- the source
+        restores it, or a mirror lags -- these tests keep passing while
+        asserting nothing at all about the recovery path. Better to fail here
+        and say so.
+        """
+        d = request.path.parent / "fixtures"
+        present = []
+        for name in ("mf-current", "mf-10days", "mf-hourly", "mf-3days"):
+            f = d / f"{name}.html"
+            if not f.exists():
+                continue
+            st = G.state(f.read_text(encoding="utf-8", errors="replace")) or {}
+            if (st.get("weather") or {}).get("cw"):
+                present.append(name)
+        assert not present, (
+            f"`weather.cw` is back on {present}. Good news, but the tests in "
+            "this class no longer exercise the recovery they were written for "
+            "-- point them at a kept copy of a blob-less page, or delete them "
+            "along with the recovery.")
+
+    def test_the_july_capture_still_has_one(self, request):
+        """...and the tier-1 path is still exercised by *something*.
+
+        `TestCurrent` asserts `Tier.NAMED` on four fields. The day both
+        fixtures are blob-less, those assertions are testing a code path no
+        input reaches, and the first person to touch `_current` will delete it
+        as dead.
+        """
+        f = request.path.parent / "fixtures" / "gm-current.html"
+        st = G.state(f.read_text(encoding="utf-8", errors="replace")) or {}
+        assert (st.get("weather") or {}).get("cw"), (
+            "no capture left has the state blob; `_current`'s tier-1 branch is "
+            "now untested")
+
+    def test_nothing_it_carried_was_quietly_dropped(self, mf):
+        """The regression proper. Every field is present, or the card goes."""
+        c = mf.current
+        missing = [f for f in ("temp_c", "feels_like_c", "humidity_pct",
+                               "pressure_mmhg", "wind_ms", "wind_dir",
+                               "condition", "icon", "observed_epoch")
+                   if getattr(c, f) is None]
+        assert not missing, f"lost with the state blob: {missing}"
+
+    def test_the_recovery_never_claims_to_be_the_blob(self, mf):
+        """Tier 2 exactly: not 1, which would be a lie, and not 3, which would
+        mean the value was found by position and could be any cell."""
+        for f in ("temp_c", "feels_like_c", "humidity_pct", "pressure_mmhg",
+                  "wind_ms", "wind_dir", "condition"):
+            assert mf.provenance.get(f) == int(Tier.LABELLED), (
+                f"{f} is recorded as tier {mf.provenance.get(f)}")
+
+    def test_the_column_is_the_one_covering_now_and_not_the_first(self, mf, raw):
+        """The assertion that would catch the bug this parser already made.
+
+        Read by a different mechanism -- regex over the raw markup -- and
+        checked against *both* candidates, so it fails whether the parser takes
+        column zero or drifts one along. It also refuses to run on a recording
+        where the two coincide, because there it proves nothing.
+        """
+        now, stamps = _page_now(raw), _strip_stamps(raw)
+        assert now and stamps, "the page no longer states a time, or has no strip"
+        want = max(i for i, t in enumerate(stamps) if t <= now)
+        assert want != 0, (
+            "this fixture was captured in the strip's first column, where a "
+            "parser that reads column zero looks correct. Recapture later in "
+            "the day.")
+
+        for field, row in (("humidity_pct", "humidity"),
+                           ("pressure_mmhg", "pressure"),
+                           ("wind_ms", "wind-speed"),
+                           ("feels_like_c", "temperature-heat-index")):
+            vals = _strip_values(raw, row)
+            assert len(vals) >= len(stamps), f"{row}: {len(vals)} for {len(stamps)}"
+            assert getattr(mf.current, field) == vals[want], (
+                f"{field} is not the column covering {now}; "
+                f"column 0 holds {vals[0]}, column {want} holds {vals[want]}")
+
+    def test_the_observation_time_is_the_pages_own_clock(self, mf, raw):
+        assert mf.current.observed_epoch == _page_now(raw)
+
+    def test_a_strip_that_stops_before_now_is_refused(self, raw):
+        """Drop, never stretch.
+
+        A page whose newest column is hours behind its own clock is a page
+        mid-redesign, and the last column of it is not «сейчас» merely by being
+        last. The temptation is to take it anyway -- something beats nothing --
+        and that is the reasoning that puts a plausible wrong number in front
+        of someone who will dress for it.
+
+        Forged by moving the page's clock a day forward rather than by deleting
+        the strip, because deleting it tests the empty case, which is easy.
+        """
+        now = _page_now(raw)
+        moved = raw.replace(f'timestamp="{now}"', f'timestamp="{now + 86400}"', 1)
+        assert moved != raw
+        got = G.parse(moved, today=dt.datetime.fromtimestamp(now, tz=MSK).date())
+        for f in ("feels_like_c", "humidity_pct", "pressure_mmhg", "wind_ms"):
+            assert getattr(got.current, f) is None, (
+                f"{f} was taken from the last column of a strip that ends "
+                f"before the page's own clock")
+
+    def test_the_temperature_no_longer_arrives_by_shape(self, mf):
+        """What actually reached the phone while this was broken: a number the
+        parser found by being first in the document. It was right, which is the
+        least reassuring thing about it."""
+        assert mf.provenance["temp_c"] != int(Tier.SHAPE)
+        assert mf.current.temp_c == pytest.approx(
+            max(h.temp_c for h in mf.hourly[:2]), abs=3.0), (
+            "the headline disagrees with the hours either side of it")

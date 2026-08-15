@@ -981,6 +981,634 @@ outnumber the eager ones would have been.
 
 ---
 
+## 26. Four guesses at one band, and the measurement that ended it
+
+The day screen stopped 59pt above the bottom of the display. Under it sat a
+strip of flat colour that read, to the person using the app, as a tab bar that
+had forgotten to draw itself. It survived four fixes.
+
+The fixes are worth listing, because they were not careless — each was a
+correct statement about CSS:
+
+1. The body had a `28px` bottom padding floor, which on a phone became 34pt of
+   safe area plus a card's 10pt margin. True, and removing it was right, and
+   the band did not move.
+2. A fixed panel is sized by the *large* viewport, so it would sit under
+   Safari's auto-hiding toolbar; therefore `height: 100dvh`. True in a browser
+   tab. There is no toolbar in a standalone app, and the band got worse.
+3. So `100dvh` is short by the top inset; therefore `inset: 0`, which pins to
+   the real edges. Half true — and the band did not move by a single pixel,
+   because `bottom: 0` resolves against exactly the same short viewport that
+   `dvh` reports. Two spellings of one number.
+4. Then a fourth theory about compositing, unfired.
+
+What they have in common is that every one is true on a Mac, and the bug only
+exists on a phone. Four hypotheses that predict the same rendering on the only
+machine available to test them are not four hypotheses.
+
+The end of it was a temporary block on the day screen printing `innerHeight`,
+`100vh`, `100dvh`, `env()` and the rect of a bare `position: fixed; inset: 0`
+box, deployed once, screenshotted once:
+
+```
+display  393x852     env t/b  59 / 34
+inner    393x793     vh/dvh   852 / 793
+docEl    393x793     svh/lvh  793 / 852
+fix@html 0…793 h793  fix@body 0…793 h793
+```
+
+The obvious reading — and the fifth wrong fix — is that `dvh` and `bottom: 0`
+are lying and `lvh` is telling the truth, so the panel should be `100lvh`. That
+shipped. The band did not move, and the next screenshot said why:
+
+```
+.screen  0…852 h852        <- with 100lvh
+```
+
+with the card's colour giving way to flat `--bg` at row 793 all the same. The
+box really was 852 tall. The browser agreed. **The paint stopped at 793 anyway**,
+because 793 is the whole web view: a 393×793 surface at the top of an 852pt
+display, with 59 points of system-drawn strip beneath it that no stylesheet can
+reach. So `100lvh` did not extend the panel down the glass — it parked the last
+59pt of the scroll content in a region the device never draws. That is worse
+than the band, which at least was honest about being empty.
+
+So `inset: 0`/`dvh` is right and `lvh` is a regression. The sixth attempt was
+`apple-mobile-web-app-status-bar-style: black`, which should place the view
+*below* the status bar so the same 793 points cover 59…852. On the device it
+changed nothing — iOS reads that tag when the app is added to the home screen,
+and it was already there. Re-adding might take. It was not worth asking.
+
+### What actually fixed it, which was never a length
+
+The band exists on the **forecast page too**, identically, and nobody has ever
+noticed in months of daily use. That is the whole answer, and it took building
+`tools/phone.py` — which renders into the real 393×793 view and composites the
+59pt strip underneath — to see it, because on a desktop window neither page has
+a band at all.
+
+Put the two bottoms side by side and the difference is not geometry:
+
+- The forecast page ends in a quiet line of grey text on the sky. The eye reads
+  *page over*, and 90-odd points of background below it is where the page
+  stopped.
+- The day screen ended flush against a card's hard rounded edge. The identical
+  strip read as a bar that had failed to draw itself.
+
+So the day screen was given the forecast page's ending: a `.screenfoot` line
+naming the source and the fetch time, with background running out beneath it.
+
+That shipped, and came back as **"no difference"** — correctly, and the word
+that should have been read four attempts earlier is in the original report:
+*"empty space at bottom **all the time**, like a ui tab bar"*. A footer only
+exists at the bottom of the scroll. Mid-scroll, which is almost always, there
+is a card sliced off by the fold with flat colour under it, and a hard
+horizontal edge one card wide sixty points above the glass is a bar no matter
+what sits below it. Three separate attempts — padding, then a footer, then a
+different footer — all fixed the *end* of a screen whose problem was its
+*edge*.
+
+The fix is to have no edge. `.screen::after` fades the last 56 points from
+transparent to `--bg`, and `--bg` is exactly what iOS paints below the view, so
+content dissolves into the strip's own colour at every scroll position and the
+strip stops being a separate object. Two lines of CSS. The footer stays,
+because it is honest information and it is what makes the *end* read as an end
+once you get there.
+
+### The actual cause, found by the sun coming up
+
+The fade shipped and came back with a screenshot taken at 09:18 — the first one
+in daylight in the entire investigation. The content faded to (11,16,32)
+exactly as designed, and then the strip below it was **(25,35,59)**.
+
+`cloudy-day` sets `--sky2: #16233d`. That is the strip.
+
+`html`'s background is `background-size: 100% 100%, no-repeat` — the gradient
+covers the viewport and stops — so the 59 points past it are painted with the
+root's `background-color`, which was `var(--sky2)`. `--sky2` is the gradient's
+colour at its **62% stop**, not its end. The bottom of the display had been
+wearing a slice of the middle of the sky, permanently, on every screen, since
+the day the gradient was put on the canvas.
+
+It was invisible for six attempts because `clear-night` and `cloudy-night` both
+set `--sky2: #0a1020`, and so does `--bg`. Every screenshot taken while chasing
+this — 21:08, 21:32, 21:52 — was taken after dark, when the wrong colour and
+the right colour are the same colour. The canvas had been contradicting
+`.edge-bot`, which has said `--bg` the whole time, and nothing could show it
+until the sun came up.
+
+The fix is `background-color: var(--bg)`. One word. `tests/test_ui.py`
+parametrises it over all seven skies for the obvious reason.
+
+Two lessons, and they are the expensive ones:
+
+- **A value that varies by theme must be tested against every theme.** One
+  palette agreeing proves nothing, and the palette you happen to be looking at
+  is the one that agrees.
+- **A harness inherits the theory it was built with.** `tools/phone.py`
+  composited the strip by sampling `.edge-bot`, on the belief that iOS tints it
+  the way it tints Safari's toolbar. It doesn't — it is just canvas. So the
+  harness agreed with the phone at night, disagreed by day, and blessed a fix
+  that did nothing. It reads the root's background now. Ask what your
+  reproduction *assumes* before you trust what it shows you.
+
+The `.screen::after` fade stays: the colour match removes the band, the fade
+removes the hard edge where a card meets the fold, and they are different
+problems that happened to arrive together.
+
+### The suite had an expiry date on it
+
+Found by accident while doing the above: a container's clock jumped eleven days
+mid-session and nine browser tests failed at once, none for the reason they
+were written. The fixtures describe 31 July 2026, and half of what the browser
+suite checks is date-relative — today's row carries a dot, «Сегодня» is a label
+rather than a weekday, the day screen fetches detail for the date it shows. All
+of that stopped being true on 1 August and nobody noticed, because the work
+happened that week.
+
+Both ends are now pinned to the fixtures' own day: the browser via Playwright's
+`clock.set_fixed_time`, the server via `YW_TODAY`, which the mock also uses to
+patch `local_now` — in `sun` **and** in `service`, since `service` binds the
+name at import and patching one half leaves the two halves of the app
+disagreeing about what day it is.
+
+**What would change it:** re-recording the fixtures, which resets the clock but
+does not remove the coupling. The pin is the durable half.
+
+### It was the scroll lock. All of it.
+
+**One line caused both the 59pt band and the broken animation, and it was not a
+line about either.**
+
+```css
+body.locked { position: fixed; left: 0; right: 0; width: 100%; overflow: hidden }
+```
+
+A textbook scroll lock, applied while a sheet is open. In a standalone iOS web
+app it does two things nobody looks for:
+
+**1. It collapses the viewport to the *small* viewport.** `innerHeight` drops
+from 852 to 793 — the display minus the status-bar inset — and stays there for
+as long as the lock is on. Every downstream symptom followed: the band along
+the bottom of the phone, content sliced off at the fold, `dvh` disagreeing with
+`lvh`, a panel that "stops short of the glass". Six deploys went looking for
+that in the stylesheet. It was in the scroll lock.
+
+**2. It relayouts the entire document**, in the same task that starts the
+sheet's transition — so the animation's opening frames were never painted. Two
+screen recordings, decoded frame by frame, measured the sheet first appearing
+at 505pt and 573pt of a travel starting at 793.
+
+Both vanished together. The on-device diagnostic now reports:
+
+```
+экран  393×852     inner  393×852     ниже вьюпорта  0pt
+```
+
+where it used to report 793 and 59.
+
+The lock existed on a note saying iOS ignores `overflow: hidden` on the
+scrolling element. **That was true, and stopped being true in iOS 16.3.** The
+note predated the fix by three years and was inherited without ever being
+re-dated. The replacement is
+`html.locked { overflow: hidden; overscroll-behavior: none }`: no geometry
+changes, no reflow, and the scroll position survives for free because nothing
+moved. `tests/test_invariants.py::TestNothingPinsTheDocument` asserts it at the
+source, and the browser test asserts the strongest available form — `scrollY`
+never changes at all, which the old approach could not have passed.
+
+Sources: [Ben Frain, *Preventing body scroll for modals in
+iOS*](https://benfrain.com/preventing-body-scroll-for-modals-in-ios/); [Robin
+Weser, *Scroll Blocking Overlays*](https://weser.io/blog/scroll-blocking-overlays),
+which dates the WebKit fix.
+
+Three things are worth keeping from how long this took:
+
+- **Re-date a workaround before you inherit it.** This one was correct when
+  written and had been quietly wrong for years. Nothing in the codebase said
+  when it was written or against which iOS.
+- **A symptom in the stylesheet can have its cause in the JavaScript.** Every
+  hypothesis for six deploys was a CSS hypothesis, because the symptom was a
+  band of colour. The cause was a class being added by `openScreen`.
+- **The harness inherits what the measurement did not explain.**
+  `tools/phone.py` was built to render at 393×793 with a strip composited
+  underneath — faithfully reproducing a bug whose cause it had not identified,
+  and then agreeing with a fix that did nothing. It renders at 393×852 now,
+  and `VIEW` carries the story.
+
+**What would change it:** iOS below 16.3, which this project does not support.
+
+### What the animation stall looked like, for the next time
+
+Reported as "the pop-up animation starts from the wrong position". Two screen
+recordings, decoded frame by frame, said something more specific: the sheet was
+not visible at all until it had already travelled half way. First video — first
+painted frame at **505pt** of a journey that starts at 793. Second — **573pt**.
+Both times it then slid the remainder normally. Dismissal did the mirror image,
+jumping 135pt in one frame before it began to move. Frames were duplicated
+throughout: roughly 30fps, not 60.
+
+That is not a wrong start position. It is a **main thread too busy to paint**,
+and the culprit was three lines away from the transition:
+
+```js
+goDetent('mid');                        // starts the animation
+document.querySelector('.wrap').inert = true;
+document.body.style.top = `-${scrollY}px`;
+document.body.classList.add('locked');  // body: static -> fixed
+```
+
+Switching `<body>` to `position: fixed` relayouts the entire document, and the
+document here is a ten-day forecast. It happened in the same task that started
+the sheet's transition, so WebKit went off to reflow the page while the
+animation was supposed to be painting its opening frames. `closeScreen` did the
+same to the exit with `window.scrollTo`.
+
+The pin was there on a note saying iOS ignores `overflow: hidden` on the
+scrolling element. **That was true, and stopped being true in iOS 16.3**, when
+WebKit fixed it; this phone is on 26. So the lock is now
+`html.locked{overflow:hidden;overscroll-behavior:none}` — no geometry changes,
+no reflow, and the scroll position survives for free because nothing moved. The
+test asserts the strongest form of that: `scrollY` never changes at all, which
+the old approach could not have passed.
+
+Sources: [Ben Frain, *Preventing body scroll for modals in
+iOS*](https://benfrain.com/preventing-body-scroll-for-modals-in-ios/); [Robin
+Weser, *Scroll Blocking Overlays*](https://weser.io/blog/scroll-blocking-overlays),
+which dates the WebKit fix.
+
+**Re-date a workaround before you inherit it.** This one was correct when it
+was written and had been quietly wrong for three years.
+
+**What would change it:** needing to support iOS below 16.3, which this project
+does not.
+
+### `static/debug.js`, and why a diagnostic beats another guess
+
+Six deploys were spent on a bug that only exists on one phone, and every one of
+them ended by asking its owner to look at something and describe it. That loop
+does not converge: a desktop browser cannot see the defect, and nobody can
+measure a 16ms frame gap by eye.
+
+So the app now carries a diagnostic. Tap the build hash in the footer and it
+runs the whole battery once — environment and viewport units, the canvas/sheet/
+strip colours, the sheet's geometry, the close button's circle and *ink*, and
+both animations sampled every frame — then prints a verdict per line. One
+screenshot answers what would otherwise be four rounds of correspondence.
+
+Two design points earn their keep:
+
+- **It measures frame pacing, not just position.** A transition can report a
+  flawless `translateY` series while nothing reaches the glass. What separates
+  "the animation is wrong" from "the animation is right and the phone is too
+  busy to draw it" is whether `requestAnimationFrame` is being called at all —
+  so the report leads with the largest gap between frames.
+- **It is fetched, not bundled.** It is the one thing here allowed to require
+  the network, since it exists to be run while someone is holding the phone.
+  That keeps it out of the cold-load budget entirely.
+
+It found both close-button faults on its own first run, with the same numbers a
+human had extracted from a video by hand.
+
+**What would change it:** a way to attach Safari's inspector to a home-screen
+web app without a Mac and a cable. Until then this is the only instrument that
+reaches the device.
+
+### And it is a sheet now
+
+Asked for repeatedly and put off while the band was still unexplained, which
+was the wrong order — the request was never only cosmetic. A full-bleed push
+*claims the whole display*, and this display keeps 59 points back. A sheet that
+starts below the status bar with the dimmed forecast behind it never made that
+promise, so the strip at the bottom stops reading as something withheld.
+
+Modelled on `UISheetPresentationController`, because that is what a day detail
+would be in a native app. Two detents — medium at 38% of the sheet's height,
+large just under the status bar. Flat `--bg` rather than a second sky: a sheet
+is a surface lifted off the page, and a flat colour is also the only kind that
+can be *asserted* equal to the canvas, which after §26 is not a small thing.
+The curve is `cubic-bezier(.32,.72,0,1)` over 460ms — Ionic's, matched to iOS's
+own, and already written down here as `--push-ease`.
+
+Three behaviours separate a sheet that feels real from a panel that animates,
+and all three are implemented rather than approximated:
+
+- **The dimming tracks the drag.** The scrim's opacity is a function of where
+  the sheet currently is, so the page behind brightens under your finger. Most
+  of the illusion lives in that one coupling.
+- **A flick is not a drag.** Past ~0.5 px/ms the sheet goes one detent the way
+  it was thrown, wherever you let go; below that it snaps to the nearest.
+  Position-only sheets feel sticky, velocity-only ones feel twitchy.
+- **The drag defers to the scroll.** At the large detent a drag may only begin
+  at the top of the content; at the medium one the content does not scroll at
+  all, so the whole surface is a handle (`prefersScrollingExpandsWhenScrolled-
+  ToEdge`, iOS's default). A gesture that turns out to be sideways is handed
+  back, because the hourly curve inside the sheet scrolls horizontally.
+
+**The dismiss control is a trailing X, not a leading back chevron**, and the
+first version of the sheet got that wrong — it kept the push's «‹ Назад». The
+rule is old and it is about grammar, not decoration: *"if something slid in
+from the right — the user moved further into the hierarchy — use «Back», at the
+left. If something slid in from the bottom (a modal view), use «Done», at the
+right."* A chevron on a sheet claims a navigation that never happened.
+
+An X rather than the word «Готово», because Apple's own line is "avoid using
+Done buttons for things other than completing the task" and there is no task
+here — you read a day and close it. That is `UIBarButtonItem.SystemItem.close`:
+a small filled circle with an xmark, in grey rather than the accent colour,
+which is what the App Store and Photos put on a sheet you only read. It is not
+redundant with the grabber: the grabber says the sheet resizes and can be
+flicked away, the button is the explicit, reachable, labelled version.
+
+This required narrowing invariant 13, deliberately — see CLAUDE.md. It forbids
+hand-rolling the *horizontal* swipe, which is the system's. A vertical drag
+does not collide with it, and dismissal still goes through `history.back()`
+from every path, so there is exactly one way out and the edge swipe still
+works.
+
+**What would reverse it:** wanting the day to feel like a place you navigated
+to rather than a panel over the forecast. That is the honest argument for the
+push, and it is why it was built that way first.
+
+
+The cost was three deploys and someone watching the same bug survive three
+announcements that it was fixed. Two lessons, both cheaper than the bug:
+**when a defect exists only on a device, get a number off the device first**;
+and **build the harness before the fifth guess, not after** — `tools/phone.py`
+is forty lines and would have replaced every one of them.
+
+**What would change it:** iOS giving a standalone web app the whole display, at
+which point the strip disappears and the footer is just a footer — which is
+fine, because it earns its place as information anyway. If the day screen ever
+becomes a bottom sheet (rendered, and it works — the flat `--bg` runs into the
+strip seamlessly), the footer stays: a sheet has the same bottom edge.
+
+---
+
+## 27. When the state blob went away, only the icon looked broken
+
+August 2026. `weather.cw` — the hydration JSON the whole Gismeteo current block
+was read from — disappeared from all four pages at once. What was reported was
+one question mark where the hero's icon goes.
+
+What had actually happened is the more interesting half:
+
+| field | before | after |
+|---|---|---|
+| `temp_c` | tier 1, the blob | **tier 3**, the first `<temperature-value>` in the document |
+| `condition`, `icon` | tier 1 → tooltip | gone — hence the question mark |
+| `feels_like_c`, `humidity_pct`, `pressure_mmhg`, `wind_ms`, `wind_dir` | tier 1 | gone, silently |
+| `observed_epoch` | tier 1 | gone, taking the condition's fallback with it |
+
+Three separate failures, one visible. The temperature was still right, and
+still on screen, and now being found by *position* — the configuration this
+whole codebase is arranged to avoid. The five secondary fields simply became
+blank, which took the entire «Подробности» card off the Gismeteo tab: below
+three cells the block does not render, and a block that does not render is
+indistinguishable from a source that never published those fields. Yandex kept
+its card. Gismeteo lost its card. Nothing said why.
+
+**The repair reads prose and a grid, and admits it.**
+
+The condition and the temperature come from the site's own header sentence —
+«в Йошкар-Оле пасмурно, небольшой дождь, +12°» — with the city removed *before*
+the weather words are classified, because `ru_text` matches as substrings and
+Russia has towns called Снежинск. The other five come from the captioned widget
+grid the hourly strip already reads, at the column covering now.
+
+Two things make that honest rather than convenient, and both are load-bearing:
+
+- **The column is chosen by time.** The page states its own clock —
+  `<time-value class="current-time" timestamp>` — and the column taken is the
+  one covering that instant. Column zero is midnight. This parser has already
+  shipped the other version of this once, putting a description of 00:00 beside
+  a temperature observed at 23:00, and it went unnoticed because the fixture
+  was captured at 00:54, the one hour of the day when the two agree.
+- **The provenance records the weaker step.** The rows answer at tier 1 — their
+  own `data-row` keys — but the alignment that picks a cell out of them is tier
+  2, and a value is only as trustworthy as the weakest link that produced it.
+  Recording tier 1 here would tell `health.fallback_profile` the ground is
+  firmer than it is, and that profile is the one signal that says a source needs
+  looking at.
+
+A strip that ends before the page's own clock is refused rather than stretched.
+The last column of a page mid-redesign is not «сейчас» merely by being last, and
+"something beats nothing" is the reasoning that puts a plausible wrong number in
+front of someone who will dress for it.
+
+**What would reverse it:** `weather.cw` coming back. The recovery is written as
+"fill what is still `None`", so it is already a no-op on a page that has the
+blob — the July capture still parses entirely at tier 1, and there is a test
+that fails if *no* remaining fixture does, because the day both are blob-less
+the tier-1 branch is untested code that the next reader will delete as dead.
+
+---
+
+## 28. A pinned clock is an instant, not a time of day
+
+The browser suite freezes `Date` at `FIXTURE_NOW` and the mock server is pinned
+to `FIXTURE_NOW.date()`. For a while those were two different days.
+
+`page.clock.set_fixed_time` takes UTC. `FIXTURE_NOW` had been written as
+`22:00` — the *city's* wall clock, matching the recorded pages. Three hours out,
+and at 22:00 three hours crosses midnight, so the browser believed it was the
+14th while the server believed the 13th.
+
+Nothing failed. Not one of 66 browser tests, because the app is internally
+consistent: `dayLabel` asks what day it is **in the city**, got one answer, and
+rendered it faithfully. So the ten-day list opened on yesterday, «Сегодня» sat
+in the second row, «сейчас» pointed at 01:00, and every screenshot the harness
+produced looked like a layout bug somebody would go and hunt for in the
+stylesheet — which is exactly what §26 is about.
+
+Both ends were pinned. They were pinned to different moments. That is the same
+failure as fixtures from two recordings, wearing a clock.
+
+`FIXTURE_NOW` is now a timezone-aware UTC instant, taken from the page that
+stamps itself, and `tools/phone.py` pins the same way rather than rendering
+August's fixtures against whatever day the machine thinks it is. The test is in
+`TestRendersAtAll`, asserted through the screen — the first row of a ten-day
+forecast is today — because the thing worth protecting is that the picture is
+honest, not that two constants match.
+
+**What would reverse it:** nothing about the app. If the fixtures are recorded
+in a city on another offset, the instant moves with them; it is read off
+`<time-value class="current-time">`, so re-recording carries it along.
+
+A footnote worth more than the entry: the test that requires every decision here
+to state its reversal condition **had never checked the newest one.** It split
+the file on headings and let the last section run to the end, so it swallowed
+the trap list and borrowed a keyword from it — and the last section is always
+the one just written, always the one nobody has reviewed. It surfaced only when
+§29 was appended and §28 suddenly had to stand on its own. A green test is a
+claim like any other.
+
+---
+
+## 29. The sky is the only thing on this screen that is not information
+
+Everything else here earns its place by being a number somebody needs. The sky
+does not, and it is the reason the app is nice to open.
+
+It used to be seven gradients and three effects, with eighteen weather
+conditions mapped onto them — so drizzle, steady rain, a downpour and a
+thunderstorm were the same picture, and the only thing that distinguished them
+was a caption you had to stop and read. Now the *motion* carries the intensity:
+thin and slow through dense and fast, two precipitation layers at spacings with
+no common factor so the tiling does not read as a plaid, a cloud layer behind
+at a different speed for depth. Night differs from day, which is why the
+envelope grew a `night` flag — only `clear`, `partly` and `cloudy` carry the
+hour inside their icon, so rain at midnight was being lit for noon.
+
+Three rules held it in check, and each is in the stylesheet next to the line it
+governs:
+
+- **`transform` and `opacity`, nothing else.** Those are the two the compositor
+  can run without waking the main thread, and the main thread on this page is
+  drawing a temperature curve. There is a test that reads every `@keyframes`
+  block in the shell and fails on a third property.
+- **Seamless by construction, not by tuning.** A pattern repeating every *P*
+  pixels may only be translated by a whole multiple of *P*. The slant is a
+  `skewX`, which leaves the vertical period alone, so the repeat is
+  `background-size`'s height and the travel is the same custom property. The
+  drift layers avoid the question entirely by running `alternate`, which has no
+  wrap.
+- **Out of the way of the text.** The layers live in a masked wrapper that fades
+  by the point the gradient pales, so nothing moves behind a card. The mask is
+  on the wrapper and not on the layers because a mask travels with the element
+  it is on, and a fade that slides down the screen once a second is worse than
+  no fade.
+
+**What would reverse it:** a fourth raise of the byte budget for something that
+is actually information. This cost 3 kB compressed and buys nothing you could
+not read from the caption; it is the first thing that should go.
+
+---
+
+## 30. A loop that jerks is arithmetic, not taste
+
+The rain twitched once a second and had done since it was written. Worth
+recording because the diagnosis took one calculation and no deploys, and the
+six-deploy bug in §26 took six.
+
+`repeating-linear-gradient(104deg, ... 46px)` repeats every 46px **along its own
+axis**. Vertically — which is the direction the animation moved — that is
+46/cos 14° = 190px. The animation moved 14% of a 1198px layer: 168px. Every
+0.85s the pattern wrapped 22px out of phase and the whole screen jumped
+sideways. Snow was worse, 52px of a 220px tile, and got away with it only by
+being nine times slower.
+
+Nothing about that is visible in the code. Two numbers in two different files,
+in different units, related by a cosine nobody wrote down.
+
+The lesson generalises past this bug: **a periodic animation has a divisibility
+constraint, and if the constraint is not expressed in the code it is being met
+by luck.** Here the constraint is now structural — one custom property is both
+the pattern's repeat and the animation's travel, so they cannot disagree — and
+there is a test that reads both back out of the browser and compares them.
+
+**What would reverse it:** nothing; this is arithmetic. But if a layer ever
+needs a *diagonal* repeat rather than a skewed vertical one, the travel has to
+be recomputed as `P / cos θ` and the test above will say so.
+
+---
+
+## 31. `visibility` in a transition flips at the midpoint
+
+The sheet's entrance lost its first half for weeks, and the report was always
+the same sentence: *the pop-up starts from the wrong position.* It was fixed
+twice by moving things that were not wrong.
+
+```css
+transition: transform 460ms var(--push-ease), visibility 460ms;   /* wrong */
+```
+
+`visibility` does not fade. It is a discrete property, and a transition of a
+discrete property changes value at **50% of the duration**. So for 230ms the
+sheet was already travelling and still `hidden`, and what reached the eye was a
+panel materialising a third of the way up the screen, in motion.
+
+None of five hundred tests saw it, and they were right not to: every computed
+style was perfect. The transform series was correct from 781 to 297; the frames
+simply were not on the glass for the first half of it. That is the difference
+between "the animation is wrong" and "the animation is right and invisible",
+and only an instrument on the device can tell them apart.
+
+`static/debug.js` printed it on the first run after being asked:
+
+```
+✗ открытие: первый видимый  533  (ожидается 781)
+```
+
+and 781 − (230/460) × 484 = 539. The measurement and the arithmetic agree to
+six points.
+
+The fix is the standard two-line idiom, and it is worth knowing by heart:
+
+```css
+.screen      { transition: transform 460ms ease, visibility 0s linear 460ms; }
+.screen.open { transition: transform 460ms ease, visibility 0s; }
+```
+
+Instant on the way in, delayed on the way out — so the sheet is visible from
+its first frame and stays on screen until it has finished leaving. Both halves
+are tested.
+
+**What would reverse it:** nothing about this. If the entrance ever needs the
+sheet hidden for part of its travel, that is `opacity`, which actually
+interpolates.
+
+---
+
+## 32. A source outage answers 200, and the recorder ate the evidence
+
+15 August 2026. Meteofor served every page with the correct title, the correct
+city, valid markup, and this where the forecast belongs:
+
+```html
+<div class="widget widget-no-data">
+  <div class="desc">Данные уточняются. Пожалуйста, зайдите чуть позже.</div>
+```
+
+Three things then happened in order, and the order is the whole lesson.
+
+The **parser refused it** — no temperature, so the tab went dark with a reason.
+That is invariant 1 working exactly as designed, and it is why nobody was shown
+a made-up number.
+
+The **recorder destroyed the evidence.** `make fixtures-gm` was four `curl -f`
+calls with `>` redirects. `curl` was perfectly happy with a 200, so four good
+fixtures became four empty ones before anyone looked at them.
+
+And then **the outage looked like a parser bug** — the tab was dark, the
+fixtures no longer parsed, and the recording that would have told the two apart
+had just been overwritten by the thing that caused the confusion. An hour went
+into establishing that nothing here was broken.
+
+`fixtures-gm` now downloads to a scratch directory, checks each page for the
+`data-row=` grid, and installs nothing unless all four have it. It says which
+it is:
+
+```
+  refusing to record: .../ carries no forecast grid.
+  it says so itself (widget-no-data): an outage on their side, not a parser bug.
+  Your existing fixtures are untouched. Try again when it is back.
+```
+
+Two rules fall out of it, and the second is the general one:
+
+- **Before believing a source is broken, check whether it is merely empty.**
+  A page that says `no-data` in its own class names is not a redesign.
+- **A recorder must never overwrite its own evidence.** Download, inspect,
+  then install — in that order, always. The same reasoning applies to anything
+  that captures state for later comparison.
+
+**What would reverse it:** a source that stops marking its own empty state, at
+which point the check needs a different signal — but it should still be a
+check, and it should still run before the write.
+
+---
+
 ## Traps that cost real time
 
 Kept because each was invisible until it wasn't.
@@ -1020,9 +1648,15 @@ Kept because each was invisible until it wasn't.
   identical hours give the polyline a zero-height bounding box, and the spec
   says not to render the element at all. `userSpaceOnUse` has no such edge, and
   it makes the colour absolute besides.
-- **iOS Safari ignores `overflow:hidden` on `<body>`.** Pinning with
-  `position:fixed` is the only reliable scroll lock, and it discards the scroll
-  offset, which must be saved and restored by hand.
+- ~~**iOS Safari ignores `overflow:hidden` on `<body>`.**~~ **This bullet is the
+  trap.** It was true until iOS 16.3 and then wrong for three years, and because
+  nothing here recorded *when* it was written or against which version, it was
+  inherited as fact and cost six deploys — see §26. `position: fixed` on `<body>`
+  collapses a standalone web app to the small viewport; `html{overflow:hidden}`
+  has been honoured since 16.3, changes no geometry, and keeps the scroll offset
+  for free. Left struck through rather than deleted: a workaround that outlives
+  its browser bug is the most expensive kind of note in this file, and it is
+  worth seeing one.
 - **A position is not a date.** «Сегодня» and «Завтра» were decided by the row's
   index, and the three sources disagree about which morning their ten days start
   on — so the same date was named differently depending on which tab was open.

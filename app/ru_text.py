@@ -206,6 +206,27 @@ def condition(text: str) -> str | None:
     return clean(text)[i : i + len(best)]
 
 
+def sentence(text: str | None) -> str | None:
+    """A condition phrase as the app shows it: leading capital, rest untouched.
+
+    Written out by hand at eight call sites before it was a function --
+    `cond[0].upper() + cond[1:]`, once per parser, once per series -- and the
+    ninth was simply forgotten. Gismeteo's tier-2 recovery reads the site's
+    header sentence, «в Йошкар-Оле пасмурно, небольшой дождь», where the phrase
+    follows a city and is naturally lowercase. Every other source capitalises,
+    so switching tabs changed «Пасмурно» to «пасмурно» and back. Nothing was
+    wrong; it just looked like nobody was in charge.
+
+    `str.capitalize()` is the wrong tool and this is the reason it is spelled
+    out: it lower-cases the tail. «Небольшой дождь, местами гроза» is fine
+    either way, but the day a condition carries a proper noun -- or an already
+    capitalised second clause -- `capitalize()` quietly rewrites it.
+    """
+    if not text:
+        return text
+    return text[0].upper() + text[1:]
+
+
 def looks_like_captcha(html: str) -> bool:
     low = html[:200_000].lower()
     return any(m in low for m in CAPTCHA_MARKERS)
