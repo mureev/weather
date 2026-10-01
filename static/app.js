@@ -482,7 +482,7 @@ function render(d) {
     + dailyBlock(view.daily, c.temp_c)
     + factsBlock(c, today);
   $('city').textContent = (d.place && d.place.name) || '';
-  $('pin').style.visibility = (state.place && state.place.adhoc) ? '' : 'hidden';
+  $('pin').style.visibility = (state.place && state.place.gps) ? '' : 'hidden';
   renderHealth(d, view);
 
   // A ten-minute refresh landing while a detail screen is open must reach that
@@ -585,7 +585,7 @@ function useGeolocation() {
     (pos) => {
       const lat = +pos.coords.latitude.toFixed(PRECISION);
       const lon = +pos.coords.longitude.toFixed(PRECISION);
-      load({ slug: `@${lat},${lon}`, name: '…', lat, lon, adhoc: true });
+      load({ slug: `@${lat},${lon}`, name: '…', lat, lon, adhoc: true, gps: true });
       pop();
     },
     (err) => {
@@ -910,7 +910,7 @@ SCREENS.place = () => ({
 
 function placeList() {
   const cur = state.place && state.place.slug;
-  const onGps = !!(state.place && state.place.adhoc);
+  const onGps = !!(state.place && state.place.gps);
   const out = [];
 
   // An action, not a list item -- so it gets no container. Boxed, it echoed
