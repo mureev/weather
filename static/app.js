@@ -482,7 +482,7 @@ function render(d) {
     + dailyBlock(view.daily, c.temp_c)
     + factsBlock(c, today);
   $('city').textContent = (d.place && d.place.name) || '';
-  $('pin').style.display = (state.place && state.place.adhoc) ? '' : 'none';
+  $('pin').style.visibility = (state.place && state.place.adhoc) ? '' : 'hidden';
   renderHealth(d, view);
 
   // A ten-minute refresh landing while a detail screen is open must reach that

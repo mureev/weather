@@ -269,7 +269,7 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
   .screen .src.sel{background:var(--card)}
   .screen .src.sel b{color:var(--accent)}
   body .placebtn svg{stroke:rgba(255,255,255,.72)}
-  body .pin{fill:rgba(255,255,255,.85)}
+  body .placebtn .pin{fill:rgba(255,255,255,.85)}
   /* Stars over a sky that opens out to near-white read as dust. Keep them,
      faintly, only where the sky is still deep. */
   .sky .stars{opacity:.5}
@@ -450,7 +450,8 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
               stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;
               margin-top:4px}
 .placebtn:active{opacity:.6}
-.pin{width:15px;height:15px;flex:none;stroke:none;fill:var(--dim);margin-top:3px}
+/* Hidden by visibility: its slot balances the chevron, centring the name. */
+.placebtn .pin{width:15px;height:15px;stroke:none;fill:var(--dim);margin-top:3px}
 
 /* ---- the sheet -----------------------------------------------------------
  *
@@ -989,7 +990,7 @@ html.locked{overflow:hidden;overscroll-behavior:none}
 
   <div class="top">
     <button class="placebtn" id="btn-place" aria-haspopup="dialog">
-      <svg class="pin" id="pin" viewBox="0 0 24 24" style="display:none"
+      <svg class="pin" id="pin" viewBox="0 0 24 24" style="visibility:hidden"
         aria-label="по геолокации"><path d="M3 11l18-8-8 18-2-8-8-2z"/></svg>
       <h1 id="city">…</h1>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
