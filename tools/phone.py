@@ -1,6 +1,9 @@
 """Render the app the way the phone actually renders it.
 
 `python -m tools.phone` -> screenshots/phone-*.png
+`PHONE_LANG=en python -m tools.phone` -> the same, in English
+`python -m tools.phone --readme` -> also docs/forecast.png and docs/day.png,
+    the two pictures at the top of the README: English, on Yandex's morning
 
 Six attempts at one bug were spent looking at a desktop window and reasoning
 about a phone, so this renders at the device's real geometry instead.
@@ -63,8 +66,15 @@ FIXTURE_NOW = _fixture_now()
 # was left"). Shot at 21:15 on the 14th, that tab's list began «Завтра», no
 # hour said «сейчас», and today's range was missing. `PHONE_AT` shoots at
 # another instant: `PHONE_AT=2026-08-15T04:05:00+00:00` is Yandex's morning.
+README = "--readme" in sys.argv
+if README:
+    os.environ.setdefault("PHONE_AT", "2026-08-15T04:05:00+00:00")
+    os.environ.setdefault("PHONE_LANG", "en")
 if os.environ.get("PHONE_AT"):
     FIXTURE_NOW = dt.datetime.fromisoformat(os.environ["PHONE_AT"])
+# The browser's language is what the app reads to choose its own, as a phone's
+# would be: `ru` or `en`.
+LOCALE = "en-US" if os.environ.get("PHONE_LANG") == "en" else "ru-RU"
 FIXTURE_DAY = FIXTURE_NOW.astimezone(zone(cities.get("yoshkar-ola").tz)).date()
 
 # iPhone 15 Pro, measured on the device by `static/debug.js`.
@@ -127,7 +137,7 @@ async def main(port=8097, mode="ok"):
             b = await pw.chromium.launch(executable_path=_chromium_path())
             ctx = await b.new_context(
                 viewport={"width": VIEW[0], "height": VIEW[1]},
-                device_scale_factor=DSF, color_scheme="dark", locale="ru-RU")
+                device_scale_factor=DSF, color_scheme="dark", locale=LOCALE)
             pg = await ctx.new_page()
             await pg.clock.set_fixed_time(FIXTURE_NOW)
             await pg.goto(f"http://127.0.0.1:{port}/weather/",
@@ -177,6 +187,21 @@ async def main(port=8097, mode="ok"):
         srv.terminate()
         srv.wait(timeout=10)
     print("wrote", ", ".join(sorted(p.name for p in OUT.glob("phone-*.png"))))
+    if README:
+        _readme()
+
+
+def _readme():
+    """Half the phone's pixels and 256 colours: the README shows them at 295pt
+    wide, and a 3x full-colour PNG is 600 kB of page weight for a picture of a
+    forecast."""
+    docs = pathlib.Path(__file__).resolve().parent.parent / "docs"
+    for src, dst in (("forecast-top", "forecast"), ("sheet-mid", "day")):
+        im = Image.open(OUT / f"phone-{src}.png").convert("RGB")
+        im = im.resize((im.width // 2, im.height // 2), Image.LANCZOS)
+        im.quantize(256, method=Image.Quantize.MEDIANCUT).save(
+            docs / f"{dst}.png", optimize=True)
+    print("wrote docs/forecast.png, docs/day.png")
 
 
 if __name__ == "__main__":

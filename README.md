@@ -17,11 +17,11 @@ Three independent sources — **Яндекс**, **Gismeteo**, **Open-Meteo** —
 together and switchable with one tap.
 
 <p align="center">
-  <img src="docs/forecast.png" width="295" alt="The forecast screen: Yoshkar-Ola, +9° and overcast, the three sources as tabs with their own temperatures, and an hourly chart">
+  <img src="docs/forecast.png" width="295" alt="The forecast screen in English: Yoshkar-Ola, +9° and overcast, light rain from 10:00 to 22:00, the three sources as tabs with their own temperatures, and an hourly chart">
   &nbsp;
-  <img src="docs/day.png" width="295" alt="Tomorrow opened as a sheet over the forecast: +12° / +10°, light rain, and the day by morning, afternoon and evening">
+  <img src="docs/day.png" width="295" alt="Today opened as a sheet over the forecast: +12° / +10°, light rain, each source's range for the day on its tab, and the day by morning, afternoon and evening">
 </p>
-<p align="center"><sub>Rendered by <code>python -m tools.phone</code> from the recorded fixtures, at the iPhone's 393×852 view.</sub></p>
+<p align="center"><sub>Rendered by <code>python -m tools.phone --readme</code> at the iPhone's 393×852 view, from the recorded Yandex and Gismeteo pages; Open-Meteo's numbers are the mock's stand-in.</sub></p>
 
 Compressed, the shell — page, script and service worker, with a stand-in
 payload — measures about 49 kB, against a test that fails at 49,000 bytes; a
