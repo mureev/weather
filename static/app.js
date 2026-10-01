@@ -27,8 +27,11 @@ let state = { place: null, data: null, source: null };
 
 /* ------------------------------------------------------------------ utils */
 
-const fmtT = (v) => (v === null || v === undefined) ? '—' :
-  (v > 0 ? '+' : v < 0 ? '−' : '') + Math.round(Math.abs(v)) + '°';
+const fmtT = (v) => {
+  if (v === null || v === undefined) return '—';
+  const m = Math.round(Math.abs(v));
+  return (m && v > 0 ? '+' : m && v < 0 ? '−' : '') + m + '°';
+};
 
 const icon = (key, cls) =>
   `<svg class="${cls || ''}" aria-hidden="true"><use href="#i-${key || 'unknown'}"></use></svg>`;
