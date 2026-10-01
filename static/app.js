@@ -17,7 +17,54 @@ const BASE = (window.YW_BASE || '') + '/';
 const PRECISION = window.YW_PRECISION || 2;
 const $ = (id) => document.getElementById(id);
 
-const LS = { place: 'yw.place', payload: 'yw.payload', source: 'yw.source' };
+const LS = { place: 'yw.place', payload: 'yw.payload', source: 'yw.source',
+             lang: 'yw.lang' };
+
+/* ---- language ---------------------------------------------------------------
+ * Russian is the app's own language and the language of every source; English
+ * is a translation of the interface. Which one a device gets is decided here,
+ * on the device: a choice made with the switch in the footer, else the first
+ * of the browser's preferred languages that is one of the two, else English.
+ *
+ * **Nothing about that choice goes upstream** (invariant 5). The server is not
+ * told, and its requests to the weather sites are the same whoever is asking.
+ * So the sources' own words -- «Пасмурно», «Слабый дождь с 10:00 до 22:00» --
+ * reach an English screen as what they *mean* rather than as a translation of
+ * what they *say*: a condition is named from its icon, which is the one
+ * reading of it that has already been checked (`ru_text`), and prose with no
+ * known shape is left out rather than shown in a language the reader chose
+ * not to read.
+ *
+ * `?lang=en` or `?lang=ru` in the address sets the choice, for a link that
+ * should open in a given language.
+ */
+const LANG = (() => {
+  try {
+    const q = new URLSearchParams(location.search).get('lang');
+    if (q === 'ru' || q === 'en') localStorage.setItem(LS.lang, q);
+    const v = q || localStorage.getItem(LS.lang);
+    if (v === 'ru' || v === 'en') return v;
+  } catch (e) { /* private mode: detection still works */ }
+  for (const l of navigator.languages || [navigator.language]) {
+    const p = String(l || '').slice(0, 2).toLowerCase();
+    if (p === 'ru' || p === 'en') return p;
+  }
+  return 'en';
+})();
+const EN = LANG === 'en' ? 1 : 0;
+
+/* Every string the interface says, in both languages, side by side -- so a
+ * line missing its translation is visible where it is written, and a test
+ * reads this table back rather than trusting it. */
+const STR = {
+  app: ['Погода', 'Weather'],
+  loading: ['Загружаем погоду…', 'Loading the weather…'],
+  refresh: ['Обновить', 'Refresh'],
+  close: ['Закрыть', 'Close'],
+  gps: ['по геолокации', 'by location'],
+  otherLang: ['English', 'Русский'],
+};
+const t = (k) => (STR[k] || [k, k])[EN];
 
 // `source` is the user's *preference*, remembered across cities and launches.
 // It is not necessarily what is on screen: if the preferred source has no data
@@ -1205,7 +1252,33 @@ SCREENS.day = (date) => {
 
 /* ------------------------------------------------------------------- boot */
 
+/** The words the static page carries, in the chosen language -- and the
+ *  switch to the other one. A reload rather than a re-render: every string is
+ *  read when it is drawn, and the shell is in the service worker, so the
+ *  round trip is the cache's. */
+function applyLang() {
+  document.documentElement.lang = LANG;
+  document.title = t('app');
+  const meta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+  if (meta) meta.content = t('app');
+  // The name the home screen gives the app, if it is added from here.
+  if (EN) document.querySelector('link[rel="manifest"]').href = 'manifest.webmanifest?lang=en';
+  $('btn-refresh').textContent = t('refresh');
+  $('close').setAttribute('aria-label', t('close'));
+  $('pin').setAttribute('aria-label', t('gps'));
+  const sr = document.querySelector('#content .sr');
+  if (sr) sr.textContent = t('loading');
+  const b = $('btn-lang');
+  b.textContent = t('otherLang');
+  b.lang = EN ? 'ru' : 'en';
+  b.addEventListener('click', () => {
+    try { localStorage.setItem(LS.lang, EN ? 'ru' : 'en'); } catch (e) { /* blocked */ }
+    location.replace(location.pathname);
+  });
+}
+
 function boot() {
+  applyLang();
   // Paint whatever we had last, immediately, before any network happens.
   const get = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
   state.place = get(LS.place);

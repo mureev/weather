@@ -940,6 +940,7 @@ html.locked{overflow:hidden;overscroll-behavior:none}
   .boot i{animation:none;background:rgba(255,255,255,.13)}
 }
 .err{text-align:center;padding:26px 16px;color:var(--dim)}
+.foot .lang{font-size:13px;color:var(--faint);padding:8px 14px;margin:-6px 0 -8px}
 .build{text-align:center;margin-top:10px;font-size:10.5px;color:var(--faint);
        opacity:.5;font-variant-numeric:tabular-nums;letter-spacing:.04em}
 .install{font-size:12.5px;color:var(--faint);text-align:center;margin-top:12px;
@@ -1025,6 +1026,9 @@ html.locked{overflow:hidden;overscroll-behavior:none}
       <span id="stamp"></span><span class="sep">·</span>
       <button id="btn-refresh" style="color:var(--accent)">Обновить</button>
     </div>
+    <!-- The other language. Labelled in that language, the way every language
+         picker is, because it is addressed to someone who reads it. -->
+    <button class="lang" id="btn-lang" lang="en">English</button>
   </div>
 
   <p class="install" id="install">

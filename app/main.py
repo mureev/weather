@@ -327,10 +327,14 @@ async def debug_flush(request: Request, city: str | None = None):
 # --- static ----------------------------------------------------------------
 
 @api.get("/manifest.webmanifest")
-async def manifest():
+async def manifest(lang: str | None = None):
+    # The installed app's name, in the language the page chose on the device:
+    # app.js points the manifest link at `?lang=en` when it is speaking
+    # English. Asked for by the page, never inferred from a header.
+    name = "Weather" if lang == "en" else "Погода"
     return JSONResponse({
-        "name": "Погода",
-        "short_name": "Погода",
+        "name": name,
+        "short_name": name,
         "start_url": f"{BASE}/",
         "scope": f"{BASE}/",
         "display": "standalone",
@@ -342,7 +346,7 @@ async def manifest():
         # and dark enough to read as plain black on a phone.
         "background_color": "#0d1630",
         "theme_color": "#0d1630",
-        "lang": "ru",
+        "lang": "en" if lang == "en" else "ru",
         "icons": [
             {"src": f"{BASE}/icons/icon-192.png", "sizes": "192x192",
              "type": "image/png", "purpose": "any"},
