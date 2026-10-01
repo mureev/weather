@@ -23,7 +23,7 @@ const LS = { place: 'yw.place', payload: 'yw.payload', source: 'yw.source' };
 // It is not necessarily what is on screen: if the preferred source has no data
 // for the city you just picked, we show one that does and leave the preference
 // alone, so going back to a city it covers restores your choice.
-let state = { place: null, data: null, busy: false, source: null };
+let state = { place: null, data: null, source: null };
 
 /* ------------------------------------------------------------------ utils */
 
@@ -533,16 +533,20 @@ function placeQuery(p) {
   return `city=${encodeURIComponent(p.slug)}`;
 }
 
+// Newest request wins; `asked` keeps a pick alive through a refresh.
+let loading = 0, asked = null;
+
 async function load(place) {
-  state.place = place || state.place;
-  if (state.busy) return;
-  state.busy = true;
+  const want = asked = place || asked || state.place;
+  const mine = ++loading;
   try {
-    const q = placeQuery(state.place);
+    const q = placeQuery(want);
     const r = await fetch(`${BASE}api/weather?${q}`,
                           { headers: { 'Accept': 'application/json' } });
     const d = await r.json();
+    if (mine !== loading) return;
     if (!r.ok && state.data && state.data.sources) return;   // a 503/404 is no forecast
+    state.place = want;
     state.data = d;
     // On a cold start we ask for nothing and the server picks the default, so
     // adopt whatever it resolved -- otherwise the sheet has no idea which city
@@ -558,9 +562,7 @@ async function load(place) {
     } catch (e) { /* private mode; the SW cache still covers us */ }
     render(d);
   } catch (e) {
-    if (!state.data) renderError(null);
-  } finally {
-    state.busy = false;
+    if (mine === loading && !state.data) renderError(null);
   }
 }
 
