@@ -1136,19 +1136,6 @@ SCREENS.day = (date) => {
   const lab = dayLabel(date);
   const tz = d.place && d.place.tz;
 
-  /* The screen has to *end*, and this line is not decoration.
-   *
-   * The web view this app gets is 59pt shorter than the display (DECISIONS.md
-   * §26), so whatever is last in the scroll sits 59pt above the glass with
-   * flat background beneath it. The forecast page has always done exactly the
-   * same thing and nobody has ever once noticed, because it ends in a quiet
-   * line of text on the sky: the eye reads "page over" and the strip below is
-   * simply where the page stopped. The day screen ended flush against a card's
-   * hard rounded edge, and the identical strip read as a tab bar that had
-   * forgotten to draw itself.
-   *
-   * Reported three times and guessed at five, and the difference between the
-   * two screens was never a length. One of them looked finished. */
   const foot = () => `<p class="screenfoot">${esc(view ? view.label : '')}`
     + `${d.fetched_at ? ' · ' + ago(d.fetched_at) : ''}</p>`;
 

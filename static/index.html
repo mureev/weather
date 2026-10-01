@@ -449,28 +449,6 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 .placebtn:active{opacity:.6}
 .pin{width:15px;height:15px;flex:none;stroke:none;fill:var(--dim);margin-top:3px}
 
-/* ---- the pushed screen ---------------------------------------------------
- * One navigation primitive, used by both sub-screens: the day detail and the
- * place picker. It replaced a bottom sheet, which was the wrong shape for both
- * -- a drawer says "a small choice, then back to what you were doing", and a
- * ten-day day-detail is not that. It also read as a web page imitating an app:
- * the rounded panel, the dimmed backdrop and the grab handle are three
- * separate promises of a gesture that was never implemented.
- *
- * A push makes one promise and iOS keeps it for us. In a standalone PWA the
- * edge-swipe-back gesture is wired to *browser history*, so a screen pushed
- * with `history.pushState` can be dismissed with the same swipe as any native
- * screen -- and the OS draws that transition itself. Which is also the reason
- * there is no swipe handler in app.js: a hand-rolled one runs *alongside* the
- * system gesture rather than instead of it, and the app navigates back twice.
- * (Ionic have been carrying that bug for years; see DECISIONS.md.)
- *
- * Opaque, and full-screen. That is not laziness about the parallax iOS does
- * under a push -- it is what makes this safe. A transformed ancestor becomes
- * the containing block for `position: fixed` descendants, which is exactly how
- * a 4px rise on `.wrap` broke the old sheet, and sliding the page under the
- * screen would put that trap back. Nothing moves but the screen itself.
- */
 /* ---- the sheet -----------------------------------------------------------
  *
  * A resizable bottom sheet, not a full-bleed push. Six attempts went into
@@ -508,8 +486,7 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
      the viewport, which a gradient cannot be asserted to be. There is a test. */
   background-color:var(--bg);
   box-shadow:0 -.5px 0 color-mix(in srgb,var(--fg) 10%,transparent),
-             0 -20px 50px rgba(0,0,0,.55);
-  visibility:hidden;transform:translateY(100%)}
+             0 -20px 50px rgba(0,0,0,.55)}
 /* **`visibility` is delayed on the way out and instant on the way in**, and
    writing it as one duration cost the whole first half of the entrance.
    `transition: visibility 460ms` does not fade anything -- visibility is a
