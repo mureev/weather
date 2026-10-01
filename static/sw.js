@@ -79,7 +79,9 @@ async function networkFirst(req) {
   const cache = await caches.open(DATA);
   try {
     const fresh = await fetch(req);
-    if (fresh && fresh.ok) cache.put(req, fresh.clone());
+    // What an offline launch shows, newest 8 (invariant 8).
+    if (fresh.ok && /api\/(weather|cities)\b/.test(req.url)) cache.put(req, fresh.clone())
+      .then(() => cache.keys()).then((ks) => ks.slice(0, -8).forEach((k) => cache.delete(k)));
     return fresh;
   } catch (err) {
     const hit = await cache.match(req);
