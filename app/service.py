@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import weakref
 
 import httpx
 
@@ -61,7 +62,10 @@ log = logging.getLogger(__name__)
 
 _cache: TTLCache[Weather] = TTLCache(settings.cache_ttl_s, settings.stale_grace_s,
                                      settings.cache_max_entries)
-_locks: dict[str, asyncio.Lock] = {}
+# Weak, so a lock lives exactly as long as someone holds or awaits it. Keyed
+# like the caches -- slugs, GPS fixes, (place, date) -- and a plain dict here
+# was the one store invariant 8 missed: it kept every key it ever saw.
+_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
 # Preference order. The first available one is what a fresh install shows;
 # after that the choice is the user's and lives in localStorage.
@@ -70,9 +74,12 @@ LABELS = {"yandex": "Яндекс", "gismeteo": "Gismeteo", "openmeteo": "Open-M
 
 
 def _lock(key: str) -> asyncio.Lock:
-    if key not in _locks:
-        _locks[key] = asyncio.Lock()
-    return _locks[key]
+    lock = _locks.get(key)
+    if lock is None:
+        # Bound to a local first: a weak dict would drop a lock nobody holds
+        # yet before it could be returned.
+        lock = _locks[key] = asyncio.Lock()
+    return lock
 
 
 async def get_weather(place: Place, *, force: bool = False) -> Weather:
@@ -399,6 +406,11 @@ async def get_day(place: Place, want: dt.date) -> Day | None:
     screen already has the four parts of day from the main payload, and losing
     an upgrade should cost detail rather than break the screen.
     """
+    today = local_now(place.tz).date()
+    if yandex_day.url_for(place, (want - today).days) is None:
+        # No page to ask for: a GPS fix, or a date outside the ten. Answered
+        # before any lock or client exists, so asking costs nothing.
+        return None
     key = f"{place.slug}|{want.isoformat()}"
     fresh = _days.get_fresh(key)
     if fresh is not None:
@@ -410,8 +422,7 @@ async def get_day(place: Place, want: dt.date) -> Day | None:
             return _sunlit_hours(fresh.value, place)
         try:
             async with client() as c:
-                day = await yandex_day.load(
-                    c, place, want, today=local_now(place.tz).date())
+                day = await yandex_day.load(c, place, want, today=today)
         except Exception as e:
             log.info("day detail %s unavailable: %s", key, e)
             return None

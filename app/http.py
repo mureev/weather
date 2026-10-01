@@ -24,6 +24,12 @@ HTTP2_AVAILABLE = importlib.util.find_spec("h2") is not None
 if not HTTP2_AVAILABLE:  # pragma: no cover - environment probe
     log.info("h2 not installed; upstream fetches will use HTTP/1.1")
 
+# One TLS context for every client. Building one loads the CA bundle -- about
+# 30 ms of CPU, synchronously on the event loop -- and a client is built per
+# request, including requests that end up fetching nothing. Shared, a client
+# costs well under a millisecond.
+_TLS = httpx.create_ssl_context()
+
 
 def client(http2: bool | None = None,
            proxy: str | None = None,
@@ -41,7 +47,7 @@ def client(http2: bool | None = None,
     A hostile hop can drop the connection or stall it; it cannot hand us a
     forged forecast, which is the only failure that would actually matter.
     """
-    kw: dict = {"follow_redirects": True,
+    kw: dict = {"follow_redirects": True, "verify": _TLS,
                 "timeout": timeout or settings.upstream_timeout_s}
     egress = proxy if proxy is not None else settings.proxies
     if egress:

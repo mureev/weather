@@ -277,3 +277,16 @@ class TestTheCacheIsBounded:
         c.put("yoshkar-ola", "payload")
         got = c.get_fresh("yoshkar-ola")
         assert got is not None and got.value == "payload"
+
+    def test_the_single_flight_locks_are_bounded_too(self):
+        """`service._locks` was a plain dict keyed like the caches, so every
+        GPS fix and every (city, date) anyone ever asked for stayed resident
+        -- the one store invariant 8 missed, reachable with no upstream cost
+        through /api/day."""
+        import gc
+
+        from app import service
+        for i in range(500):
+            service._lock(f"day:@{i}.00,0.00|2026-10-02")
+        gc.collect()
+        assert len(service._locks) == 0

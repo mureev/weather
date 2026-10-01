@@ -452,6 +452,15 @@ class TestTheDayEndpoint:
         assert client_.get(
             f"/weather/api/day?date={self.when(40)}").status_code == 204
 
+    def test_a_day_with_no_page_costs_nothing(self, client_, monkeypatch):
+        """No page means no lock and no client: building a client loads the CA
+        bundle on the event loop, and a flood of these 204s used to slow every
+        other request by two orders of magnitude."""
+        built: list[int] = []
+        monkeypatch.setattr(service, "client", lambda *a, **k: built.append(1))
+        r = client_.get("/weather/api/day?city=moscow&date=2001-01-01")
+        assert r.status_code == 204 and not built
+
     def test_a_malformed_date_is_refused(self, client_):
         assert client_.get("/weather/api/day?date=tuesday").status_code == 400
 
