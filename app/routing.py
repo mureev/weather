@@ -16,6 +16,7 @@ that has no business sitting in the middle of forecast assembly.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 import time
 
@@ -93,7 +94,7 @@ def routes() -> list[Route]:
     return out
 
 
-async def fetch_gismeteo(place: Place):
+async def fetch_gismeteo(place: Place, today: dt.date | None = None):
     """Gismeteo, by whichever route still works.
 
     Gismeteo refuses this server by address (`DECISIONS.md` §7), so the fetch
@@ -139,7 +140,8 @@ async def fetch_gismeteo(place: Place):
             async with asyncio.timeout(per), client(
                     http2=settings.gismeteo_http2, proxy=proxy or DIRECT,
                     timeout=per) as c:
-                got, url = await gismeteo.load(c, place, host=host, timeout=per)
+                got, url = await gismeteo.load(c, place, today=today,
+                                              host=host, timeout=per)
         except (Blocked, httpx.HTTPError, TimeoutError) as e:
             last = f"{label_route(route)}: {_brief(e)}"
             log.info("gismeteo route %d/%d refused -- %s", n, len(candidates), last)

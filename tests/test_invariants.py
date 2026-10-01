@@ -416,6 +416,46 @@ class TestTheFixturesAreOneRecording:
             f"in common. Re-record both -- `make fixtures && make fixtures-gm`")
 
 
+class TestAKnownFailureIsDeclaredNotHidden:
+    """`xfail(strict=True)` is how this suite says "known red": the test still
+    runs, and the day it passes the suite fails until the marker comes off.
+
+    Anything looser is a skip that does not call itself one. CI's zero-skip
+    rule greps for "skipped", and a failing test marked plain `xfail` reports
+    as "xfailed" -- a real regression, four tests marked so, went through the
+    gate's exact script with exit 0. `pytest.xfail()` cannot even XPASS. So
+    every xfail is strict, and every one is named here, where adding a second
+    is a decision someone can see in a diff.
+    """
+
+    KNOWN: ClassVar = {"test_the_sources_overlap"}
+
+    def test_every_xfail_is_strict_and_known(self):
+        problems = []
+        for path in sorted((ROOT / "tests").glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            decorators = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                    for d in node.decorator_list:
+                        call = d if isinstance(d, ast.Call) else None
+                        if ast.unparse(call.func if call else d) != "pytest.mark.xfail":
+                            continue
+                        decorators.add(id(call.func if call else d))
+                        strict = call is not None and any(
+                            k.arg == "strict" and getattr(k.value, "value", None) is True
+                            for k in call.keywords)
+                        if node.name not in self.KNOWN or not strict:
+                            problems.append(f"{path.name}:{d.lineno} {node.name}")
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Attribute) and id(node) not in decorators
+                        and ast.unparse(node) in ("pytest.mark.xfail", "pytest.xfail")):
+                    problems.append(f"{path.name}:{node.lineno} {ast.unparse(node)}")
+        assert not problems, (
+            f"xfail outside the known, strict set: {problems}. Fix the test, or "
+            f"mark it xfail(strict=True) with its reason and add it to KNOWN.")
+
+
 class TestTheFixturesStayTrimmed:
     """A recording is somebody else's page, and this repository is public.
 

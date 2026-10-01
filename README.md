@@ -1,6 +1,6 @@
 # CM Weather
 
-[![ci](https://github.com/mureev/weather/actions/workflows/ci.yml/badge.svg)](https://github.com/mureev/weather/actions/workflows/ci.yml)
+[![ci](https://github.com/mureev/weather/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/mureev/weather/actions/workflows/ci.yml)
 
 A self-hosted, ad-free weather app for an iPhone. The phone talks only to your
 server; your server talks to the weather sites. No App Store, no Apple Developer
@@ -31,7 +31,7 @@ a measurement recorded in `DECISIONS.md` §18, not a test.
 
 ```bash
 make            # the everyday commands
-make check      # lint + 582 tests, no network required
+make check      # lint + 583 tests, no network required
 make run        # localhost:8080 against live upstreams
 git push        # to master: tested, published, live in minutes
 make status     # what is live: its build, then its own health verdict
@@ -44,7 +44,7 @@ make status     # what is live: its build, then its own health verdict
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 582 tests, no
+1. **`make check` must pass before you believe anything.** 583 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -431,7 +431,7 @@ app/
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
 docs/                the two screenshots at the top of this page
-tests/               582 tests: parsers, degradation, invariants, docs, API, browser
+tests/               583 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 ```
 

@@ -67,7 +67,8 @@ class TestTierOneRemoved:
     whose keys mirror the official API."""
 
     @pytest.fixture(scope="class")
-    def degraded(self, current_html):
+    @classmethod
+    def degraded(cls, current_html):
         return X.parse(without_flight(current_html))
 
     def test_it_still_produces_a_forecast(self, degraded):
@@ -109,7 +110,8 @@ class TestTierTwoRemoved:
     what is *in* it -- so it should not care."""
 
     @pytest.fixture(scope="class")
-    def degraded(self, current_html):
+    @classmethod
+    def degraded(cls, current_html):
         return X.parse(without_a11y(current_html))
 
     def test_it_still_produces_a_forecast(self, degraded):
@@ -124,7 +126,8 @@ class TestBothRungsRemoved:
     calls `fallback_profile`, and it is meant to be survivable but noisy."""
 
     @pytest.fixture(scope="class")
-    def degraded(self, current_html):
+    @classmethod
+    def degraded(cls, current_html):
         return X.parse(without_a11y(without_flight(current_html)))
 
     def test_something_still_comes_back(self, degraded):

@@ -349,7 +349,8 @@ class TestTheMetricRows:
     """
 
     @pytest.fixture(scope="class")
-    def mf(self, request):
+    @classmethod
+    def mf(cls, request):
         d = request.path.parent / "fixtures"
         return G.parse(
             (d / "mf-current.html").read_text(encoding="utf-8", errors="replace"),
@@ -494,7 +495,8 @@ class TestThePartsOfDayGrid:
     page is the only thing about it that says three."""
 
     @pytest.fixture(scope="class")
-    def mf(self, request):
+    @classmethod
+    def mf(cls, request):
         d = request.path.parent / "fixtures"
 
         def read(n):
@@ -660,7 +662,8 @@ class TestMirror:
     """
 
     @pytest.fixture(scope="class")
-    def mirror(self, request):
+    @classmethod
+    def mirror(cls, request):
         d = request.path.parent / "fixtures"
         cur = d / "mf-current.html"
         if not cur.exists():
@@ -874,7 +877,8 @@ class TestWhatTheStateBlobTookWithIt:
     """
 
     @pytest.fixture(scope="class")
-    def raw(self, request):
+    @classmethod
+    def raw(cls, request):
         p = request.path.parent / "fixtures" / "mf-current.html"
         if not p.exists():
             pytest.skip("no mirror fixture -- capture one with `make fixtures-gm`")

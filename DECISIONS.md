@@ -845,7 +845,7 @@ difference nobody could perceive.
 There is one case where it was not cosmetic: a manifest carries a single
 `background_color`, so in light mode a dark splash precedes a light app, and
 startup images can vary by scheme. If this app is ever used in light mode
-regularly, that is the reason to bring it back — `git show 78c3eb5` has all of
+regularly, that is the reason to bring it back — `git show 97e2817` has all of
 it.
 
 ### The lesson, which is the reason this entry exists

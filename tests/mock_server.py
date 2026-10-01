@@ -29,9 +29,13 @@ if MODE == "winter":
     # Swap the sign on every rendered temperature *and* in the flight stream,
     # using U+2212 exactly as Yandex does. This is the scenario that catches a
     # parser written and tested in July.
-    RAW = re.sub(r'"temperature(InCelsius)?":(\d+)', r'"temperature\1":-\2', RAW)
-    RAW = re.sub(r'"feelsLike":(\d+)', r'"feelsLike":-\1', RAW)
-    RAW = RAW.replace("+1", "−1").replace("+2", "−2").replace("+0", "−0")
+    # The flight stream is a JS string, so its quotes arrive escaped
+    # (`\\"temperature\\":9`); and the August recording reads +9, which the
+    # old "+1"/"+2"/"+0" replacements never touched. Both left the headline
+    # positive while the ten days went negative.
+    RAW = re.sub(r'(\\?"(?:temperature|temperatureInCelsius|feelsLike)\\?":)(\d+)',
+                 r'\1-\2', RAW)
+    RAW = re.sub(r'\+(\d+)(?=\s*°)', r'−\1', RAW)
 
 from app import service  # noqa: E402
 from app.sources import gismeteo, openmeteo, yandex_html  # noqa: E402
@@ -55,10 +59,14 @@ GM_HOURLY = (_GM / "mf-hourly.html").read_text(encoding="utf-8", errors="replace
 GM_PARTS = (_GM / "mf-3days.html").read_text(encoding="utf-8", errors="replace")
 
 if MODE == "winter":
-    GM_NOW = re.sub(r'"(temperatureAir|temperatureFeelsLike)": ?\[(\d+)\]',
-                    r'"\1":[-\2]', GM_NOW)
-    GM_DAYS = re.sub(r'<temperature-value value="(\d+)"',
-                     r'<temperature-value value="-\1"', GM_DAYS)
+    # `weather.cw` is gone (DECISIONS.md §27): the current reading now comes
+    # from the header sentence and the grid, so all four pages flip together.
+    def _winter(page: str) -> str:
+        page = re.sub(r'(<temperature-value\s+value=")(\d+)"', r'\1-\2"', page)
+        return re.sub(r'\+(\d+)(?=\s*°)', r'−\1', page)
+
+    GM_NOW, GM_DAYS, GM_HOURLY, GM_PARTS = map(
+        _winter, (GM_NOW, GM_DAYS, GM_HOURLY, GM_PARTS))
 
 
 async def _gm_fetch(_client, url, **_kw):

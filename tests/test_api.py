@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import service
+from app import service, sun
 from app.main import app
 from app.sources import gismeteo, openmeteo, yandex_html
 from tests.test_extract import NOW_C, RECORDED
@@ -34,6 +34,21 @@ def client_(request, monkeypatch):
     raw = (fix / "current.html").read_text(encoding="utf-8", errors="replace")
     day_page = (fix / "ya-day5.html").read_text(encoding="utf-8", errors="replace")
 
+    # One clock for the app and the stubs, pinned to the day the fixtures
+    # describe -- as `tests/mock_server.py` does through YW_TODAY. Unpinned,
+    # `date.today()` here was the runner's date (UTC on GitHub) while the app
+    # asks Moscow's, so the day tests failed every night from 21:00 to 24:00
+    # UTC; and about six months after a recording, year inference reorders
+    # the ten days and the byte budget moves with the calendar (Feb 2027).
+    real_now = sun.local_now
+
+    def pinned_now(tz: str) -> dt.datetime:
+        return real_now(tz).replace(
+            year=RECORDED.year, month=RECORDED.month, day=RECORDED.day)
+
+    monkeypatch.setattr(sun, "local_now", pinned_now)
+    monkeypatch.setattr(service, "local_now", pinned_now)
+
     async def fake_fetch(_client, url):
         m = re.search(r"/day-(\d+)", url)
         if not m:
@@ -42,7 +57,7 @@ def client_(request, monkeypatch):
         # about a different day than the one requested -- correctly -- so the
         # stub restamps it, otherwise every test here would exercise that
         # rejection instead of the feature.
-        want = dt.date.today() + dt.timedelta(days=int(m.group(1)))
+        want = RECORDED + dt.timedelta(days=int(m.group(1)))
         return day_page.replace("2026-08-07T", f"{want.isoformat()}T")
 
     async def fake_om(_client, _place):
@@ -563,7 +578,7 @@ class TestTheDayEndpoint:
 
     @staticmethod
     def when(days: int) -> str:
-        return (dt.date.today() + dt.timedelta(days=days)).isoformat()
+        return (RECORDED + dt.timedelta(days=days)).isoformat()
 
     def test_it_returns_the_day_that_was_asked_for(self, client_):
         want = self.when(3)

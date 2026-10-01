@@ -216,7 +216,9 @@ async def _build(place: Place, key: str) -> Weather:
     # egress routes, each of which needs a client of its own.
     async with client() as c:
         ya, gm, om_raw = await asyncio.gather(
-            _yandex(c, place), fetch_gismeteo(place), openmeteo.fetch(c, place),
+            _yandex(c, place),
+            fetch_gismeteo(place, today=local_now(place.tz).date()),
+            openmeteo.fetch(c, place),
             return_exceptions=False,
         )
 
@@ -298,7 +300,8 @@ def _safely(key: str, build, *args) -> SourceView:
 
 async def _yandex(c: httpx.AsyncClient, place: Place):
     try:
-        got, url = await yandex_html.load(c, place)
+        got, url = await yandex_html.load(
+            c, place, today=local_now(place.tz).date())
         log.info("yandex ok via %s", url)
         return got, None
     except ParseError as e:

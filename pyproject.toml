@@ -32,3 +32,5 @@ ignore = [
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 filterwarnings = ["ignore::DeprecationWarning"]
+# A known failure must say when it stops being one (AGENTS.md, Done means).
+xfail_strict = true

@@ -118,7 +118,8 @@ class TestPublishedFieldsAreNotSilentlyEmpty:
     """
 
     @pytest.fixture(scope="class")
-    def parsed(self):
+    @classmethod
+    def parsed(cls):
         return G.parse(
             (FIX / "gm-current.html").read_text(encoding="utf-8", errors="replace"),
             days_html=(FIX / "gm-10days.html").read_text(encoding="utf-8",
@@ -165,7 +166,8 @@ class TestTheDailyMetricsArrive:
     """
 
     @pytest.fixture(scope="class")
-    def days(self):
+    @classmethod
+    def days(cls):
         got = G.parse(
             (FIX / "mf-current.html").read_text(encoding="utf-8", errors="replace"),
             days_html=(FIX / "mf-10days.html").read_text(encoding="utf-8",
@@ -207,7 +209,8 @@ class TestTheDailyMetricsArrive:
                 f"Day.{name} is empty")
 
     @pytest.fixture(scope="class")
-    def parts(self):
+    @classmethod
+    def parts(cls):
         got = G.parse(
             (FIX / "mf-current.html").read_text(encoding="utf-8", errors="replace"),
             days_html=(FIX / "mf-10days.html").read_text(encoding="utf-8",
@@ -263,7 +266,8 @@ class TestTheConditionVocabularyIsFullyMapped:
     """
 
     @pytest.fixture(scope="class")
-    def phrases(self) -> list[str]:
+    @classmethod
+    def phrases(cls) -> list[str]:
         out: set[str] = set()
         for path in fixtures():
             doc = LH.fromstring(path.read_text(encoding="utf-8", errors="replace"))
