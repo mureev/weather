@@ -934,14 +934,14 @@ function placeList() {
       out.push('<div class="empty">Ничего не найдено</div>');
     } else {
       out.push('<ul class="group">' + found.map((p, i) =>
-        `<li data-find="${i}"><span class="nm">${esc(p.name)}</span>
+        `<li data-find="${i}"><button class="nm">${esc(p.name)}</button>
           <span class="sub">${esc(p.subtitle || '')}</span></li>`).join('')
         + '</ul>');
     }
   } else {
     out.push('<h3>Города</h3><ul class="group">' + savedCities.map((c) =>
       `<li data-slug="${esc(c.slug)}" class="${c.slug === cur && !onGps ? 'sel' : ''}">
-        <span class="nm">${esc(c.name)}</span>
+        <button class="nm">${esc(c.name)}</button>
         ${c.slug === cur && !onGps ? TICK : ''}</li>`).join('') + '</ul>');
   }
   return out.join('');
