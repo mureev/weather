@@ -256,15 +256,18 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
      glyphs under `black-translucent` -- so the page's near-black `--fg` would
      be text on a saturated blue. Every element in this list is one that has no
      card behind it; adding a new one without adding it here is how a heading
-     ends up invisible in daylight and nowhere else. */
-  body .hero,body .top,body .navbar,body .navbar .t,body .dayhero{color:#fff}
+     ends up invisible in daylight and nowhere else.
+     **The sheet is not sky.** It is flat `--bg` (§26), near-white here, and
+     its title and day hero were left on this list from the full-screen push:
+     white on #eef2fa, 1.1:1. Its strip gets ink on a segmented control. */
+  body .hero,body .top{color:#fff}
   body .hero .cond,body .hero .sub .lo{color:rgba(255,255,255,.82)}
   body .hero .feels{color:rgba(255,255,255,.66)}
-  body .navbar .t small{color:rgba(255,255,255,.74)}
-  body .dayhero .r .lo{color:rgba(255,255,255,.78)}
-  body .dayhero .c{color:rgba(255,255,255,.86)}
-  body .navbar{border-bottom-color:rgba(255,255,255,.18)}
-  body .screen h3{color:rgba(255,255,255,.78)}
+  .screen .srcs{background:var(--bg2);border-color:var(--line)}
+  .screen .src{color:var(--dim)}
+  .screen .src b{color:var(--fg)}
+  .screen .src.sel{background:var(--card)}
+  .screen .src.sel b{color:var(--accent)}
   body .placebtn svg{stroke:rgba(255,255,255,.72)}
   body .pin{fill:rgba(255,255,255,.85)}
   /* Stars over a sky that opens out to near-white read as dust. Keep them,

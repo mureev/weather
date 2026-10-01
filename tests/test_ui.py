@@ -113,6 +113,23 @@ def _luma(color: str) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
+def _contrast(fg: str, bg: str) -> float:
+    """WCAG contrast ratio of an opaque `fg` over an opaque `bg`. An alpha on
+    `fg` is composited over `bg` first, since that is what reaches the eye."""
+    def rgba(c):
+        v = _rgba(c) or (0, 0, 0)
+        return (*v[:3], v[3] if len(v) > 3 else 1.0)
+
+    def lum(rgb):
+        lin = [(x / 255) / 12.92 if x / 255 <= 0.03928
+               else ((x / 255 + 0.055) / 1.055) ** 2.4 for x in rgb]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    f, b = rgba(fg), rgba(bg)
+    seen = [f[i] * f[3] + b[i] * (1 - f[3]) for i in range(3)]
+    hi, lo = sorted((lum(seen), lum(b[:3])), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def _colours(page, selectors) -> dict[str, str]:
     """Computed text colour for several selectors, resolved and read in **one**
     evaluation.
@@ -1412,7 +1429,24 @@ class TestItIsLegibleInDaylight:
     only one anybody takes -- was perfect.
     """
 
-    SKY_BORNE = ("#screen-title", ".dayhero .r", ".dayhero .c")
+    SKY_BORNE = ("#city", ".hero .t", ".hero .cond")
+    # On the sheet, which is flat `--bg` -- near-white in this scheme. This
+    # list used to be SKY_BORNE, from when the day was a full-screen push
+    # painted with the sky, and the test kept asserting "light" after the
+    # sheet went flat: white on #eef2fa, 1.1:1, green. A colour is not
+    # legible or illegible on its own; only against what is behind it.
+    ON_SHEET = ("#screen-title", ".dayhero .r", ".dayhero .c",
+                ".screen .src:not(.sel)", ".screen .src.sel b")
+
+    def test_text_on_the_sheet_contrasts_with_the_sheet(self, light_page):
+        light_page.locator(".day[data-day]").nth(2).click()
+        light_page.wait_for_selector(".screen.open")
+        bg = light_page.evaluate(
+            "getComputedStyle(document.getElementById('screen')).backgroundColor")
+        for sel, colour in _colours(light_page, self.ON_SHEET).items():
+            got = _contrast(colour, bg)
+            assert got >= 4.5, (
+                f"{sel} is {colour} on the sheet's {bg}: {got:.2f}:1")
 
     def test_the_top_of_the_sky_really_is_dark(self, light_page):
         """The premise of the rule below. If the sky ever opens out at the top,
@@ -1423,8 +1457,6 @@ class TestItIsLegibleInDaylight:
         assert _luma(sky1) < 140, f"--sky1 is {sky1}; light text will not read"
 
     def test_text_on_the_sky_is_light(self, light_page):
-        light_page.locator(".day[data-day]").nth(2).click()
-        light_page.wait_for_selector(".screen.open")
         for sel, colour in _colours(light_page, self.SKY_BORNE).items():
             assert _luma(colour) > 170, (
                 f"{sel} renders {colour} in light mode, on a deep blue sky -- "
