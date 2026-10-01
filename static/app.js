@@ -307,9 +307,11 @@ function hourlyBlock(hours, nowcast, opts) {
   // symptom was not what a wrong constant usually looks like: the curve
   // drifted 4px left per column and simply stopped short of the last labels.
   const W = hourWidth(), TOP = 24, BOT = 64, H = 72;
+  // 6° of band at least, centred: fitted, a 1° step filled all 40px and ran
+  // through the next label, and a flat day lay on the floor.
   const temps = list.map((h) => h.temp_c);
-  const min = Math.min(...temps), max = Math.max(...temps);
-  const span = (max - min) || 1;
+  const lo = Math.min(...temps), hi = Math.max(...temps);
+  const span = Math.max(hi - lo, 6), min = (hi + lo - span) / 2;
   const y = (t) => BOT - ((t - min) / span) * (BOT - TOP);
   const width = list.length * W;
 
