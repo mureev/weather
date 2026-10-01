@@ -29,7 +29,15 @@ from starlette.middleware.gzip import GZipMiddleware
 from . import cities
 from .config import settings
 from .models import Status, prune
-from .service import ORDER, cache_stats, client, get_day, get_weather, invalidate
+from .service import (
+    ORDER,
+    cache_stats,
+    client,
+    cold,
+    get_day,
+    get_weather,
+    invalidate,
+)
 from .sources import geocode
 from .version import BUILD, BUILT_AT, SHELL, info
 
@@ -178,7 +186,12 @@ async def city_list():
 @api.get("/api/search")
 async def search(q: str = Query(min_length=2, max_length=64)):
     async with client() as c:
-        found = await geocode.search(c, q)
+        found = await geocode.search(c, q, allow_fetch=cold.take)
+    if found is None:
+        # The cold-fetch budget is spent (`COLD_FETCHES_PER_HOUR`). `results`
+        # stays a list, which is all the client reads.
+        return JSONResponse({"results": [], "detail": "слишком часто"},
+                            status_code=429, headers={"Retry-After": "60"})
     return {"results": [
         {"slug": p.slug, "name": p.name, "subtitle": geocode.subtitle(p),
          "lat": p.lat, "lon": p.lon}

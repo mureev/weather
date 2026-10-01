@@ -116,6 +116,14 @@ class Settings:
     # per distinct GPS fix. Unbounded, that is a set that only ever grows.
     cache_max_entries: int = field(default_factory=lambda: _i("CACHE_MAX_ENTRIES", 64))
     upstream_timeout_s: float = field(default_factory=lambda: _f("UPSTREAM_TIMEOUT_S", 12.0))
+    # Upstream rounds that callers can cause for places outside the registry
+    # -- GPS fixes, searched places, search queries -- per hour, all callers
+    # together. Those keys are coordinates and free text, so without a cap a
+    # stranger decides how often this server's address asks Yandex and
+    # Open-Meteo for something. Registry cities are exempt: a handful of keys,
+    # one round per TTL each, however often they are asked for.
+    cold_fetches_per_hour: int = field(
+        default_factory=lambda: _i("COLD_FETCHES_PER_HOUR", 180))
 
     # How far apart two sources must land before the gap is worth recording in
     # /api/health. Informational: with three readings on screen, divergence no

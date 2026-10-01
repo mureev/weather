@@ -38,7 +38,9 @@ _cache: TTLCache[list[dict[str, Any]]] = TTLCache(ttl_s=7 * 86400, grace_s=30 * 
 _PREFERRED = ("RU", "BY", "KZ")
 
 
-async def search(client: httpx.AsyncClient, q: str, limit: int = 8) -> list[Place]:
+async def search(client: httpx.AsyncClient, q: str, limit: int = 8,
+                 allow_fetch=lambda: True) -> list[Place] | None:
+    """Places matching `q`, or None when `allow_fetch` refused a cache miss."""
     q = (q or "").strip()
     if len(q) < 2:
         return []
@@ -48,6 +50,8 @@ async def search(client: httpx.AsyncClient, q: str, limit: int = 8) -> list[Plac
     if hit is not None:
         return [_to_place(r) for r in hit.value][:limit]
 
+    if not allow_fetch():
+        return None
     params = {"name": q, "count": 20, "language": "ru", "format": "json"}
     try:
         r = await client.get(settings.geocode_url, params=params,

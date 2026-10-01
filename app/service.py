@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import time
 import weakref
 
 import httpx
@@ -67,6 +68,34 @@ _cache: TTLCache[Weather] = TTLCache(settings.cache_ttl_s, settings.stale_grace_
 # was the one store invariant 8 missed: it kept every key it ever saw.
 _locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
+# A short memory for "everything was down": without it every request during an
+# outage repeated the whole fan-out -- thirteen upstream requests for a registry
+# city -- against hosts that were already refusing.
+_down: TTLCache[Weather] = TTLCache(60, 60, settings.cache_max_entries)
+_days_missing: TTLCache[bool] = TTLCache(60, 60, settings.cache_max_entries * 4)
+
+
+class Budget:
+    """A token bucket: `burst` at once, refilled at `per_hour`."""
+
+    def __init__(self, per_hour: int, burst: int = 20) -> None:
+        self.rate = max(per_hour, 0) / 3600.0
+        self.burst = float(burst)
+        self.tokens = float(burst)
+        self.at = time.monotonic()
+
+    def take(self) -> bool:
+        now = time.monotonic()
+        self.tokens = min(self.burst, self.tokens + (now - self.at) * self.rate)
+        self.at = now
+        if self.tokens < 1.0:
+            return False
+        self.tokens -= 1.0
+        return True
+
+
+cold = Budget(settings.cold_fetches_per_hour)
+
 # Preference order. The first available one is what a fresh install shows;
 # after that the choice is the user's and lives in localStorage.
 ORDER = ("yandex", "gismeteo", "openmeteo")
@@ -96,6 +125,11 @@ async def get_weather(place: Place, *, force: bool = False) -> Weather:
             if fresh is not None:
                 fresh.value.health.age_s = fresh.age_s
                 return _sunlit(fresh.value)
+            down = _down.get_fresh(key)
+            if down is not None:
+                return _sunlit(down.value)
+            if place.ad_hoc and not cold.take():
+                return _sunlit(_refused(place, _cache.get_stale(key)))
         return _sunlit(await _build(place, key))
 
 
@@ -197,7 +231,9 @@ async def _build(place: Place, key: str) -> Weather:
 
     available = [k for k in ORDER if weather.sources[k].available]
     if not available:
-        return _all_down(weather, previous)
+        down = _all_down(weather, previous)
+        _down.put(key, down)
+        return down
 
     weather.selected = available[0]
     _record_divergence(weather)
@@ -368,6 +404,21 @@ def _record_divergence(w: Weather) -> None:
                     f"{a} and {b} disagree by {abs(delta):.1f}°C")
 
 
+def _refused(place: Place, previous) -> Weather:
+    """The cold-fetch budget is spent: the last payload if there is one, else
+    an envelope that says why -- the shape the client already renders for an
+    outage -- and nothing goes upstream. Never cached."""
+    w = Weather(place=place, health=Health(),
+                fetched_at=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"))
+    for k in ORDER:
+        w.sources[k] = SourceView(key=k, label=LABELS[k], reason="слишком часто")
+    if previous is not None:
+        return _all_down(w, previous)
+    w.health.status = Status.DOWN
+    w.health.warnings.append("Слишком много запросов — попробуйте через минуту")
+    return w
+
+
 def _all_down(w: Weather, previous) -> Weather:
     """Nothing worked. The last good payload, or an honest failure."""
     if previous is not None:
@@ -420,11 +471,14 @@ async def get_day(place: Place, want: dt.date) -> Day | None:
         fresh = _days.get_fresh(key)
         if fresh is not None:
             return _sunlit_hours(fresh.value, place)
+        if _days_missing.get_fresh(key) is not None:
+            return None
         try:
             async with client() as c:
                 day = await yandex_day.load(c, place, want, today=today)
         except Exception as e:
             log.info("day detail %s unavailable: %s", key, e)
+            _days_missing.put(key, True)
             return None
         # Only the hours need checking: everything else this page carries is
         # prose -- sunrise, sunset, day length -- and `check_series` now applies
@@ -449,11 +503,14 @@ def cache_stats() -> dict:
 
 
 def invalidate(key: str | None = None) -> None:
-    if key:
-        _cache.drop(key)
-    else:
-        for k in _cache:
-            _cache.drop(k)
+    for store in (_cache, _down):
+        if key:
+            store.drop(key)
+        else:
+            for k in store:
+                store.drop(k)
+    for k in list(_days_missing):
+        _days_missing.drop(k)
     # The per-day cache too, always. It is keyed by place *and* date, so there
     # is no single key to drop -- and a test that clears one cache and not the
     # other passes for a reason nobody chose.

@@ -343,6 +343,58 @@ class TestDegradation:
         assert any("устарели" in w for w in d["health"]["warnings"])
 
 
+class TestStrangersCannotSpendTheServersAddress:
+    """GPS fixes and searches are keyed by coordinates and free text, so each
+    new one is a fresh round of upstream requests from this server's address.
+    Unbudgeted, one client decided how often that happened."""
+
+    @pytest.fixture
+    def rounds(self, client_, monkeypatch):
+        seen: list[str] = []
+
+        async def om(_c, place):
+            seen.append(place.slug)
+            return None
+
+        monkeypatch.setattr(openmeteo, "fetch", om)
+        monkeypatch.setattr(service, "cold", service.Budget(per_hour=0, burst=3))
+        return seen
+
+    def test_new_coordinates_stop_going_upstream_past_the_budget(
+            self, client_, rounds):
+        for i in range(10):
+            r = client_.get(f"/weather/api/weather?lat={-40 + i}&lon=-20")
+            assert r.status_code in (200, 503)
+        assert len(rounds) == 3
+        assert r.json()["sources"]["yandex"]["reason"] == "слишком часто"
+
+    def test_the_registry_is_never_rationed(self, client_, rounds):
+        for i in range(5):
+            client_.get(f"/weather/api/weather?lat={-40 + i}&lon=-20")
+        assert client_.get("/weather/api/weather?city=yoshkar-ola").status_code == 200
+
+    def test_an_outage_is_remembered_rather_than_refetched(self, monkeypatch):
+        asked: list[str] = []
+
+        async def refused(_c, url, **_kw):
+            asked.append(url)
+            raise RuntimeError("refused")
+
+        async def no_om(_c, _p):
+            return None
+
+        monkeypatch.setattr(yandex_html, "fetch_html", refused)
+        monkeypatch.setattr(gismeteo, "fetch_html", refused)
+        monkeypatch.setattr(openmeteo, "fetch", no_om)
+        service.invalidate()
+        c = TestClient(app)
+        assert c.get("/weather/api/weather").status_code == 503
+        once = len(asked)
+        for _ in range(5):
+            assert c.get("/weather/api/weather").status_code == 503
+        assert len(asked) == once
+
+
 class TestSurfaces:
     def test_cities(self, client_):
         d = client_.get("/weather/api/cities").json()
