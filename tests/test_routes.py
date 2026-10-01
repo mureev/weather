@@ -296,6 +296,25 @@ class TestBudget:
         assert len(seen) < 18, f"the budget did not bound the search: {len(seen)}"
 
 
+class TestTheBudgetIsWallClock:
+    def test_a_route_that_drips_cannot_outlast_the_budget(self, monkeypatch,
+                                                          place):
+        """httpx bounds each read, so an answer arriving a byte at a time
+        never times out; GISMETEO_ROUTE_BUDGET_S promised total wall-clock."""
+        reconfigure(monkeypatch, GISMETEO_ROUTE_BUDGET_S="1.5",
+                    UPSTREAM_TIMEOUT_S="1")
+
+        async def drip(*_a, **_k):
+            await asyncio.sleep(30)
+
+        monkeypatch.setattr("app.sources.gismeteo.load", drip)
+        import time
+        t0 = time.monotonic()
+        got, why = run(R.fetch_gismeteo(place))
+        assert got is None and "TimeoutError" in why
+        assert time.monotonic() - t0 < 3
+
+
 class TestMasking:
     def test_proxy_credentials_never_reach_a_log_or_a_health_endpoint(self):
         """Free proxy lists hand out user:pass@host often enough that this

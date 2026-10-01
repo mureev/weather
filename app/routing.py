@@ -15,6 +15,7 @@ that has no business sitting in the middle of forecast assembly.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -132,10 +133,14 @@ async def fetch_gismeteo(place: Place):
             break
         per = min(settings.upstream_timeout_s, max(left, 1.0))
         try:
-            async with client(http2=settings.gismeteo_http2,
-                              proxy=proxy or DIRECT, timeout=per) as c:
+            # httpx's timeout bounds each *read*, not the request: a route
+            # that drips bytes never trips it, so without this the budget
+            # bounded only the gaps between routes.
+            async with asyncio.timeout(per), client(
+                    http2=settings.gismeteo_http2, proxy=proxy or DIRECT,
+                    timeout=per) as c:
                 got, url = await gismeteo.load(c, place, host=host, timeout=per)
-        except (Blocked, httpx.HTTPError) as e:
+        except (Blocked, httpx.HTTPError, TimeoutError) as e:
             last = f"{label_route(route)}: {_brief(e)}"
             log.info("gismeteo route %d/%d refused -- %s", n, len(candidates), last)
             if _sticky.get("route") == route:
