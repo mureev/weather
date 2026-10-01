@@ -28,11 +28,6 @@ def latlon_html() -> str:
     return read("latlon.html")
 
 
-@pytest.fixture(scope="session")
-def details_html() -> str:
-    return read("details.html")
-
-
 @pytest.fixture
 def today() -> dt.date:
     return FIXTURE_DAY

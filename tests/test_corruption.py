@@ -50,8 +50,12 @@ class TestHostileResponses:
     def test_truncated_response(self, raw):
         """A connection cut mid-stream. Half a flight payload must not become
         half a forecast."""
+        # Cut where the current conditions begin. This was a fixed 40 000
+        # characters, which on the full recorded page fell in the <head>; the
+        # fixture is trimmed to what the parsers read now
+        # (tools/trim_fixtures.py), and the forecast starts a kilobyte in.
         with pytest.raises(ParseError):
-            X.parse(raw[:40_000], today=TODAY)
+            X.parse(raw[:raw.index("AppFact_")], today=TODAY)
 
 
 class TestWrongPlace:

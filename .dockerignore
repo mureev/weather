@@ -1,7 +1,7 @@
 # The Dockerfile only COPYs app/ and static/, so nothing below would end up in
 # the image anyway -- but everything here is uploaded to the builder as build
-# context on every single build. tests/fixtures alone is ~4 MB of Yandex and
-# Gismeteo HTML.
+# context on every single build. tests/fixtures alone is ~1.3 MB of trimmed
+# Yandex and Gismeteo HTML.
 .git
 .gitignore
 .env

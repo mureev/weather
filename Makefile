@@ -129,10 +129,16 @@ test-if-possible:
 # The loop this project is designed around. Re-record from the box that
 # actually does the fetching, then let the tests say what moved.
 # Needs DEBUG_TOKEN set in the container's environment and exported here.
+#
+# Every recipe below trims what it records to the parts the parsers read
+# (tools/trim_fixtures.py): the rest is somebody else's site, and this
+# repository is public. A page the parsers would read differently once trimmed
+# is left as recorded, with a message saying so -- do not commit it like that.
 fixtures:
 	@test -n "$(DEBUG_TOKEN)" || (echo "set DEBUG_TOKEN=... first, or use \`make fixtures-ya\`" && exit 1)
 	curl -fsS -H "X-Debug-Token: $(DEBUG_TOKEN)" \
 	  "$(SITE)/api/debug/raw?city=$(CITY)" > tests/fixtures/current.html
+	python3 tools/trim_fixtures.py tests/fixtures/current.html
 	@$(MAKE) test-if-possible
 
 # Yandex, recorded straight from this machine instead of through the server's
@@ -148,6 +154,7 @@ fixtures:
 # one taken through the server, believe the server's.
 fixtures-ya:
 	curl -fsS --compressed -A '$(UA)' '$(YA_URL)' > tests/fixtures/current.html
+	python3 tools/trim_fixtures.py tests/fixtures/current.html
 	@$(MAKE) test-if-possible
 
 # Record the Gismeteo pages from whichever host currently answers. Run it where
@@ -189,6 +196,8 @@ fixtures-gm:
 	    echo "  Your existing fixtures are untouched. Try again when it is back."; \
 	    echo; exit 1; \
 	  fi; \
+	  python3 tools/trim_fixtures.py "$$tmp/$$name.html" \
+	    || { echo "  Your existing fixtures are untouched."; exit 1; }; \
 	done; \
 	for name in current hourly 10days 3days; do \
 	  mv "$$tmp/$$name.html" "tests/fixtures/$(GM_PREFIX)-$$name.html"; \
@@ -219,6 +228,7 @@ fixtures-day:
 	curl -fsS --compressed -A '$(UA)' -H 'Accept-Language: ru-RU,ru;q=0.9' \
 	  '$(YA_URL)/details/auto/10-day-weather/day-$(DAY)' \
 	  > tests/fixtures/ya-day$(DAY).html
+	python3 tools/trim_fixtures.py tests/fixtures/ya-day$(DAY).html
 	@wc -c tests/fixtures/ya-day$(DAY).html
 	@echo "\n  Recorded. make check says whether yandex_day still reads it.\n"
 

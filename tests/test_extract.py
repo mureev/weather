@@ -429,7 +429,10 @@ class TestFlightStream:
         html = (request.path.parent / "fixtures" / "current.html").read_text(
             encoding="utf-8", errors="replace")
         s = X.flight(html)
-        assert len(s) > 100_000
+        # Several pushes' worth, decoded and joined. The fixture keeps only
+        # the pushes holding a value something reads (tools/trim_fixtures.py);
+        # the whole stream of the recorded page decoded to ~480 kB.
+        assert len(s) > 5_000
         assert '"fact"' in s
 
     def test_never_reads_the_requester_location_fact(self, request):
