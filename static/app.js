@@ -533,15 +533,16 @@ function placeQuery(p) {
   return `city=${encodeURIComponent(p.slug)}`;
 }
 
-async function load(place, { force = false } = {}) {
+async function load(place) {
   state.place = place || state.place;
   if (state.busy) return;
   state.busy = true;
   try {
     const q = placeQuery(state.place);
-    const r = await fetch(`${BASE}api/weather?${q}${force ? '&force=1' : ''}`,
+    const r = await fetch(`${BASE}api/weather?${q}`,
                           { headers: { 'Accept': 'application/json' } });
     const d = await r.json();
+    if (!r.ok && state.data && state.data.sources) return;   // a 503/404 is no forecast
     state.data = d;
     // On a cold start we ask for nothing and the server picks the default, so
     // adopt whatever it resolved -- otherwise the sheet has no idea which city
@@ -1207,7 +1208,7 @@ function boot() {
   } catch (e) { /* ignore */ }
 
   loadCities();
-  load(state.place, { force: false });
+  load(state.place);
 
   // A screen open at load time is a reload *while* it was open. The payload
   // has not arrived yet and the day it referred to may not exist any more, so
@@ -1232,7 +1233,7 @@ function boot() {
   // fraction of it. Without this the sheet keeps yesterday's offset and sits
   // at no detent at all.
   window.addEventListener('resize', () => { if (current) goDetent(detent); });
-  $('btn-refresh').addEventListener('click', () => load(state.place, { force: true }));
+  $('btn-refresh').addEventListener('click', () => load(state.place));
 
   // One delegated listener on the screen shell, which never gets replaced --
   // everything inside it is rebuilt on every render.
