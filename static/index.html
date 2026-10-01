@@ -43,6 +43,7 @@
 <meta name="color-scheme" content="dark light">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
 <style>
 /* ===========================================================================
    Layout priorities, revised after living with v1:
@@ -604,7 +605,8 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
  * `(header height − 30) / 2` for the two-line header the day sheet always has,
  * and `debug.js` checks the three against each other on the device rather than
  * trusting this arithmetic. */
-.navbar .close{position:absolute;top:0;bottom:0;right:var(--nav-inset);
+.navbar .close{position:absolute;top:0;bottom:0;
+  right:max(var(--nav-inset),calc((100% - var(--col))/2));
   margin-block:auto;
   display:flex;align-items:center;justify-content:center;width:30px;height:30px;
   border-radius:50%;border:0;padding:0;
