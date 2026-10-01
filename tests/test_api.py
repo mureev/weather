@@ -8,6 +8,7 @@ fails on a train.
 
 import dataclasses
 import datetime as dt
+import gzip
 import re
 from pathlib import Path
 
@@ -646,9 +647,23 @@ class TestItIsCheapToLoad:
         budget silently becomes three times what you wrote. The first version
         of this test reported 82 kB for a 26 kB load and I nearly raised the
         limit to match. `Content-Length` is set by the compression middleware
-        after compressing, so it is the real figure.
+        after compressing, so it is the real figure -- when there is one.
+
+        **Past 64 KiB there is not.** Starlette sends a file in 64 KiB chunks,
+        and given more than one its gzip middleware streams the result with no
+        length at all. `app.js` crossed that line and this raised `KeyError`
+        where a size belonged. The middleware compresses at level 6 without a
+        flush, so compressing the body again at level 6 is the same byte count;
+        the test below holds that wherever a length is still stated.
         """
-        return int(response.headers["content-length"])
+        n = response.headers.get("content-length")
+        return int(n) if n else len(gzip.compress(response.content, compresslevel=6))
+
+    def test_recompressing_matches_a_stated_length(self, client_):
+        for name in ("sw.js", "api/weather"):
+            r = client_.get(f"/weather/{name}", headers={"Accept-Encoding": "gzip"})
+            stated = int(r.headers["content-length"])
+            assert stated == len(gzip.compress(r.content, compresslevel=6)), name
 
     def test_the_api_is_compressed(self, client_):
         """22.8 kB of very repetitive JSON compresses to 2.5 kB. Nothing in
