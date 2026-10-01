@@ -100,5 +100,6 @@ async function staleWhileRevalidate(req) {
     if (res && res.ok) cache.put(req, res.clone());
     return res;
   }).catch(() => null);
-  return hit || (await net) || new Response('offline', { status: 503 });
+  return hit || (await net) || new Response('Нет сети', {
+    status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 }
