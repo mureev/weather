@@ -21,7 +21,7 @@ import time
 import httpx
 
 from .config import settings
-from .http import client
+from .http import DIRECT, client
 from .models import Blocked, ParseError, Place
 from .sources import gismeteo
 
@@ -132,8 +132,8 @@ async def fetch_gismeteo(place: Place):
             break
         per = min(settings.upstream_timeout_s, max(left, 1.0))
         try:
-            async with client(http2=settings.gismeteo_http2, proxy=proxy,
-                              timeout=per) as c:
+            async with client(http2=settings.gismeteo_http2,
+                              proxy=proxy or DIRECT, timeout=per) as c:
                 got, url = await gismeteo.load(c, place, host=host, timeout=per)
         except (Blocked, httpx.HTTPError) as e:
             last = f"{label_route(route)}: {_brief(e)}"

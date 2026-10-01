@@ -109,6 +109,35 @@ class TestRouteList:
         assert s.gismeteo_egress == ("http://general:1", None)
 
 
+class TestDirectMeansDirect:
+    def test_the_direct_route_bypasses_the_upstream_proxy(self, monkeypatch, place):
+        """`None` in the route list meant direct, and `client(proxy=None)`
+        meant UPSTREAM_PROXY -- so with one set, every "direct" attempt went
+        through it again and /api/health reported it as direct."""
+        reconfigure(monkeypatch, UPSTREAM_PROXY="http://203.0.113.9:3128",
+                    GISMETEO_PROXY="")
+        built: list[dict] = []
+
+        class Recorder:
+            def __init__(self, **kw):
+                built.append(kw)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+        async def refused(*_a, **_k):
+            raise httpx.ConnectError("refused")
+
+        monkeypatch.setattr("app.http.httpx.AsyncClient", Recorder)
+        monkeypatch.setattr("app.sources.gismeteo.load", refused)
+        run(R.fetch_gismeteo(place))
+        proxied = [kw.get("proxy") for kw in built]
+        assert proxied == ["http://203.0.113.9:3128"] * 2 + [None] * 2
+
+
 # --- what gets retried, and what does not ----------------------------------
 
 def run(coro):

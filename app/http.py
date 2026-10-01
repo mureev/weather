@@ -31,6 +31,12 @@ if not HTTP2_AVAILABLE:  # pragma: no cover - environment probe
 _TLS = httpx.create_ssl_context()
 
 
+# An explicit "no proxy". `proxy=None` means "the default egress", which is
+# UPSTREAM_PROXY when one is set -- so a route list that meant "direct" by None
+# went through the proxy again, under a label saying it had not.
+DIRECT = ""
+
+
 def client(http2: bool | None = None,
            proxy: str | None = None,
            timeout: float | None = None) -> httpx.AsyncClient:
@@ -47,9 +53,11 @@ def client(http2: bool | None = None,
     A hostile hop can drop the connection or stall it; it cannot hand us a
     forged forecast, which is the only failure that would actually matter.
     """
-    kw: dict = {"follow_redirects": True, "verify": _TLS,
+    # `trust_env=False`: HTTPS_PROXY in the environment would otherwise be a
+    # second, silent place an egress proxy is configured.
+    kw: dict = {"follow_redirects": True, "verify": _TLS, "trust_env": False,
                 "timeout": timeout or settings.upstream_timeout_s}
-    egress = proxy if proxy is not None else settings.proxies
+    egress = settings.proxies if proxy is None else (proxy or None)
     if egress:
         kw["proxy"] = egress
     # HTTP/2 makes the request profile look more like a browser and less like a
