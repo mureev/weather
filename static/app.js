@@ -946,10 +946,11 @@ function refreshPlaceList() {
 async function doSearch(q) {
   lastQuery = q;
   if (q.trim().length < 2) { found = []; refreshPlaceList(); return; }
-  found = [];
   try {
     const r = await fetch(`${BASE}api/search?q=${encodeURIComponent(q)}`);
-    found = (await r.json()).results || [];
+    const got = (await r.json()).results || [];
+    if (q !== lastQuery) return;
+    found = got;
     refreshPlaceList();
   } catch (e) { /* offline: leave the last results up */ }
 }
