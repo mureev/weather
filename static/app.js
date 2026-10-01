@@ -232,7 +232,7 @@ function pickSource(d) {
   return order.find(has) || null;
 }
 
-function sourceStrip(d, active) {
+function sourceStrip(d, active, date) {
   const order = window.YW_SOURCES || ['yandex', 'gismeteo', 'openmeteo'];
   const tabs = order.map((k) => {
     const s = (d.sources || {})[k];
@@ -241,8 +241,12 @@ function sourceStrip(d, active) {
     // the disagreement without switching, and judge it yourself. An
     // unavailable source keeps its seat, greyed, with the short reason -- a
     // tab that vanishes teaches you nothing.
-    const val = s.available && s.current && s.current.temp_c != null
-      ? fmtT(s.current.temp_c) : (s.reason || 'нет данных');
+    // On a day's sheet, that day's range: "+9°" now beside a sheet about
+    // Thursday's +22° compared the wrong two things.
+    const day = date && dayOn(s, date);
+    const val = !s.available ? (s.reason || 'нет данных')
+      : date ? (day ? `${fmtT(day.temp_max_c)} / ${fmtT(day.temp_min_c)}` : '—')
+      : s.current && s.current.temp_c != null ? fmtT(s.current.temp_c) : 'нет данных';
     return `<button class="src ${k === active ? 'sel' : ''}" data-src="${esc(k)}"
       role="tab" aria-selected="${k === active}" ${s.available ? '' : 'disabled'}
       title="${esc(s.reason || '')}">${esc(s.label)}<b>${esc(val)}</b></button>`;
@@ -1144,7 +1148,7 @@ SCREENS.day = (date) => {
   const foot = () => `<p class="screenfoot">${esc(view ? view.label : '')}`
     + `${d.fetched_at ? ' · ' + ago(d.fetched_at) : ''}</p>`;
 
-  let body = sourceStrip(d, active);
+  let body = sourceStrip(d, active, date);
   if (!day) {
     body += `<div class="card nodata">У источника «${esc(view ? view.label : '')}»
       нет данных на этот день.<br>Попробуйте другой источник выше.</div>`;
