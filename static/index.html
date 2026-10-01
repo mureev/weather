@@ -544,7 +544,7 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 .sheetfade.open{opacity:1;visibility:visible;
   transition:opacity var(--push-ms) var(--push-ease),visibility 0s}
 @media (prefers-reduced-motion: reduce){
-  .screen{transition:none}
+  .screen,.screen.open{transition:none}
 }
 /* Translucent, so content scrolls up *under* the title rather than being
    clipped by a solid band -- the detail that makes a header read as chrome
@@ -891,6 +891,7 @@ html.locked{overflow:hidden;overscroll-behavior:none}
       margin:20px 0 4px;color:var(--faint);font-size:13.5px}
 .foot .line{display:flex;align-items:center;gap:9px;white-space:nowrap}
 .foot .sep{opacity:.45}
+.foot .line button{padding:11px 8px;margin:-11px -8px}
 #stamp:empty+.sep{display:none}
 .badge{padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:600;
        border:1px solid}
