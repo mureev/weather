@@ -421,7 +421,6 @@ async def cache_headers(request: Request, call_next):
 
 
 app.include_router(api, prefix=BASE)
-app.mount(f"{BASE}/", StaticFiles(directory=STATIC, html=True), name="static")
 
 
 @app.get("/")
@@ -435,3 +434,8 @@ async def liveness():
     all a liveness probe should ever claim -- /api/health is the opinionated
     one."""
     return {"ok": True}
+
+
+# Last: a mount at `{BASE}/` matches every path beneath it, so with an empty
+# BASE_PATH anything registered after it -- /healthz included -- was a 404.
+app.mount(f"{BASE}/", StaticFiles(directory=STATIC, html=True), name="static")

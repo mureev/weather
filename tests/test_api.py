@@ -464,6 +464,25 @@ class TestSurfaces:
         assert client_.post(flush, headers={"X-Debug-Token": "x"}).status_code == 403
         assert client_.post(flush, headers=token).json() == {"flushed": "all"}
 
+    def test_an_empty_base_path_serves_a_bare_subdomain(self):
+        """Documented as `BASE_PATH=""`. It used to mean "/weather" (an empty
+        value read as unset), and "/" -- the only way to get an empty base --
+        put /healthz behind the static mount, failing the image's health
+        check."""
+        import os
+        import subprocess
+        import sys
+
+        code = ("from fastapi.testclient import TestClient\n"
+                "from app.main import app\n"
+                "c = TestClient(app)\n"
+                "print(*(c.get(p).status_code for p in "
+                "('/healthz', '/api/version', '/', '/sw.js')))\n")
+        out = subprocess.run([sys.executable, "-c", code], cwd=ROOT,
+                             env={**os.environ, "BASE_PATH": ""},
+                             capture_output=True, text=True, timeout=60)
+        assert out.stdout.split()[-4:] == ["200"] * 4, out.stderr[-500:]
+
     def test_root_redirects_into_the_subsection(self, client_):
         r = client_.get("/", follow_redirects=False)
         assert r.status_code in (307, 308)

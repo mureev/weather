@@ -53,7 +53,10 @@ class Settings:
     # Served under a path on an existing site. Set to "" for a bare subdomain
     # deploy; everything downstream (routes, manifest, service-worker scope)
     # derives from this single value.
-    base_path: str = field(default_factory=lambda: _s("BASE_PATH", "/weather").rstrip("/"))
+    # Read directly rather than through `_s`, which treats an empty value as
+    # unset -- and empty is the one value this setting documents.
+    base_path: str = field(
+        default_factory=lambda: os.environ.get("BASE_PATH", "/weather").rstrip("/"))
 
     # --- upstreams -----------------------------------------------------------
     yandex_host: str = field(default_factory=lambda: _s("YANDEX_HOST", "https://yandex.ru"))
