@@ -1910,6 +1910,25 @@ class TestEachAnswerBelongsToItsQuestion:
         kept = pg.evaluate("JSON.parse(localStorage.getItem('yw.payload'))")
         assert "sources" in kept, "the cached forecast was overwritten"
 
+    def test_now_is_the_column_whose_time_it_is_not_one_with_the_same_hour(
+            self, quiet):
+        """Opened offline the evening after the last fetch, the strip still
+        holds yesterday's hours, and matching hour numbers put «сейчас» on a
+        column 24 hours old. A stamped hour (`at`) is matched by its instant."""
+        _, pg = quiet
+        d = pg.evaluate("JSON.parse(localStorage.getItem('yw.payload'))")
+        stamped = [k for k, v in d["sources"].items()
+                   if v.get("available") and any("at" in h for h in v.get("hourly", []))]
+        assert stamped, "no source stamps its hours in the fixtures any more"
+        src = stamped[0]
+        pg.evaluate(f"chooseSource({src!r}); render(state.data)")
+        assert pg.locator(".hour.now").count() <= 1
+        # A day later, nothing new arrived: same payload, clock moved on.
+        pg.clock.set_fixed_time(FIXTURE_NOW + dt.timedelta(days=1))
+        pg.evaluate("render(state.data)")
+        assert pg.locator(".hour.now").count() == 0, \
+            "a column from yesterday is labelled now"
+
     def test_a_city_picked_during_a_refresh_is_the_one_shown(self, quiet):
         """`load()` set the place, then returned on `busy`; the refresh in
         flight landed with the old city and the new one was never fetched."""

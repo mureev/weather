@@ -504,8 +504,14 @@ function hourlyBlock(hours, nowcast, opts) {
   // *city's* clock, not the phone's -- the whole point is that you can look up
   // Moscow from anywhere.
   const nowHour = cityHour();
+  // By instant where the source stamps its hours: matching the hour number
+  // alone put «сейчас» on yesterday's 22:00 when the app opened offline the
+  // next evening. Yandex's hours carry no date and keep the hour comparison.
+  const sec = Date.now() / 1e3;
+  const atNow = list.findLastIndex((h) => h.at <= sec && sec - h.at < 3600);
   const cols = list.map((h, i) => {
-    const isNow = markNow && nowHour !== null && hourOf(h.time) === nowHour;
+    const isNow = markNow && (h.at != null ? i === atNow
+      : nowHour !== null && hourOf(h.time) === nowHour);
     return `<div class="hour${isNow ? ' now' : ''}">
       <div class="gz"><span class="hv" style="top:${(y(h.temp_c) - 20).toFixed(1)}px"
         >${fmtT(h.temp_c)}</span></div>
