@@ -12,10 +12,16 @@ on:
     - cron: "0 6 * * 1"
 
 # A second push supersedes the first. Three jobs times a rapid-fire afternoon
-# is a queue nobody reads.
+# is a queue nobody reads. The event is part of the key: the Monday run or a
+# manual one for the canary must never cancel a push that is mid-release, or
+# that commit is simply never shipped.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Read-only by default. `release` asks for the one thing it needs, on its own.
+permissions:
+  contents: read
 
 env:
   PYTHON_VERSION: "3.12"
@@ -73,18 +79,23 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install -r requirements.txt pytest playwright
+      # pillow too: the status-bar seam tests compare pixels, and without it
+      # they skip -- five tests that had never once run here.
+      - run: pip install -r requirements.txt pytest playwright pillow
       - run: python -m playwright install --with-deps chromium
       - name: browser tests
-        run: pytest -q tests/test_ui.py
-      - name: fail if they all skipped
-        # These tests skip themselves when Chromium is missing, which is right
-        # on a laptop and a silent green tick here. A job that cannot fail is
-        # not testing anything.
+        # One run, read twice. These tests skip themselves when Chromium or
+        # pillow is missing, which is right on a laptop and a silent green tick
+        # here; a job that cannot fail is not testing anything. So it fails
+        # unless the suite ran, and unless every skip is the one known data
+        # condition: fixtures recorded on different days (MIXED in the suite).
         run: |
-          pytest -q tests/test_ui.py 2>&1 | tee /tmp/ui.log
+          pytest -q -rs tests/test_ui.py 2>&1 | tee /tmp/ui.log
           grep -qE '[0-9]+ passed' /tmp/ui.log || {
             echo "::error::the browser suite ran nothing"; exit 1; }
+          if grep -E '^SKIPPED' /tmp/ui.log | grep -v 'the fixtures are from different days'; then
+            echo "::error::the browser suite skipped tests it should have run"; exit 1
+          fi
 
   image:
     name: image builds
@@ -103,11 +114,32 @@ jobs:
           context: .
           platforms: linux/amd64
           push: false
-          load: false
+          load: true
+          tags: weather:ci
           build-args: |
             APP_BUILD=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # A built image is not yet a running app: a missing module, a bad CMD or
+      # a user who cannot read the code all build fine. Start it the way the
+      # server does and ask the two routes that touch no upstream. The build
+      # it reports must be this commit, or the stamp is broken and
+      # `make status` would lie after every deploy.
+      - name: the image starts and answers
+        run: |
+          docker run -d --name app -p 127.0.0.1:8080:8080 weather:ci
+          for _ in $(seq 1 30); do
+            curl -fs -o /dev/null http://127.0.0.1:8080/healthz && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsS http://127.0.0.1:8080/weather/api/version | tee /tmp/version.json
+          echo
+          grep -q "\"$GITHUB_SHA\"" /tmp/version.json || {
+            echo "::error::/api/version does not report this commit"; exit 1; }
+      - name: container log
+        if: failure()
+        run: docker logs app || true
 
   # Delivery (2026-10-01). When every job above passes on a push to master,
   # publish the image as :master and :sha-<short>. That is the whole of this
@@ -118,7 +150,9 @@ jobs:
   release:
     name: publish image
     needs: [test, ui, image]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # A fork's master is not this repository's production, and its token
+    # could not publish here anyway.
+    if: github.repository == 'mureev/weather' && github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: read
