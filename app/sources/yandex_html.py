@@ -97,9 +97,11 @@ async def load(client: httpx.AsyncClient, place: Place, *,
                 expect_lon=place.lon if expect_slug is None else None,
             )
             if bad:
+                # Stop, as the Gismeteo route search does (DECISIONS §12):
+                # asking another way until some page agrees is the plausible
+                # wrong fix, and it defeats §2 by construction.
                 log.warning("identity check rejected %s: %s", url, bad)
-                attempts.append(f"{url}: wrong place ({bad})")
-                continue
+                raise ParseError(f"{url}: wrong place ({bad})")
             return got, url
 
     raise ParseError("no usable Yandex page; tried -- " + " | ".join(attempts))

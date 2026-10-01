@@ -220,6 +220,15 @@ def identity(html_text: str, doc: Any, stream: str) -> Identity:
         ident.slug = ident.slug or m.group(1)
         with contextlib.suppress(ValueError):
             ident.lat, ident.lon = float(m.group(2)), float(m.group(3))
+    if ident.lat is None:
+        # The page asked for by lat/lon carries no slug triple; it states its
+        # point as `"coords":{"lat":..,"lon":..}`. Without this the coordinate
+        # check never ran on the one page it exists for.
+        m = re.search(r'"coords"\s*:\s*\{\s*"lat"\s*:\s*(-?[\d.]+)\s*,'
+                      r'\s*"lon"\s*:\s*(-?[\d.]+)', stream)
+        if m:
+            with contextlib.suppress(ValueError):
+                ident.lat, ident.lon = float(m.group(1)), float(m.group(2))
     return ident
 
 
@@ -254,12 +263,14 @@ def check_identity(ident: Identity, *, expect_slug: str | None = None,
     # locality, so the resolved point is never exactly what we asked for; three
     # quarters of a degree is generous for that and nowhere near generous
     # enough to let another country through.
-    if (expect_lat is not None and expect_lon is not None
-            and ident.lat is not None
-            and (abs(ident.lat - expect_lat) > tolerance_deg
-                 or abs(ident.lon - expect_lon) > tolerance_deg * 2)):
-        return (f"asked for {expect_lat},{expect_lon}; page resolved to "
-                f"{ident.lat},{ident.lon}")
+    if expect_lat is not None and expect_lon is not None:
+        # Fail closed: a page that states no point has proved nothing.
+        if ident.lat is None or ident.lon is None:
+            return "page states no coordinates to check"
+        if (abs(ident.lat - expect_lat) > tolerance_deg
+                or abs(ident.lon - expect_lon) > tolerance_deg * 2):
+            return (f"asked for {expect_lat},{expect_lon}; page resolved to "
+                    f"{ident.lat},{ident.lon}")
     return None
 
 

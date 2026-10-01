@@ -283,6 +283,32 @@ class TestDegradation:
         assert d["health"]["divergence_c"]["yandex/openmeteo"] == \
             pytest.approx(NOW_C - (-12.0))
 
+    def test_a_wrong_city_is_not_rescued_by_asking_another_way(
+            self, request, monkeypatch):
+        """Kazan by slug comes back as Yoshkar-Ola and is rejected. Asking
+        again by lat/lon until some page agrees is the plausible wrong fix
+        (DECISIONS §12), and it used to serve Yoshkar-Ola under «Казань»."""
+        fix = request.path.parent / "fixtures"
+        by_slug = (fix / "current.html").read_text(encoding="utf-8", errors="replace")
+        by_point = (fix / "latlon.html").read_text(encoding="utf-8", errors="replace")
+
+        async def fetch(_c, url):
+            return by_point if "?lat=" in url else by_slug
+
+        async def boom(*_a, **_k):
+            raise RuntimeError("stubbed out")
+
+        async def no_om(_c, _p):
+            return None
+
+        monkeypatch.setattr(yandex_html, "fetch_html", fetch)
+        monkeypatch.setattr(gismeteo, "fetch_html", boom)
+        monkeypatch.setattr(openmeteo, "fetch", no_om)
+        service.invalidate()
+        ya = TestClient(app).get("/weather/api/weather?city=kazan").json()[
+            "sources"]["yandex"]
+        assert ya["available"] is False and ya["reason"] == "другой город"
+
     def test_stale_cache_beats_nothing(self, request, monkeypatch):
         raw = (request.path.parent / "fixtures" / "current.html").read_text(
             encoding="utf-8", errors="replace")

@@ -31,7 +31,7 @@ a measurement recorded in `DECISIONS.md` §18, not a test.
 
 ```bash
 make            # the everyday commands
-make check      # lint + 565 tests, no network required
+make check      # lint + 568 tests, no network required
 make run        # localhost:8080 against live upstreams
 git push        # to master: tested, published, live in minutes
 make status     # what is live: its build, then its own health verdict
@@ -44,7 +44,7 @@ make status     # what is live: its build, then its own health verdict
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 565 tests, no
+1. **`make check` must pass before you believe anything.** 568 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -431,7 +431,7 @@ app/
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
 docs/                the two screenshots at the top of this page
-tests/               565 tests: parsers, degradation, invariants, docs, API, browser
+tests/               568 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 ```
 

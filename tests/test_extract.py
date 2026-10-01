@@ -149,6 +149,21 @@ class TestIdentity:
         assert X.check_identity(got.ident, expect_lat=56.6344,
                                 expect_lon=47.8999) is None
 
+    def test_latlon_page_rejects_distant_coordinates(self, request):
+        """The test above passed vacuously for months: the lat/lon page has no
+        slug/lat/lon triple, so `ident.lat` was None and the coordinate check
+        had nothing to compare. Columbus has to fail on *this* page."""
+        html = (request.path.parent / "fixtures" / "latlon.html").read_text(
+            encoding="utf-8", errors="replace")
+        got = X.parse(html, today=RECORDED)
+        why = X.check_identity(got.ident, expect_lat=39.96, expect_lon=-83.0)
+        assert why is not None and "resolved to" in why
+
+    def test_a_page_that_states_no_point_proves_nothing(self, parsed):
+        import dataclasses
+        bare = dataclasses.replace(parsed.ident, lat=None, lon=None)
+        assert X.check_identity(bare, expect_lat=56.63, expect_lon=47.9)
+
 
 class TestCurrent:
     def test_comes_from_the_flight_stream(self, parsed):
