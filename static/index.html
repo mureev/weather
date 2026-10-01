@@ -881,6 +881,11 @@ html.locked{overflow:hidden;overscroll-behavior:none}
    is the least important half of it, so it shrinks rather than wrapping. */
 .fact .v small{font-size:13.5px;font-weight:500;color:var(--faint);
                letter-spacing:0}
+@media (max-width:359px){
+  .day{gap:6px} .day .d{width:60px} .bar{min-width:16px}
+  .facts{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .fact{padding:12px 8px} .fact .k{letter-spacing:0} .fact .v{font-size:15px}
+}
 
 /* ---- footer / health ---------------------------------------------------- */
 /* Was a single flex-wrap row, which meant the browser decided where to break
