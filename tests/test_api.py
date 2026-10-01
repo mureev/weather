@@ -730,12 +730,23 @@ class TestItIsCheapToLoad:
         every time it is opened. But it buys no information, and if a fourth
         raise is ever wanted for something that does, this is the 3 kB to take
         it out of.
+
+        **Raised a fourth time, to 55.8 kB, for two things the owner asked for
+        on the same night** (2026-10-02), each with its own entry. The English
+        interface (§36) is about 3.7 kB: every string now exists in two
+        languages, plus the English readings of what the sources say. The
+        install banner (§35) is about 2.5 kB, most of it a phone drawn in CSS
+        rather than shipped as an image. The sky above was *not* taken out to
+        pay for them: neither is information about the weather, so the rule
+        written here does not apply, and the owner, not this test, decides
+        whether the sky is worth its bytes. Both name what to give back first
+        if a fifth raise is refused -- the phone drawing, then the sky.
         """
         total = 0
         for path in (*self.SHELL, "api/weather"):
             r = client_.get(f"/weather/{path}", headers={"Accept-Encoding": "gzip"})
             total += self.wire_bytes(r)
-        assert total < 49_000, (
+        assert total < 55_800, (
             f"a cold load is now {total/1000:.1f} kB compressed; it was 41 kB. "
             f"Something sizeable joined the shell -- check before raising this.")
 
@@ -787,9 +798,13 @@ class TestItIsCheapToLoad:
         the budget above moved with it. Both are fetched once and then held by
         the service worker for good, which is the only reason a raise of this
         size is arguable at all.
+
+        147_500 for the English interface and the install banner (§35, §36),
+        the same night as the compressed raise above and for the same two
+        things: two languages' worth of every string, and a phone drawn in CSS.
         """
         raw = sum(len(client_.get(f"/weather/{n}").content) for n in self.SHELL)
-        assert raw < 131_000, f"the shell source is now {raw/1000:.1f} kB"
+        assert raw < 147_500, f"the shell source is now {raw/1000:.1f} kB"
 
     def test_static_assets_say_how_long_they_may_be_kept(self, client_):
         """Unhashed shell files must revalidate -- a cached copy that never
