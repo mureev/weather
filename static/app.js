@@ -414,7 +414,8 @@ function dailyBlock(days, nowTemp) {
     </button>`;
   }).join('');
 
-  return `<div class="card"><h2>Прогноз на ${list.length} дней</h2>${rows}</div>`;
+  const n = list.length;                // 1..16: no source gives 21 days
+  return `<div class="card"><h2>Прогноз на ${n} ${n < 2 ? 'день' : n < 5 ? 'дня' : 'дней'}</h2>${rows}</div>`;
 }
 
 /* ---- the quiet strip -------------------------------------------------------
