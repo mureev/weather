@@ -33,7 +33,7 @@ const fmtT = (v) => (v === null || v === undefined) ? '—' :
 const icon = (key, cls) =>
   `<svg class="${cls || ''}" aria-hidden="true"><use href="#i-${key || 'unknown'}"></use></svg>`;
 
-const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+const DOW = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен',
              'окт', 'ноя', 'дек'];
 
@@ -64,11 +64,16 @@ function daysFromToday(iso) {
  *
  * The date is a fact and the position in an array is not. Same species as the
  * bug where the headline read the strip's first column and called it now. */
-function dayLabel(iso) {
+// `full`, for a sheet's title: a two-letter «пн» is a list cell, not a title.
+function dayLabel(iso, full) {
   const d = new Date(iso + 'T12:00:00');
   const away = daysFromToday(iso);
-  const when = away === 0 ? 'Сегодня' : away === 1 ? 'Завтра' : DOW[d.getDay()];
-  return { a: when, b: `${d.getDate()} ${MON[d.getMonth()]}` };
+  const f = (o) => d.toLocaleDateString('ru-RU', o);
+  const w = full && f({ weekday: 'long' });
+  const when = away === 0 ? 'Сегодня' : away === 1 ? 'Завтра'
+    : w ? w[0].toUpperCase() + w.slice(1) : DOW[d.getDay()];
+  return { a: when, b: full ? f({ day: 'numeric', month: 'long' })
+                            : `${d.getDate()} ${MON[d.getMonth()]}` };
 }
 
 function ago(iso) {
@@ -1133,7 +1138,7 @@ SCREENS.day = (date) => {
   const view = d.sources[active];
   const day = dayOn(view, date);
   const i = ((view && view.daily) || []).findIndex((x) => x.date === date);
-  const lab = dayLabel(date);
+  const lab = dayLabel(date, 1);
   const tz = d.place && d.place.tz;
 
   const foot = () => `<p class="screenfoot">${esc(view ? view.label : '')}`
