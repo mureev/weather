@@ -8,10 +8,10 @@ licence, and no upstream ever sees the phone's IP.
 
 The owner directs; Claude Code builds — see [How this was built](#how-this-was-built).
 
-Default city Yoshkar-Ola, text search for anywhere else, and a **Моё
-местоположение** button when you want *here*. One instance runs on the owner's
-server for his own phone: a personal tool, not a public service
-([Legal](#legal) says why).
+Default city Yoshkar-Ola, text search for anywhere else, and a **My location**
+button when you want *here*. In Russian or English, whichever the phone
+prefers. One instance runs on the owner's server for his own phone: a personal
+tool, not a public service ([Legal](#legal) says why).
 
 Three independent sources — **Яндекс**, **Gismeteo**, **Open-Meteo** — fetched
 together and switchable with one tap.
@@ -268,6 +268,13 @@ the fetch refused, the screen is exactly what it was without it.
 **Everything about *where* lives on one sheet**, opened by tapping the city
 name. Search, geolocation and saved cities are all answers to the same question,
 so they belong in one place rather than three permanent strips.
+
+**Two languages, chosen on the phone.** Russian or English, from the
+browser's own preference or the switch in the footer, and nothing about the
+choice goes upstream. The sources speak only Russian, so an English screen
+names a condition from its icon -- the reading of the phrase the server has
+already checked -- rather than translating the phrase, and leaves out prose it
+has no known shape for (`DECISIONS.md` §36).
 
 **Installing is offered once, and only where it can happen**: in Safari outside
 the home screen, or in a browser that has handed over `beforeinstallprompt`. A

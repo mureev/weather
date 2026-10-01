@@ -51,6 +51,8 @@ decision recorded without its reversal condition becomes dogma.
 | 33 | [A push to master is the deploy, and nothing here can reach the server](#33-a-push-to-master-is-the-deploy-and-nothing-here-can-reach-the-server) | The suite is the gate, the server pulls, and nothing in this repo can reach it. |
 | 34 | [Fixtures are what the parsers read, not what the sites sent](#34-fixtures-are-what-the-parsers-read-not-what-the-sites-sent) | Test input is trimmed to what the code reads; a public repository does not redistribute pages. |
 | 35 | [The install offer is a banner in the forecast, with one button](#35-the-install-offer-is-a-banner-in-the-forecast-with-one-button) | Shown only where an install can happen, below the hourly card; the button does the one thing it can, and the × means never. |
+| 36 | [English is a reading of the sources, not a translation of them](#36-english-is-a-reading-of-the-sources-not-a-translation-of-them) | Chosen on the device, never sent upstream; a condition is named from its icon, and prose of no known shape is left out. |
+| 37 | [A public instance gets a budget for strangers](#37-a-public-instance-gets-a-budget-for-strangers) | Places outside the registry and search misses draw on one bucket; registry cities never do. |
 
 ---
 
@@ -1828,6 +1830,106 @@ reason to drop the banner. And if a budget raise is ever wanted for something
 that is information, the phone drawing is the first thing to give back: a
 plain card with the same title and button keeps the behaviour for a fraction
 of the bytes.
+
+---
+
+## 36. English is a reading of the sources, not a translation of them
+
+*Decided 2026-10-02, asked for by the owner along with the banner.*
+
+The interface speaks Russian or English. Which one is decided on the device:
+the switch in the footer, else the first of `navigator.languages` that is one
+of the two, else English; `?lang=en` or `?lang=ru` in a link sets it too. Every
+string the app says is a `STR` entry carrying both languages side by side, and
+`t(key)` picks one.
+
+**Nothing about the choice leaves the phone** (invariant 5). The server is not
+told, and its requests to the weather sites are byte-for-byte the same whoever
+is reading. That is the constraint that shaped everything else, because the
+sources speak only Russian:
+
+- **A condition is named from its icon key.** «Пасмурно, небольшой дождь» is
+  `rain-light`, so an English screen says "Light rain". The icon key is the
+  reading of the phrase the server has already checked (`ru_text`), so the
+  word and the picture cannot disagree; a translation table of phrases would
+  be a second, unchecked reading of the same text. The Russian screen keeps the
+  source's own words, nuance included.
+- **Prose of a known shape is read; prose of any other shape is left out.**
+  Yandex's nowcast says «Слабый дождь с 10:00 до 22:00» or «Сегодня осадков не
+  ожидается», and both become English. A sentence the app has never seen is
+  not shown at all on an English screen: it would be Russian, which the reader
+  chose not to read, and a guessed translation is the plausible-wrong-value
+  failure (§3) in words. The same rule for the day's length and the magnetic
+  field.
+- **The server's own words** -- a tab's reason, the parts of a day, a known
+  warning -- go through one small Russian-to-English table in `app.js`. A
+  warning not in it stays as written, since it is addressed to the maintainer.
+- **Names.** The six built-in cities carry the names English speakers use:
+  Moscow, not the transliterated Moskva. A GPS fix or a hand-added city is
+  transliterated on the server (`ru_text.latin`, BGN/PCGN the way English
+  signage spells it -- Kozmodemyansk, Yelabuga, Rostov-na-Donu); for a Russian
+  place that *is* its English name. A search asks the geocoder in **both**
+  languages whoever is asking, and joins the answers by the geocoder's id:
+  asking only in the reader's language would tell a fourth party what it is,
+  an `Accept-Language` header by another name. It costs a second request per
+  uncached search, on a cache that keeps an answer for a week.
+
+The installed app's name follows the page (`manifest.webmanifest?lang=en`,
+`apple-mobile-web-app-title`), never a request header.
+
+It is tested the strong way: on an en-US browser no visible line -- on every
+source's forecast, every day of every source, the place sheet -- carries a
+Cyrillic letter, except the switch back to «Русский». A new string that skips
+`STR` fails that test rather than a reader.
+
+**What it cost.** About 3.7 kB compressed, most of it the table: every string
+now exists twice, and the English renderings of what the sources say
+(`COND`, `RU_EN`, the nowcast shapes) are new. Paid for on every cold load,
+including the Russian ones, because a second file fetched only for English
+would put a frame of Russian in front of every English launch.
+
+**What would reverse it.** A source that publishes English directly would be
+tempting -- Yandex does, at `/pogoda/en` -- but fetching it only for English
+readers is the leak this entry is built to avoid, and fetching it for everyone
+doubles the upstream footprint for the words alone. If that ever looks worth
+it, it is a decision about §25's request budget, not about this table.
+
+---
+
+## 37. A public instance gets a budget for strangers
+
+*Decided 2026-10-02, the day after the repository and the instance it names
+were made public.*
+
+§18 sized everything for one phone, and "a second user" was its reversal
+condition. A public URL is not a second user but an unbounded number of them,
+and three things measured that day made it concrete. Each new 0.01° cell asked
+for by `?lat=&lon=` cost one or two Yandex requests and one to Open-Meteo, and
+nothing stopped the next one (40 anonymous requests made 80 and 40). During an
+outage every request for a registry city re-ran the whole fan-out, thirteen
+requests against hosts already refusing. And 64 stranger coordinates evicted
+the owner's own city from the cache, so the next outage answered 503 instead
+of the six-hour stale payload.
+
+So places outside the registry -- GPS fixes, searched cities -- and search
+misses draw on one token bucket for the whole process (burst 20,
+`COLD_FETCHES_PER_HOUR`, 180 by default). Registry cities never do: they are
+a handful of keys at one round per ten minutes each, however often they are
+asked for. Over budget, the weather route answers with what the client
+already knows how to draw -- the stale payload, or the DOWN envelope with the
+reason «слишком часто» -- and never a bare 429, which the client would store
+as if it were a forecast. A minute's memory of "everything was down" and of
+"no page for that day" stops an outage being retried at request rate.
+
+The owner's own GPS fixes and searches share the bucket with everyone else's,
+which is the one cost: a stranger spending it all makes his location button
+answer «слишком часто» for a while. The registry is exempt precisely so that
+the cities he actually uses never are.
+
+**What would reverse it.** The instance going private again, or a reverse
+proxy in front of it that rate-limits per client -- at which point the bucket
+can be raised until it never fires. Not removed: it is also what keeps a
+search box from being a free proxy to the geocoder.
 
 ---
 

@@ -268,6 +268,11 @@ comment recording the failure that produced the line is the most valuable text
 in the file. Match the surrounding tone — it is discursive on purpose, because
 the next reader is a stranger.
 
+Every string the interface says is a `STR` entry in `app.js` with both
+languages, Russian first; `t(key)` picks one. A browser test fails if an
+English screen shows a Cyrillic letter anywhere but the switch back to Russian
+(`DECISIONS.md` §36).
+
 Tests are named after the behaviour they protect, and carry the story of the
 bug that motivated them. `test_bezoblachno_is_not_read_as_cloudy` is worth
 more than `test_icon_mapping`.

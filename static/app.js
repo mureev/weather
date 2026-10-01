@@ -20,23 +20,11 @@ const $ = (id) => document.getElementById(id);
 const LS = { place: 'yw.place', payload: 'yw.payload', source: 'yw.source',
              lang: 'yw.lang' };
 
-/* ---- language ---------------------------------------------------------------
- * Russian is the app's own language and the language of every source; English
- * is a translation of the interface. Which one a device gets is decided here,
- * on the device: a choice made with the switch in the footer, else the first
- * of the browser's preferred languages that is one of the two, else English.
- *
- * **Nothing about that choice goes upstream** (invariant 5). The server is not
- * told, and its requests to the weather sites are the same whoever is asking.
- * So the sources' own words -- «Пасмурно», «Слабый дождь с 10:00 до 22:00» --
- * reach an English screen as what they *mean* rather than as a translation of
- * what they *say*: a condition is named from its icon, which is the one
- * reading of it that has already been checked (`ru_text`), and prose with no
- * known shape is left out rather than shown in a language the reader chose
- * not to read.
- *
- * `?lang=en` or `?lang=ru` in the address sets the choice, for a link that
- * should open in a given language.
+/* ---- language: Russian or English, chosen on the device ---------------------
+ * The footer's switch, else the browser's first preference that is one of the
+ * two, else English; `?lang=` sets it from a link. Nothing about the choice
+ * goes upstream (invariant 5), so the sources' Russian reaches an English
+ * screen as what it *means*, never as a translation. DECISIONS.md §36.
  */
 const LANG = (() => {
   try {
@@ -53,9 +41,8 @@ const LANG = (() => {
 })();
 const EN = LANG === 'en' ? 1 : 0;
 
-/* Every string the interface says, in both languages, side by side -- so a
- * line missing its translation is visible where it is written, and a test
- * reads this table back rather than trusting it. */
+// Every string the interface says, both languages side by side; a test reads
+// it back from the running page.
 const STR = {
   app: ['Погода', 'Weather'],
   loading: ['Загружаем погоду…', 'Loading the weather…'],
@@ -121,19 +108,15 @@ const STR = {
 const t = (k) => (STR[k] || [k, k])[EN];
 const tf = (k, ...a) => t(k).replace(/%(\d)/g, (_, i) => a[i - 1]);
 
-/* What the sources say, for an English screen. Never a translation of their
- * prose: the condition is named from its icon key -- the one reading of the
- * phrase that the server has already checked -- and anything else is matched
- * against the few shapes it is known to take, or left out. */
+// A condition, in English, is named from its icon key: the reading of the
+// source's phrase that the server has already checked.
 const COND = { 'clear': 'Clear', 'partly': 'Partly cloudy', 'cloudy': 'Cloudy',
   'overcast': 'Overcast', 'fog': 'Fog', 'drizzle': 'Drizzle', 'rain-light': 'Light rain',
   'rain': 'Rain', 'rain-heavy': 'Heavy rain', 'thunder': 'Thunderstorm', 'hail': 'Hail',
   'sleet': 'Sleet', 'snow-light': 'Light snow', 'snow': 'Snow', 'snow-heavy': 'Heavy snow' };
 const cond = (x) => (!x ? '' : !EN ? x.condition || ''
   : COND[String(x.icon || '').replace('-night', '')] || '');
-// The server's own words: reasons on a tab, parts of a day, the words a
-// source uses for a place or a field. Russian in, English out; anything not
-// listed stays as the server said it.
+// The server's own words, Russian in, English out; the rest stays as said.
 const RU_EN = { 'Яндекс': 'Yandex', 'утро': 'morning', 'день': 'afternoon',
   'вечер': 'evening', 'ночь': 'night', 'нет данных': 'no data',
   'не прочиталось': 'unreadable', 'заблокирован': 'blocked', 'не найдено': 'not found',
