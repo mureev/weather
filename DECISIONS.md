@@ -49,6 +49,7 @@ decision recorded without its reversal condition becomes dogma.
 | 31 | [`visibility` in a transition flips at the midpoint](#31-visibility-in-a-transition-flips-at-the-midpoint) | A discrete property flips halfway: instant on the way in, delayed on the way out. |
 | 32 ★ | [A source outage answers 200, and the recorder ate the evidence](#32-a-source-outage-answers-200-and-the-recorder-ate-the-evidence) | Download, inspect, then install — a recorder never overwrites its own evidence. |
 | 33 | [A push to master is the deploy, and nothing here can reach the server](#33-a-push-to-master-is-the-deploy-and-nothing-here-can-reach-the-server) | The suite is the gate, the server pulls, and nothing in this repo can reach it. |
+| 34 | [Fixtures are what the parsers read, not what the sites sent](#34-fixtures-are-what-the-parsers-read-not-what-the-sites-sent) | Test input is trimmed to what the code reads; a public repository does not redistribute pages. |
 
 ---
 
@@ -1711,6 +1712,43 @@ the same day by naming `bash` as the shell for every step, which turns
 than a failure the gate could not see. If the verdict and the suite ever part
 company again, delivery goes back to being a deliberate act until they are
 reconciled.
+
+---
+
+## 34. Fixtures are what the parsers read, not what the sites sent
+
+*Decided 2026-10-01, the day this repository was readied for publishing.*
+
+The fixtures used to be whole pages: doctype to `</html>`, two hundred flight
+pushes, ad slots, a few dozen news teasers per Gismeteo page — 6.5 MB in all.
+That was harmless in a private repository and wrong in a public one, which
+would be redistributing somebody else's site in order to test a parser that
+reads a few kilobytes of it.
+
+They are now cut down by `tools/trim_fixtures.py` to what the parsers and the
+tests read: 1.3 MB in all. The keep-lists are the parsers' own XPaths and
+markers — the identity elements, the forecast blocks, the four flight pushes
+`extract.py` reads (and the decoy the tests prove it never reads), the
+`window.M.state` keys the Gismeteo parser uses. The cut is textual, so every
+kept byte is the recorded byte: the tests regex raw markup, and a page
+round-tripped through a parser would change `&nbsp;` and quoting underneath
+them. The tool refuses to write a page the app would read any differently,
+including with each fallback tier forced off the way `test_ladder` forces it,
+and the `make fixtures*` targets run it, so a re-recorded page arrives
+trimmed.
+
+**What it cost.** Two tests measured the page rather than the parser and were
+re-aimed: a truncation that cut at a fixed 40,000 characters now cuts where the
+current conditions begin, and a decode check that wanted 100,000 characters of
+flight now wants 5,000. The month and details pages, which nothing read, went
+altogether. And the undecodable-push path in `extract.flight` is no longer
+exercised by any fixture, because the two pushes that reached it were tracking
+scripts.
+
+**What would reverse it.** A parser that needs something the trim threw away.
+The answer then is to re-record and widen the keep-list for that element, never
+to commit a whole page again; the tool's refusal to write is what makes the
+first such mistake loud rather than quiet.
 
 ---
 
