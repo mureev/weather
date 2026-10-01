@@ -493,11 +493,10 @@ function render(d) {
 }
 
 function renderError(d) {
-  const w = d && d.health && d.health.warnings ? d.health.warnings : [];
+  // No reason here: «Что не так» below carries it, and the card repeated it.
   $('content').innerHTML = `<div class="card err">
-    <p>Погоду сейчас получить не удалось.</p>
-    ${w.length ? `<p style="font-size:13px">${esc(w[0])}</p>` : ''}
-  </div>`;
+    <p>Погоду сейчас получить не удалось.</p></div>`;
+  if (d && d.place) $('city').textContent = d.place.name;
   if (d) renderHealth(d, null);
 }
 
@@ -507,7 +506,8 @@ function renderHealth(d, view) {
   badge.className = 'badge ' + (h.status || 'ok');
   badge.textContent = { degraded: 'неполные данные', stale: 'устарело',
                         down: 'нет данных' }[h.status] || '';
-  $('stamp').textContent = ago(d.fetched_at);
+  // Down: «обновлено в 00:25» would claim the failed attempt as an update.
+  $('stamp').textContent = h.status === 'down' ? '' : ago(d.fetched_at);
 
   const notes = $('notes');
   // Global problems, plus anything wrong with the source you are looking at.
