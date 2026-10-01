@@ -193,6 +193,12 @@ def hour_times(times: list[str], tz: str,
                 day = day + dt.timedelta(days=1)
         elif hh < prev:
             day = day + dt.timedelta(days=1)
+        if not (0 <= hh < 24 and 0 <= mm < 60):
+            # «24:00» is a way of writing midnight that `dt.time` refuses. An
+            # instant we cannot name is None, like any unreadable label --
+            # raising here ran on every serve and took the whole payload down.
+            out.append(None)
+            continue
         prev = hh
         out.append(dt.datetime.combine(day, dt.time(hh, mm), tzinfo=tzi))
     return out

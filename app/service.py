@@ -155,17 +155,26 @@ def _sunlit(weather: Weather) -> Weather:
     dark_now = is_night(place.lat, place.lon, now)
     weather.night = dark_now
     for sv in weather.sources.values():
-        if sv.current is not None:
-            sv.current.icon = nightify(sv.current.icon, dark_now)
-        if sv.hourly:
-            when = hour_times([h.time for h in sv.hourly], place.tz, now)
-            for hour, stamp in zip(sv.hourly, when, strict=True):
-                if stamp is not None:
-                    hour.icon = nightify(
-                        hour.icon, is_night(place.lat, place.lon, stamp))
-        for day in sv.daily:
-            _sunlit_parts(day, place)
+        try:
+            _sunlit_source(sv, place, now, dark_now)
+        except Exception:
+            # This runs on every serve, over a cached payload. Anything it
+            # raises would 500 every request until the entry expired.
+            log.exception("night icons for %s failed; served as parsed", sv.key)
     return weather
+
+
+def _sunlit_source(sv: SourceView, place: Place, now: dt.datetime,
+                   dark_now: bool) -> None:
+    if sv.current is not None:
+        sv.current.icon = nightify(sv.current.icon, dark_now)
+    if sv.hourly:
+        when = hour_times([h.time for h in sv.hourly], place.tz, now)
+        for hour, stamp in zip(sv.hourly, when, strict=True):
+            if stamp is not None:
+                hour.icon = nightify(hour.icon, is_night(place.lat, place.lon, stamp))
+    for day in sv.daily:
+        _sunlit_parts(day, place)
 
 
 # The hour each named part of a day is centred on. Yandex's own boundaries --
@@ -219,9 +228,12 @@ async def _build(place: Place, key: str) -> Weather:
         place.name = ya[0].ident.name
     weather.place = place
 
-    weather.sources["yandex"] = _view_from_scrape("yandex", ya, previous, place.tz)
-    weather.sources["gismeteo"] = _view_from_scrape("gismeteo", gm, previous, place.tz)
-    weather.sources["openmeteo"] = _view_from_openmeteo(om_raw, place.tz)
+    weather.sources["yandex"] = _safely(
+        "yandex", _view_from_scrape, "yandex", ya, previous, place.tz)
+    weather.sources["gismeteo"] = _safely(
+        "gismeteo", _view_from_scrape, "gismeteo", gm, previous, place.tz)
+    weather.sources["openmeteo"] = _safely(
+        "openmeteo", _view_from_openmeteo, om_raw, place.tz)
 
     # Which door actually opened. Never rendered; it is the first thing you
     # want when Gismeteo is fine on your laptop and disabled on the server.
@@ -251,6 +263,23 @@ async def _build(place: Place, key: str) -> Weather:
 
 
 # --- per-source assembly ---------------------------------------------------
+
+def _safely(key: str, build, *args) -> SourceView:
+    """One source's assembly, unable to take the other two down with it.
+
+    The parsers are wrapped where they are called; validation, alignment and
+    coherence were not, so one odd value from one source turned the whole
+    envelope into a 500 -- the degradation ladder skipped straight past "that
+    tab is disabled" and, with no exception handled, past the stale payload.
+    """
+    try:
+        return build(*args)
+    except Exception as e:
+        log.exception("assembling %s failed", key)
+        sv = SourceView(key=key, label=LABELS[key], reason="не прочиталось")
+        sv.detail.append(f"{type(e).__name__}: {e}")
+        return sv
+
 
 async def _yandex(c: httpx.AsyncClient, place: Place):
     try:

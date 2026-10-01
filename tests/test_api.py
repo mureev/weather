@@ -309,6 +309,44 @@ class TestDegradation:
             "sources"]["yandex"]
         assert ya["available"] is False and ya["reason"] == "другой город"
 
+    def test_one_unreadable_hour_label_does_not_500_the_app(
+            self, request, monkeypatch):
+        """«24:00» parses as an hour; the night-icon pass ran `dt.time(24, 0)`
+        on every serve, over the cached payload, and took every source and
+        /api/health down with it."""
+        raw = (request.path.parent / "fixtures" / "current.html").read_text(
+            encoding="utf-8", errors="replace")
+        odd = raw.replace("07:00: +9°", "24:00: +9°", 1)
+        assert odd != raw
+
+        async def fetch(_c, _u):
+            return odd
+
+        async def boom(*_a, **_k):
+            raise RuntimeError("stubbed out")
+
+        async def no_om(_c, _p):
+            return None
+
+        monkeypatch.setattr(yandex_html, "fetch_html", fetch)
+        monkeypatch.setattr(gismeteo, "fetch_html", boom)
+        monkeypatch.setattr(openmeteo, "fetch", no_om)
+        service.invalidate()
+        c = TestClient(app, raise_server_exceptions=False)
+        assert c.get("/weather/api/weather").status_code == 200
+        assert c.get("/weather/api/health").status_code == 200
+
+    def test_a_bug_in_one_sources_assembly_costs_one_tab(self, client_,
+                                                          monkeypatch):
+        def broken(*_a, **_k):
+            raise ValueError("year 55841 is out of range")
+
+        monkeypatch.setattr(service, "align_to_now", broken)
+        d = client_.get("/weather/api/weather").json()
+        assert d["sources"]["yandex"]["available"] is False
+        assert d["sources"]["yandex"]["reason"] == "не прочиталось"
+        assert any("55841" in x for x in d["sources"]["yandex"]["detail"])
+
     def test_stale_cache_beats_nothing(self, request, monkeypatch):
         raw = (request.path.parent / "fixtures" / "current.html").read_text(
             encoding="utf-8", errors="replace")
