@@ -15,7 +15,7 @@ are already in the main payload.
 
 **Why the URL's day number is not trusted.** `day-5` is a position, and this
 codebase has been bitten by positions often enough to have an invariant about
-it (`CLAUDE.md` 12): the offset is computed from the date, the page is fetched,
+it (`AGENTS.md` 12): the offset is computed from the date, the page is fetched,
 and then the page's *own stated date* is checked against the date that was
 asked for. A page that answers with a different day is rejected exactly the way
 a page describing the wrong city is. Yandex ships that date as

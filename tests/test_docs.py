@@ -89,7 +89,6 @@ class TestTheInventoriesAreComplete:
         # Plumbing nobody types directly. Named explicitly so that adding to
         # this set is a decision rather than an omission.
         internal = {"help", "lint", "fmt", "test", "test-fast", "mock", "shots",
-                    "build", "restart", "reload-nginx", "sync-config", "ps",
                     "clean", "selftest", "test-if-possible"}
         assert not (targets - documented - internal), \
             f"targets with no `make help` line: {sorted(targets - documented - internal)}"
@@ -161,8 +160,8 @@ class TestEverySettingIsDiscoverable:
 class TestTheBuildStampCanDistinguishBuilds:
     def test_it_does_not_fall_back_to_a_constant(self):
         """`/api/health` reports the build so you can tell whether a deploy
-        landed. It fell back to the literal "dev", and since this repo has no
-        commits, *every* image was stamped `dev` -- a field that looks like
+        landed. It fell back to the literal "dev", and since this repo then had
+        no commits, *every* image was stamped `dev` -- a field that looks like
         information and carries none, which is worse than no field.
 
         Any fallback is fine as long as two builds differ."""

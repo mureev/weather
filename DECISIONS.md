@@ -10,6 +10,48 @@ decision recorded without its reversal condition becomes dogma.
 
 ---
 
+## Index
+
+★ marks the seven to read if you read nothing else.
+
+| § | decision | in one line |
+|---|---|---|
+| 1 | [Scrape first; the official free key is not implemented](#1-scrape-first-the-official-free-key-is-not-implemented) | A key covering today and tomorrow can only be a gap-filler, and gap-fillers rot. |
+| 2 ★ | [Page identity is checked before any number is believed](#2-page-identity-is-checked-before-any-number-is-believed) | Yandex will serve a perfect forecast for the wrong city; a page must name the place asked for. |
+| 3 | [Values are dropped, never clamped](#3-values-are-dropped-never-clamped) | A clamped 743 is a plausible +55; a blank with a note beside it is information. |
+| 4 | [Divergence records but no longer decides](#4-divergence-records-but-no-longer-decides) | With three readings on screen, disagreement is shown and recorded, not adjudicated. |
+| 5 | [Geolocation is a button, never automatic](#5-geolocation-is-a-button-never-automatic) | A first screen that needs a permission is useless until granted; coordinates are rounded twice. |
+| 6 | [Gismeteo has partial city coverage, and does not fake the rest](#6-gismeteo-has-partial-city-coverage-and-does-not-fake-the-rest) | No id, no tab — never a neighbouring city's numbers under this one's name. |
+| 7 ★ | [Gismeteo blocks by IP — so we knock on a different door, not from a different address](#7-gismeteo-blocks-by-ip--so-we-knock-on-a-different-door-not-from-a-different-address) | Enumerate the origin's other hostnames before shopping for an address of your own. |
+| 8 | [The hero has no card](#8-the-hero-has-no-card) | Four lines in a box read as empty; on a sky they read as calm. |
+| 9 | [The place name is the control](#9-the-place-name-is-the-control) | One tappable title in place of four affordances for a choice made twice a month. |
+| 10 | [The service-worker version is derived, not typed](#10-the-service-worker-version-is-derived-not-typed) | Hashed from the shell, because the ninth manual bump is the one you forget. |
+| 11 | [Everything on the sky uses fixed-alpha translucency, not palette colours](#11-everything-on-the-sky-uses-fixed-alpha-translucency-not-palette-colours) | Translucency inherits the sky's lightness, so contrast holds on every sky. |
+| 12 | [A retry is for refusals, never for parse failures](#12-a-retry-is-for-refusals-never-for-parse-failures) | A refusal earns another route; a parse failure stops the search. |
+| 13 | [Day or night is computed, not read and not guessed](#13-day-or-night-is-computed-not-read-and-not-guessed) | Solar position from coordinates and the clock, checked against Gismeteo's printed sunrise and sunset. |
+| 14 | [iOS 26 Safari does not read `theme-color`. It samples a fixed element.](#14-ios-26-safari-does-not-read-theme-color-it-samples-a-fixed-element) | Solid strips at the edges, because Safari samples a fixed element's colour, never a gradient. |
+| 15 ★ | [The page's stated date beats our clock, and the rules beat the reviewer](#15-the-pages-stated-date-beats-our-clock-and-the-rules-beat-the-reviewer) | Same bytes, same answer, forever — and the rules are tests, not comments. |
+| 16 ★ | [The dangerous failure is a right value describing the wrong thing](#16-the-dangerous-failure-is-a-right-value-describing-the-wrong-thing) | Fields individually perfect and jointly nonsense; hence the coherence layer. |
+| 17 | [Three bugs, one shape: the parser under-reads and nothing fails](#17-three-bugs-one-shape-the-parser-under-reads-and-nothing-fails) | Ask whether a parse is everything, not only whether it is plausible. |
+| 18 | [Cheap to load, cheap to run — measured, not assumed](#18-cheap-to-load-cheap-to-run--measured-not-assumed) | Compression, a 34 MB image, a bounded cache, and the budgets as tests. |
+| 19 | [The launch is one colour, from tap to loaded](#19-the-launch-is-one-colour-from-tap-to-loaded) | Three lines of critical CSS removed the white flash between splash and app. |
+| 20 ★ | [The launch screen cannot be removed — and dressing it up was not worth it](#20-the-launch-screen-cannot-be-removed--and-dressing-it-up-was-not-worth-it) | Built, deployed, invisible, reverted: estimate the effect before building the mechanism. |
+| 21 | [Things deliberately not built](#21-things-deliberately-not-built) | Push notifications, a widget and a build step, and why each stays unbuilt. |
+| 22 | [A day is a screen you push, not a drawer you open](#22-a-day-is-a-screen-you-push-not-a-drawer-you-open) | Every screen is a history entry, so the system's own back gesture dismisses it. |
+| 23 | [Each source gets the shape it is good at](#23-each-source-gets-the-shape-it-is-good-at) | Parts, curve or table, whichever the source fills — keyed by date, never by row. |
+| 24 | [Prose on the wire](#24-prose-on-the-wire) | Comments ship to the phone, deliberately; the byte budget carries the bill. |
+| 25 | [One request, spent because somebody tapped something](#25-one-request-spent-because-somebody-tapped-something) | The per-day page is fetched only when a day is opened, and nothing depends on it. |
+| 26 ★ | [Four guesses at one band, and the measurement that ended it](#26-four-guesses-at-one-band-and-the-measurement-that-ended-it) | Six deploys of CSS theories, and the cause was the scroll lock. Get a number off the device. |
+| 27 | [When the state blob went away, only the icon looked broken](#27-when-the-state-blob-went-away-only-the-icon-looked-broken) | Check the fallback profile and the shape of the screen, not only the reported symptom. |
+| 28 | [A pinned clock is an instant, not a time of day](#28-a-pinned-clock-is-an-instant-not-a-time-of-day) | Both ends were pinned, to different moments; a clock pin is a UTC instant. |
+| 29 | [The sky is the only thing on this screen that is not information](#29-the-sky-is-the-only-thing-on-this-screen-that-is-not-information) | Motion carries intensity, under three rules: compositor-only, seamless, clear of the text. |
+| 30 | [A loop that jerks is arithmetic, not taste](#30-a-loop-that-jerks-is-arithmetic-not-taste) | A pattern repeating every P pixels may only move by multiples of P. |
+| 31 | [`visibility` in a transition flips at the midpoint](#31-visibility-in-a-transition-flips-at-the-midpoint) | A discrete property flips halfway: instant on the way in, delayed on the way out. |
+| 32 ★ | [A source outage answers 200, and the recorder ate the evidence](#32-a-source-outage-answers-200-and-the-recorder-ate-the-evidence) | Download, inspect, then install — a recorder never overwrites its own evidence. |
+| 33 | [A push to master is the deploy, and nothing here can reach the server](#33-a-push-to-master-is-the-deploy-and-nothing-here-can-reach-the-server) | The suite is the gate, the server pulls, and nothing in this repo can reach it. |
+
+---
+
 ## 1. Scrape first; the official free key is not implemented
 
 `yandex.ru/pogoda/b2b/smarthome` issues a permanent free non-commercial key
@@ -98,7 +140,7 @@ off the response — so no fourth-party geocoder ever sees them.
 
 `gismeteo.ru/robots.txt` disallows `/*?*` — every URL with a query string — and
 `/ajax`. The only permitted address is `/weather-<slug>-<id>/`, and that numeric
-id is not derivable from a name or a coordinate. Seven cities ship with ids
+id is not derivable from a name or a coordinate. Six cities ship with ids
 harvested from their own catalogue; `GISMETEO_IDS` adds more by hand.
 
 For a searched or GPS city with no id, the tab is **disabled with a reason**. It
@@ -425,7 +467,7 @@ appear only as the default of a `today=` argument, never inside a function.
 
 ### The rules are executable
 
-`CLAUDE.md` states the invariants for whoever arrives next. `test_invariants.py`
+`AGENTS.md` states the invariants for whoever arrives next. `test_invariants.py`
 *enforces* them: the import graph (adapters are leaves, only `http.py` builds a
 client, only `main.py` imports FastAPI, the pure modules import no network
 library and read no clock), and a set of source-level assertions about mistakes
@@ -876,6 +918,8 @@ not exist.
 **What would change it:** a third screen that genuinely opens from a second, or
 a Safari that lets a page suppress the platform back gesture.
 
+---
+
 ## 23. Each source gets the shape it is good at
 
 The day-detail screen shows different things on different tabs, and that is the
@@ -913,6 +957,8 @@ block answers at once. The two sources still disagree about what a part *is*
 night first and means the one that starts the day), and that disagreement is
 preserved rather than normalised. See §22's note on reordering.
 
+---
+
 ## 24. Prose on the wire
 
 The byte budget went from 32 kB to 39 kB in one sitting, and roughly half of the
@@ -933,6 +979,7 @@ increase has to be argued for too.
 **What would change it:** a cold load that stops fitting in a second on a slow
 connection, or evidence anyone is fetching the shell more than once.
 
+---
 
 ## 25. One request, spent because somebody tapped something
 
@@ -970,7 +1017,7 @@ forgotten instead, so opening the day again after regaining signal tries once
 more.
 
 And the URL's day number is not trusted. `day-5` is a position, and this
-codebase has an invariant about positions (`CLAUDE.md` 12): the offset is
+codebase has an invariant about positions (`AGENTS.md` 12): the offset is
 computed from the date, the page is fetched, and then the page's own stated date
 is held against the date that was asked for. A page describing a different day
 is rejected exactly the way a page describing a different city is.
@@ -1320,7 +1367,7 @@ which is what the App Store and Photos put on a sheet you only read. It is not
 redundant with the grabber: the grabber says the sheet resizes and can be
 flicked away, the button is the explicit, reachable, labelled version.
 
-This required narrowing invariant 13, deliberately — see CLAUDE.md. It forbids
+This required narrowing invariant 13, deliberately — see AGENTS.md. It forbids
 hand-rolling the *horizontal* swipe, which is the system's. A vertical drag
 does not collide with it, and dismissal still goes through `history.back()`
 from every path, so there is exactly one way out and the edge swipe still
@@ -1606,6 +1653,64 @@ Two rules fall out of it, and the second is the general one:
 **What would reverse it:** a source that stops marking its own empty state, at
 which point the check needs a different signal — but it should still be a
 check, and it should still run before the write.
+
+---
+
+## 33. A push to master is the deploy, and nothing here can reach the server
+
+*Decided 2026-10-01, the day the last manual step went.*
+
+A release used to be `make deploy`: build for amd64 on whichever machine ran
+it, push to the registry, ssh into the server, pull, restart, then poll
+`/api/health` until it settled. Every step worked. Every step was also a thing
+to remember, run from a machine that held a login to the server.
+
+Now a push to `master` is the whole procedure. CI runs lint and the unit suite,
+the browser suite and an image build; when all three pass, `release` publishes
+the image as `:master` and `:sha-<short>`; a tool on the server — configured in
+the owner's infrastructure repository, not here — sees the new digest within a
+couple of minutes, deploys it behind a health check, and puts the previous
+image back if the check fails. Every Makefile target that logged in to the
+server went, and `deploy/` with them. What is left reaches the server the way a
+browser does.
+
+**Why.**
+
+- **The suite became the gate.** It was always the thing that had to pass before
+  anyone believed anything; now it is also the only thing that has to pass
+  before the phone gets it. Five hundred tests are a better release checklist
+  than a person remembering one.
+- **Credentials go the right way round.** CI holds no key to the server, only a
+  token scoped to the run that can publish this repository's image. The server
+  fetches the image; nothing reaches in. Nothing in this repository can touch
+  the server, so nothing in it can be turned into a way to.
+- **Rollback stopped being a procedure.** A failed health check undoes itself.
+  A bad build that passes the check is undone the ordinary way — `git revert`
+  and push — or, while `master` cannot be trusted, by pinning a known-good
+  `:sha-` tag in the infrastructure repository.
+- **What is live is answerable without access.** `/api/version` names the build
+  and `/api/health` says how it is doing; `make status` asks both, from
+  anywhere, with no key.
+
+**What it does not buy.** The gate checks that the code passes its tests and
+that the app starts and answers. It does not check that the numbers are right:
+the suite reads committed fixtures and cannot see a site that redesigned
+overnight. That is `make canary`'s question, asked weekly, and the canary is
+deliberately outside the gate. Nor does a deploy wait for `/api/health` to say
+`ok`, because that endpoint is allowed to report a source down, and Yandex
+having a bad morning is no reason to roll back a good build.
+
+**What would reverse it.** A CI verdict that stops meaning what it says. Once a
+green tick ships, a tick that can be green over a red suite is not a gate but a
+delay — and that is exactly what this one was, found the day it started
+deploying. The unit step piped `pytest` into `tee`, GitHub's default shell runs
+without `pipefail`, and the step reported `tee`'s success over the suite's
+failure, so the one test known to be red could never have turned it red. Fixed
+the same day by naming `bash` as the shell for every step, which turns
+`pipefail` on, and that test is now an explicit `xfail(strict=True)` rather
+than a failure the gate could not see. If the verdict and the suite ever part
+company again, delivery goes back to being a deliberate act until they are
+reconciled.
 
 ---
 

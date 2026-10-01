@@ -57,7 +57,7 @@
 
   /* ---- who paints the top of the screen -------------------------------
    * Written after two failed attempts at a band across the top of the phone
-   * that no render here could reproduce. The rule in CLAUDE.md is that a
+   * that no render here could reproduce. The rule in AGENTS.md is that a
    * complaint from the device gets a measurement from the device, and this is
    * the measurement: walk down the first 160 points of the screen and report
    * every place the *owner* of that pixel changes.

@@ -5,7 +5,7 @@ difference from production is that you are watching. Three header sets against
 HTTP/1.1 and HTTP/2.
 
     docker run --rm -i -v "$PWD/tools/probe403.py:/probe.py:ro" \
-      ghcr.io/mureev/cm-weather:latest python /probe.py
+      ghcr.io/mureev/weather:master python /probe.py
 
 If every row fails and plain curl succeeds from the same machine, it is the TLS
 fingerprint. If every row fails *and* curl fails, it is the IP -- which is what

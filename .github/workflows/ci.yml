@@ -95,7 +95,8 @@ jobs:
       # Builds for the platform the VPS actually runs, because a Dockerfile
       # that only works on the arch you happen to be sitting at is a deploy-day
       # surprise -- and this repo has already had one (`exec format error`).
-      # Not pushed: `make deploy` does that, deliberately and by hand.
+      # Not pushed: `release` publishes, and only once this job and both test
+      # suites have passed on a push to master.
       - name: build amd64
         uses: docker/build-push-action@v6
         with:
@@ -108,9 +109,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Delivery (2026-10-01): when every check passes on master, publish the image to GHCR. The server's updater
-  # ("continuous") sees the new :master digest within ~2 minutes, deploys it behind a health check (/weather/ through
-  # nginx) and rolls back on failure. `make deploy` still works for a manual push, but is no longer needed.
+  # Delivery (2026-10-01). When every job above passes on a push to master,
+  # publish the image as :master and :sha-<short>. That is the whole of this
+  # repo's part: a tool on the server, configured in the owner's infrastructure
+  # repo, polls :master every two minutes, deploys a new digest behind a health
+  # check through the reverse proxy, and rolls back by itself if the check
+  # fails. Nothing here holds a credential for the server, and nothing needs one.
   release:
     name: publish image
     needs: [test, ui, image]
@@ -130,7 +134,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/mureev/cm-weather
+          images: ghcr.io/mureev/weather
           tags: |
             type=raw,value=master
             type=sha,format=short,prefix=sha-
@@ -149,11 +153,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Not part of the pull-request gate: this one talks to the live internet and
-  # to the live VPS, so a red tick here can mean "the box is rebooting" as
-  # easily as "Yandex redesigned". It runs on the schedule because the suite
-  # tests committed fixtures and is therefore structurally incapable of
-  # noticing that the real pages have moved.
+  # Not part of the gate: `release` does not wait for it and a push never runs
+  # it. It reads the live site's /api/health, so a red tick here can mean "the
+  # box is rebooting" as easily as "Yandex redesigned". It runs on the schedule
+  # because the suite tests committed fixtures and is therefore structurally
+  # incapable of noticing that the real pages have moved.
   canary:
     name: upstreams unchanged
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -164,7 +168,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: has an upstream changed under us?
-        # Gismeteo is tolerated as missing: it blocks by IP, and a GitHub
-        # runner is not the address that matters. `make routes-remote` is the
-        # tool for that question.
+        # Gismeteo is tolerated as missing. Of the three it is the one that
+        # goes dark for reasons that are not a redesign -- an address block
+        # (DECISIONS.md §7), an outage that answers 200 (§32) -- and this job
+        # is about drift, not outages. Its line still prints, with the reason
+        # the server gave.
         run: python3 tools/canary.py --allow-missing gismeteo

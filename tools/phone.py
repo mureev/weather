@@ -90,6 +90,15 @@ INSETS = f"""
 """
 
 
+def _chromium_path() -> str | None:
+    """The same discovery as `tests/test_ui.py`: a pre-installed Chromium where
+    there is one, otherwise `None`, which lets Playwright use the browser
+    `playwright install` put in place. Hard-coding that path meant this tool
+    ran only on machines that happened to have it."""
+    p = pathlib.Path("/opt/pw-browsers/chromium")
+    return str(p) if p.exists() else None
+
+
 async def shoot(pg, name: str, strip: str):
     """Screenshot the 793pt view and paste the 59pt system strip under it."""
     raw = OUT / f".{name}.png"
@@ -109,8 +118,7 @@ async def main(port=8097, mode="ok"):
     time.sleep(3.5)
     try:
         async with async_playwright() as pw:
-            b = await pw.chromium.launch(
-                executable_path="/opt/pw-browsers/chromium")
+            b = await pw.chromium.launch(executable_path=_chromium_path())
             ctx = await b.new_context(
                 viewport={"width": VIEW[0], "height": VIEW[1]},
                 device_scale_factor=DSF, color_scheme="dark", locale="ru-RU")

@@ -1,8 +1,12 @@
 # CM Weather
 
+[![ci](https://github.com/mureev/weather/actions/workflows/ci.yml/badge.svg)](https://github.com/mureev/weather/actions/workflows/ci.yml)
+
 A self-hosted, ad-free weather app for an iPhone. The phone talks only to your
 server; your server talks to the weather sites. No App Store, no Apple Developer
 licence, and no upstream ever sees the phone's IP.
+
+The owner directs; Claude Code builds — see [How this was built](#how-this-was-built).
 
 Live at **`mureev.com/weather`**. Default city Yoshkar-Ola, text search for
 anywhere else, and a **Моё местоположение** button when you want *here*.
@@ -10,16 +14,18 @@ anywhere else, and a **Моё местоположение** button when you wan
 Three independent sources — **Яндекс**, **Gismeteo**, **Open-Meteo** — fetched
 together and switchable with one tap.
 
-Compressed cold load is about 37 kB — shell, script, service worker and the
-first payload together, the payload carrying ten days at hourly resolution. The
-image ships 34 MB of dependencies and the process holds a bounded cache; all
-three are asserted by tests rather than hoped for.
+Compressed, the shell — page, script and service worker, with a stand-in
+payload — measures about 49 kB, against a test that fails at 49,000 bytes; a
+real cold load, all three sources answering, is about 54 kB. The process's
+cache is bounded, and that is tested too. The image's 34 MB of dependencies is
+a measurement recorded in `DECISIONS.md` §18, not a test.
 
 ```bash
-make            # list every command
+make            # the everyday commands
 make check      # lint + 564 tests, no network required
 make run        # localhost:8080 against live upstreams
-make deploy     # build amd64, push to GHCR, restart on the VPS, check health
+git push        # to master: tested, published, live in minutes
+make status     # what is live: its build, then its own health verdict
 ```
 
 ---
@@ -220,24 +226,26 @@ before you read a figure. **Day rows have range bars** showing where each day's
 low-to-high sits inside the whole period, so "is Thursday the cold one" needs no
 arithmetic.
 
-**Tapping a day pushes a screen**, and so does tapping the city name. One
+**Tapping a day opens a sheet**, and so does tapping the city name. One
 navigation primitive, built on `history.pushState` — which is the point rather
 than an implementation detail: in a standalone iOS PWA the edge-swipe-back
-gesture is wired to browser history, so a screen that is a history entry can be
-dismissed by the system gesture with the system's own animation. A screen that
-is a CSS class cannot, and hand-rolling the swipe makes it worse rather than
-better, because the platform gesture cannot be switched off and the app then
-navigates back twice (`DECISIONS.md` §22).
+gesture is wired to browser history, so a sheet that is a history entry can be
+dismissed by the system gesture with the system's own animation. A sheet that
+is a CSS class cannot, and hand-rolling the sideways swipe makes it worse
+rather than better, because the platform gesture cannot be switched off and the
+app then navigates back twice (`DECISIONS.md` §22). The vertical drag between
+the sheet's two heights is ours, since nothing in the system competes for it
+(§26).
 
 **The day screen changes shape with the source**, deliberately. Яндекс publishes
-four named parts of a day; Gismeteo publishes fifteen metric rows and no parts;
-Open-Meteo publishes an hour at a time for ten days and no summary at all. One
-table with a row per field would be two-thirds blank on any tab, and a blank
-cell reads as *missing data* rather than as "this source does not work that
-way". So: parts of day for Яндекс, a metrics table for Gismeteo, an hourly curve
-for Open-Meteo — and the screen is keyed by **date**, never by row index, since
-the three do not agree on which morning their ten days begin (`DECISIONS.md`
-§23).
+four named parts of a day; Gismeteo publishes parts too, plus fifteen metric
+rows; Open-Meteo publishes an hour at a time for ten days and no summary at
+all. One table with a row per field would be mostly blank on any tab, and a
+blank cell reads as *missing data* rather than as "this source does not work
+that way". So each tab leads with what its source fills — parts of day where
+there are parts, then the hourly curve, then the metrics — and the screen is
+keyed by **date**, never by row index, since the three do not agree on which
+morning their ten days begin (`DECISIONS.md` §23).
 
 **One request is spent when you open a day, and nothing depends on it.** Yandex
 publishes a page per day — eight three-hourly columns with feels-like, gusts and
@@ -248,7 +256,7 @@ the usual ten minutes, and the screen renders from the payload it already has
 before the answer arrives. There is deliberately no spinner: offline, or with
 the fetch refused, the screen is exactly what it was without it.
 
-**Everything about *where* lives on one screen**, opened by tapping the city
+**Everything about *where* lives on one sheet**, opened by tapping the city
 name. Search, geolocation and saved cities are all answers to the same question,
 so they belong in one place rather than three permanent strips.
 
@@ -287,9 +295,10 @@ in these specific ways, all closed here:
    any JS runs. There are none, deliberately, with a comment saying so.
 3. **Header forwarding** — only coordinates go upstream. Never the phone's
    `Accept-Language`, `User-Agent`, `Referer` or timezone; `Europe/Moscow`
-   versus anything else gives away region independently of IP. The nginx snippet
-   also blanks `X-Forwarded-For` on the way *in*: a value that never arrives
-   cannot end up in a log.
+   versus anything else gives away region independently of IP. The reverse
+   proxy in front of the deployed instance, configured outside this repo, also
+   blanks `X-Forwarded-For` on the way *in*: a value that never arrives cannot
+   end up in a log.
 4. **Geolocation** — opt-in, on a button, never automatic. Coordinates rounded
    to 2 decimals (~1.1 km) on the device and again on the server. They go to
    *your* server, which asks Yandex by lat/lon and reads the city name back off
@@ -329,7 +338,7 @@ prevent that; it is that you find out immediately instead of believing a wrong
 number.
 
 ```bash
-export DEBUG_TOKEN=...                  # whatever is in the compose env
+export DEBUG_TOKEN=...                  # the one the server runs with
 make fixtures                           # re-record from the VPS, then run tests
 ```
 
@@ -338,29 +347,26 @@ reality. Tests failing tells you exactly which assumption broke.
 
 ```bash
 make routes                             # which way in to Gismeteo works from here
-make routes-remote                      # ...and from the VPS, the one that counts
 make routes ARGS='http://1.2.3.4:8080'  # ...and would this proxy help?
 make fixtures-ya                        # re-record Yandex from this machine (no DEBUG_TOKEN needed)
 make fixtures-gm                        # re-record Gismeteo from whichever host answers
-make fixtures-day                       # record the two per-day pages nothing parses yet
+make fixtures-day                       # re-record the one-day page /api/day reads
 make selftest                           # per-source fetch/parse/identity breakdown
 make probe                              # why is a source returning 403?
 ```
 
-`make fixtures-day` is the odd one out: it records pages the app does **not**
-read yet. Gismeteo's `/3-days/` carries the same fifteen metric rows at
-three-hourly resolution, and Yandex's `…/details/auto/10-day-weather/day-N` is
-one day per URL with eight three-hourly columns, feels-like, gusts, visibility
-and road state. Both would deepen the day-detail screen; neither has a parser,
-because a parser written against markup nobody has looked at is how this project
-produced its worst bugs. Run it where those hosts answer, commit what lands, and
-the parser has something real to be tested against.
+`make fixtures-day` records Yandex's `…/details/auto/10-day-weather/day-N`: one
+day per URL, eight three-hourly columns, feels-like, gusts, visibility and road
+state. It was recorded before anything parsed it, deliberately, because a parser
+written against markup nobody has looked at is how this project produced its
+worst bugs. `sources/yandex_day.py` reads it now, fetched only when you open a
+day. Gismeteo's equivalent, `/3-days/`, comes with `make fixtures-gm`.
 
-Use `make routes-remote` in anger, not `make routes`. That is the whole point
-of it: a route verified — or a fixture recorded — on a machine that is not
-blocked proves nothing about the machine that is, and your laptop is not
-blocked. The remote variant streams the probe in over ssh, so nothing has to be
-checked out on the VPS.
+`make routes` answers for the machine it runs on, and that is the catch: a
+route verified — or a fixture recorded — on a machine that is not blocked
+proves nothing about the machine that is, and your laptop is not blocked. The
+server's own answer is in `/api/health`, per source, with the reason when there
+is one; `make status` prints it.
 
 `tools/README.md` explains what each diagnostic answers.
 
@@ -371,8 +377,9 @@ when `/sw.js` is served. It was bumped by hand eight times in one afternoon;
 the ninth is the one you forget, and the symptom — a redesign invisible to every
 installed device but perfect in a fresh browser — is horrible to diagnose.
 
-**The build SHA** is baked into the image and shown in `/api/health` and, quietly,
-in the footer. "Is my change actually deployed?" should not require squinting.
+**The build SHA** is baked into the image and shown in `/api/version`,
+`/api/health` and, quietly, in the footer; `make status` asks for it. "Is my
+change actually deployed?" should not require squinting.
 
 ---
 
@@ -388,7 +395,7 @@ app/
   http.py            the only place an outbound client is built
   routing.py         which door to knock on, and from where (Gismeteo)
   service.py         orchestration, per-source assembly, divergence
-  validation.py      the four layers; decides what is servable
+  validation.py      the five layers; decides what is servable
   extract.py         Yandex: flight stream, a11y prose, DOM shape, identity
   cache.py           TTL cache with stale-serving grace
   ru_text.py         Russian vocabulary, content-shaped extraction, icons
@@ -403,12 +410,40 @@ app/
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
 tests/               564 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
-deploy/              nginx-proxy vhost snippet + compose service block
 ```
 
-Deployment: **[DEPLOY.md](DEPLOY.md)**. Reasoning: **[DECISIONS.md](DECISIONS.md)**.
+Delivery: **[DEPLOY.md](DEPLOY.md)**. Reasoning: **[DECISIONS.md](DECISIONS.md)**.
+The contract for whoever builds next: **[AGENTS.md](AGENTS.md)**.
+
+## How this was built
+
+The owner directs; Claude Code builds. Most commits carry a
+`Co-Authored-By: Claude` trailer, and the arrangement shapes this repository
+more than any framework could.
+
+A session arrives knowing nothing and is gone within the hour, so nothing
+important is allowed to live in anyone's memory. That is not a theory: this
+project's predecessor lost its entire codebase and was rebuilt in an afternoon
+from what had been written down. `AGENTS.md` is the contract every session
+reads first; `DECISIONS.md` holds the why, and for each decision, what would
+reverse it.
+
+Whatever a machine can check is a test rather than a request: the import graph,
+the rule that no parser reads the clock, the counts in this README. A rule kept
+only in prose is one a well-meaning stranger will undo.
+
+The builder never holds the phone, so the world is brought to it: real pages
+recorded as fixtures, and an on-device diagnostic that turns "it looks wrong"
+into numbers in one screenshot.
+
+And a green push to `master` ships, behind a health-checked deploy that rolls
+itself back — so a green tick had better mean what it says
+(`DECISIONS.md` §33).
 
 ## Legal
+
+The code is ours and MIT-licensed. The weather is not: every number on screen
+belongs to the service it came from, and this app only fetches it.
 
 `yandex.ru/robots.txt` permits `/pogoda`; `gismeteo.ru/robots.txt` permits
 `/weather-*` and disallows every URL with a query string, which is why Gismeteo
@@ -418,5 +453,14 @@ as a normal browser. Both sites' general ToS presumably carry the usual
 anti-automation clause, so this is a ToS question rather than a technical one;
 for a single private reader on his own phone the exposure is negligible.
 
-If it ever becomes public, Yandex requires branding for publicly displayed data
-— logo, «Данные Яндекс Погоды», link back — and a real API key.
+The deployed instance serves its owner, not the public. Anyone who runs one
+publicly owes the services their terms: Yandex, its branding on publicly
+displayed data — logo, «Данные Яндекс Погоды», a link back — and a real API key
+used on its API terms; Open-Meteo, attribution, since its data is CC BY 4.0,
+and its free tier is for non-commercial use only.
+
+## Licence
+
+Code, tests, tools and docs are MIT — see [LICENSE](LICENSE). The exception is
+`tests/fixtures/`: trimmed captures of third-party pages, kept as test input
+only. They are not ours, and we do not license them.

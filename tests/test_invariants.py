@@ -1,7 +1,7 @@
 """Rules that survive the people who wrote them.
 
 This project is edited by a long succession of sessions, each of which arrives
-knowing nothing and leaves in an hour. Comments and `CLAUDE.md` tell them the
+knowing nothing and leaves in an hour. Comments and `AGENTS.md` tell them the
 rules; this file *enforces* them, because a rule that is only written down is a
 rule that gets broken by someone acting in perfectly good faith.
 
@@ -112,7 +112,7 @@ def js_code_only(path: Path) -> str:
 # --- layering ---------------------------------------------------------------
 
 class TestNothingReachesUpward:
-    """The dependency arrows in `CLAUDE.md`, as code.
+    """The dependency arrows in `AGENTS.md`, as code.
 
     A source adapter that imports the orchestrator can no longer be tested in
     isolation, and the next person to add a fourth source inherits the cycle.

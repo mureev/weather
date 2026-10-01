@@ -1,0 +1,3 @@
+# Captured third-party pages, kept as test input. Vendored, so GitHub's
+# language bar shows what this repository is written in, not what it reads.
+tests/fixtures/** linguist-vendored

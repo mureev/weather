@@ -8,8 +8,8 @@ Skipped entirely when Playwright or its browser is unavailable, so `pytest`
 stays useful on a machine that has neither.
 
 ---------------------------------------------------------------------------
-Two ways this harness lied during development. Both cost real time, and both
-looked exactly like application bugs:
+Three ways this harness lied during development. All three cost real time,
+and all three looked exactly like application bugs:
 
 1. **Playwright scrolls an element into view before clicking it.** Clicking the
    place button reset the page to the top, so the scroll-lock test captured an

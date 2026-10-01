@@ -1,4 +1,4 @@
-"""Screenshots at iPhone size, light and dark. `python -m tests.shoot`"""
+"""Screenshots at iPhone size, light and dark. `python -m tools.shoot`"""
 import asyncio
 import os
 import pathlib

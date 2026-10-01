@@ -1,35 +1,27 @@
-# CM Weather — the whole loop from a terminal.
+# CM Weather — the everyday commands.
+#
+# Delivery is not in here. A green push to master is tested and published by
+# CI and deployed by the server itself (DEPLOY.md), so nothing below builds an
+# image for anywhere but this machine, and nothing reaches the server except
+# through the public site, like any other visitor.
 #
 #   make test          the full suite (no network needed)
 #   make check         lint + test -- what CI runs
 #   make run           run locally on :8080 against live upstreams
-#   make push          build for amd64 and push to GHCR
-#   make deploy        push, then pull + restart on the VPS, then check health
-#   make health        what the live box thinks of itself
-#   make logs          tail the container on the VPS
+#   make status        what is live: the build it reports, then its own health
 #   make fixtures      re-record test fixtures from the box that does the fetching
 #   make fixtures-ya   re-record Yandex from this machine (no DEBUG_TOKEN)
 #   make fixtures-gm   re-record the Gismeteo pages from whichever host answers
-#   make fixtures-day  record the two per-day pages nothing parses yet
+#   make fixtures-day  re-record Yandex's one-day page, the one /api/day reads
 #   make probe         diagnose a source that is refusing us
 #   make canary        has an upstream changed under us? (live, not fixtures)
 #   make routes        which way in to Gismeteo works from here
-#   make routes-remote ...and from the VPS, which is the one that matters
 #
 # Override anything on the command line:
-#   make deploy HOST=me@myhost SUDO=sudo
+#   make status SITE=http://localhost:8080/weather
 
-IMAGE      ?= ghcr.io/mureev/cm-weather:latest
-HOST       ?= user@your-vps
-REMOTE_DIR ?= /srv/docker
+IMAGE      ?= ghcr.io/mureev/weather:master
 SERVICE    ?= cm-weather
-
-# nginx-proxy has no container_name on vps, so compose names it after the
-# project -- which is the directory, /srv/docker. It is NOT `nginx-proxy`.
-PROXY      ?= docker-nginx-proxy-1
-
-# Set SUDO=sudo if you ssh in as a non-root user:  make deploy SUDO=sudo
-SUDO       ?=
 PORT       ?= 8080
 SITE       ?= https://mureev.com/weather
 CITY       ?= yoshkar-ola
@@ -42,31 +34,23 @@ GM_URL     ?= https://meteofor.lv/ru/weather-yoshkar-ola-11975
 GM_PREFIX  ?= mf
 UA         ?= Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
 
-# Your Mac is arm64 and the VPS is amd64. Every image that ships is built for
-# the target explicitly -- a plain `docker build` here produces an arm64 image,
-# pushes without complaint, and dies on the VPS with `exec format error`.
-PLATFORM   ?= linux/amd64
-
-# Stamped into the image so `make health` can tell you what is actually running.
-# Stamped into the image and shown by `make health`, so "is my change actually
-# deployed?" has an answer. A git SHA when there is one -- it identifies the
-# *code* -- and otherwise the build time, which at least identifies the build.
+# Stamped into the image and reported by /api/version and /api/health, so "is
+# my change actually running?" has an answer. A git SHA when there is one -- it
+# identifies the *code* -- and otherwise the build time, which at least
+# identifies the build. CI stamps the images it publishes the same way; these
+# stamp the one `make run` builds.
 #
-# It used to fall back to the literal string "dev", and this repo has no
-# commits, so every image ever built was stamped `dev` and the field answered
-# nothing at all. A constant fallback is worse than no field: it looks like
-# information.
+# It used to fall back to the literal string "dev", at a time when this repo
+# had no commits, so every image ever built was stamped `dev` and the field
+# answered nothing at all. A constant fallback is worse than no field: it looks
+# like information.
 BUILD      ?= $(shell git rev-parse --short HEAD 2>/dev/null || date -u +b%Y%m%d-%H%M)
 BUILT_AT   ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILDARGS   = --build-arg APP_BUILD=$(BUILD) --build-arg APP_BUILT_AT=$(BUILT_AT)
 
-SSH = ssh $(HOST)
-COMPOSE = cd $(REMOTE_DIR) && $(SUDO) docker compose
-
-.PHONY: help test test-fast test-if-possible lint fmt check run mock shots build push deploy \
-        restart reload-nginx sync-config health logs ps fixtures fixtures-ya \
-        fixtures-gm \
-        fixtures-day selftest probe routes routes-remote canary clean
+.PHONY: help test test-fast test-if-possible lint fmt check run status mock shots \
+        fixtures fixtures-ya fixtures-gm fixtures-day selftest probe routes \
+        canary clean
 
 help:
 	@grep -E '^#   make' $(MAKEFILE_LIST) | sed 's/^#   /  /'
@@ -88,9 +72,11 @@ fmt:
 
 check: lint test
 
-# Native arch, so it starts fast. For looking at it, not for shipping.
+# Native arch, so it starts fast. For looking at it, not for shipping -- CI
+# builds what ships. Stamped all the same, so /api/version on localhost says
+# which commit you are looking at.
 run:
-	docker build -t $(SERVICE):dev .
+	docker build $(BUILDARGS) -t $(SERVICE):dev .
 	docker run --rm -p $(PORT):8080 -e DEBUG_TOKEN=local $(SERVICE):dev
 
 # Offline, against the recorded fixtures. YW_MOCK=winter|degraded|down
@@ -100,56 +86,22 @@ mock:
 shots:
 	python3 -m tools.shoot ok degraded
 
-# --- ship -------------------------------------------------------------------
-
-build:
-	docker buildx build --platform $(PLATFORM) $(BUILDARGS) -t $(IMAGE) .
-
-push:
-	docker buildx build --platform $(PLATFORM) $(BUILDARGS) -t $(IMAGE) --push .
-
-deploy: push restart health
-
-restart:
-	$(SSH) '$(COMPOSE) pull $(SERVICE) && $(COMPOSE) up -d $(SERVICE)'
-
-# nginx-proxy only re-reads vhost.d on reload. Needed after changing the
-# /weather route, not after a plain image bump.
-reload-nginx:
-	$(SSH) '$(SUDO) docker exec $(PROXY) nginx -t && \
-	        $(SUDO) docker exec $(PROXY) nginx -s reload'
-
-# Copy the compose file and vhost snippet up. Ansible pulls images but does not
-# sync these -- they are yours to put in place.
-sync-config:
-	scp ../infra/docker-compose/vps/docker-compose.yml \
-	    $(HOST):$(REMOTE_DIR)/
-	scp ../infra/nginx/vhost/mureev.com \
-	    $(HOST):$(REMOTE_DIR)/nginx/vhost/
-
 # --- look at it -------------------------------------------------------------
 
-# Retries, because `deploy` calls this the instant `up -d` returns and two
-# things are still catching up: the app's own start-up, and nginx's
-# `resolver ... valid=10s` still holding the previous container's IP. A 502
-# in the first few seconds after a deploy means neither has settled -- not
-# that anything is broken.
-health:
-	@for i in 1 2 3 4 5 6 7 8 9 10; do \
-	  if curl -fsS $(SITE)/api/health > /tmp/cmw-health.json 2>/dev/null; then \
-	    jq '{status, selected, divergence_c, \
-	         build, sources: (.sources | map_values({available, reason, temp_c}))}' \
-	      < /tmp/cmw-health.json; exit 0; \
-	  fi; \
-	  printf 'waiting for %s (%s/10)\n' "$(SERVICE)" "$$i"; sleep 3; \
-	done; \
-	echo "still failing after 30s -- try: make logs"; exit 1
-
-logs:
-	$(SSH) '$(SUDO) docker logs -f --tail 100 $(SERVICE)'
-
-ps:
-	$(SSH) '$(COMPOSE) ps'
+# What is live, asked the way anyone may ask: the build the site says it is
+# running, then its own verdict per source. Read-only and credential-free, so
+# it is safe against anything at any time, and it exits non-zero unless
+# /api/health answers 200 -- which it does not when every source is down.
+# Right after a push, a build that has not changed yet is a deploy still on its
+# way (DEPLOY.md), not a failed one.
+#     make status
+#     make status SITE=http://localhost:8080/weather
+status:
+	@tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
+	curl -fsS '$(SITE)/api/version' > "$$tmp" && jq -c . "$$tmp" || exit 1; \
+	code=$$(curl -sS -o "$$tmp" -w '%{http_code}' '$(SITE)/api/health') || exit 1; \
+	jq '{status, selected, age_s, divergence_c, sources: (.sources | map_values({available, reason, temp_c}))}' "$$tmp"; \
+	test "$$code" = 200 || { echo "  /api/health answered $$code"; exit 1; }
 
 # --- maintenance ------------------------------------------------------------
 
@@ -184,9 +136,9 @@ fixtures:
 	@$(MAKE) test-if-possible
 
 # Yandex, recorded straight from this machine instead of through the server's
-# debug route. For when `DEBUG_TOKEN` is not enabled -- it is commented out in
-# `deploy/compose-service.yml`, so `/api/debug/raw` answers 404 until someone
-# turns it on, and re-recording should not be blocked behind a deploy.
+# debug route. For when `DEBUG_TOKEN` is not enabled -- unset, `/api/debug/raw`
+# answers 404, and re-recording should not be blocked behind a change to the
+# server's configuration.
 #
 # `make fixtures` is still the better one and stays the default: it records
 # what the *VPS* receives, and the VPS is the machine whose network conditions
@@ -248,7 +200,8 @@ fixtures-gm:
 	@# a test failure with no bug behind it, or worse, a test that agrees with one.
 	@$(MAKE) test-if-possible
 
-# Yandex's per-day page, which nothing parses yet.
+# Yandex's per-day page: the one `/api/day` fetches when somebody opens a day,
+# and `app/sources/yandex_day.py` reads (DECISIONS.md §25).
 #
 # `.../details/auto/10-day-weather/day-N` is one day per URL and carries more
 # than the ten-day page does: eight three-hourly columns with temperature,
@@ -256,20 +209,18 @@ fixtures-gm:
 # visibility and road state, plus sunrise, sunset and day length. All of it in
 # the self-labelling accessibility prose that makes this source safe to read.
 #
-# Not parsed, and the reason is a fetch cost rather than a parsing one: ten
-# days is ten URLs, against the one this app currently spends per city per ten
-# minutes. That wants deciding, not defaulting into.
+# The suite reads `ya-day5.html`, so DAY=5 is the default and the one that
+# matters; the tests restamp its date, so any day's page will do.
 #
 #     make fixtures-day
 #     make fixtures-day DAY=3
 DAY        ?= 5
-YA_URL     ?= https://yandex.ru/pogoda/ru/yoshkar-ola
 fixtures-day:
 	curl -fsS --compressed -A '$(UA)' -H 'Accept-Language: ru-RU,ru;q=0.9' \
 	  '$(YA_URL)/details/auto/10-day-weather/day-$(DAY)' \
 	  > tests/fixtures/ya-day$(DAY).html
 	@wc -c tests/fixtures/ya-day$(DAY).html
-	@echo "\n  Recorded. Commit it, then a parser has something to read.\n"
+	@echo "\n  Recorded. make check says whether yandex_day still reads it.\n"
 
 # The test suite runs against committed fixtures and therefore cannot notice
 # that the real pages have moved. This reads the live /api/health and fails if
@@ -297,14 +248,6 @@ routes:
 	docker run --rm -i -v "$(CURDIR)/tools/route_probe.py:/probe.py:ro" \
 	  -e GISMETEO_HOSTS -e GISMETEO_PROXY -e UPSTREAM_PROXY \
 	  $(IMAGE) python /probe.py $(ARGS)
-
-# The same probe on the box that actually does the fetching -- which is the
-# only machine whose answer counts, since the whole problem is that a block
-# depends on the address you arrive from. Streams the script in over ssh, so
-# nothing has to be checked out on the VPS.
-#     make routes-remote ARGS='http://1.2.3.4:8080'
-routes-remote:
-	$(SSH) "$(SUDO) docker run --rm -i $(IMAGE) python - $(ARGS)" < tools/route_probe.py
 
 clean:
 	rm -rf .pytest_cache screenshots
