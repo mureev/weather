@@ -20,6 +20,16 @@ concurrency:
 env:
   PYTHON_VERSION: "3.12"
 
+# Every `run:` step under a named bash, which GitHub invokes as
+# `bash -e -o pipefail`. Its default for an unnamed shell is `bash -e` without
+# pipefail, so `pytest ... | tee log` exited with tee's status -- always 0 --
+# and a red suite passed the gate. Harmless while the gate only drew a tick;
+# not once a green run on master deploys. Found and fixed 2026-10-01, the day
+# it started deploying.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
     name: lint + unit
@@ -44,9 +54,11 @@ jobs:
         # and one of them was asserting a provenance key that does not exist --
         # it could never have passed, and nobody could tell, because it had
         # never run. Everything outside the browser suite has its inputs
-        # committed and must therefore execute.
+        # committed and must therefore execute. A known failure is marked
+        # `xfail(strict=True)` instead: it runs, it is not a skip, and it
+        # fails the job the day it unexpectedly passes.
         run: |
-          pytest -q --ignore=tests/test_ui.py -rs | tee /tmp/unit.log
+          pytest -q --ignore=tests/test_ui.py -p no:randomly --strict-markers -rs | tee /tmp/unit.log
           if grep -qE '[0-9]+ skipped' /tmp/unit.log; then
             echo "::error::tests were skipped -- a skipped test is not a passing test"
             exit 1

@@ -393,6 +393,17 @@ class TestTheFixturesAreOneRecording:
             encoding="utf-8", errors="replace")
         return sorted(set(re.findall(r"20\d\d-[01]\d-[0-3]\d", raw)))
 
+    # Known red, and marked so rather than skipped: a skip is silent, and since
+    # the CI gate began meaning what it says, a plain failure here blocks every
+    # deploy. Meteofor's outage of 15 August 2026 (DECISIONS.md §32) meant
+    # Yandex could be re-recorded and Gismeteo could not. `strict` is the half
+    # that matters: the day both are re-recorded together and agree, this
+    # passes, the unexpected pass fails the suite, and the marker comes off.
+    @pytest.mark.xfail(strict=True, reason=(
+        "the Yandex and Gismeteo fixtures are two recordings with no date in "
+        "common (Gismeteo could not be re-recorded during its 15 August 2026 "
+        "outage). Strict: this fails loudly the day the fixtures are "
+        "re-recorded and agree -- then delete this marker."))
     def test_the_sources_overlap(self):
         ya = self._days("current.html")
         gm = self._days("mf-10days.html")
