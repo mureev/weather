@@ -489,7 +489,8 @@ function render(d) {
   // screen too. Otherwise the numbers behind it move and the ones in front of
   // you do not, which is the app quietly showing two different forecasts at
   // once -- and the one you are looking at is the stale one.
-  if (current) openScreen(current.name, current.arg);
+  if (current && current.name === 'place') refreshPlaceList();   // keep the field
+  else if (current) openScreen(current.name, current.arg);
 }
 
 function renderError(d) {
