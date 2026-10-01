@@ -359,8 +359,8 @@ function hourlyBlock(hours, nowcast, opts) {
         >${fmtT(h.temp_c)}</span></div>
       ${icon(h.icon, 'wi')}
       <div class="hh">${esc(isNow ? 'сейчас' : shortTime(h.time))}</div>
-      <div class="hp">${h.precip_mm ? esc(num(h.precip_mm))
-        : h.precip_prob ? esc(Math.round(h.precip_prob)) + '%' : ''}</div>
+      <div class="hp">${h.precip_prob ? Math.round(h.precip_prob) + '%'
+        : h.precip_mm ? esc(num(h.precip_mm)) + ' мм' : ''}</div>
     </div>`;
   }).join('');
 
@@ -427,14 +427,14 @@ function factsBlock(c, today) {
 
   // The direction rides along as a smaller suffix so the cell never wraps.
   add('Ветер', c.wind_ms != null
-    ? `${num(c.wind_ms)} м/с${c.wind_dir ? `<small>${esc(shortDir(c.wind_dir))}</small>` : ''}`
+    ? `${num(c.wind_ms)} м/с${c.wind_dir ? `<small>, ${esc(shortDir(c.wind_dir))}</small>` : ''}`
     : null, true);
   add('Влажность', c.humidity_pct != null ? Math.round(c.humidity_pct) + '%' : null);
   add('Давление', c.pressure_mmhg != null ? Math.round(c.pressure_mmhg) + ' мм' : null);
   if (today) {
     add('Восход', today.sunrise);
     add('Закат', today.sunset);
-    add('УФ-индекс', today.uv_index != null ? String(today.uv_index) : null);
+    add('УФ-индекс', today.uv_index != null ? num(today.uv_index) : null);
     add('Вода', today.water_temp_c != null ? fmtT(today.water_temp_c) : null);
   }
   if (cells.length < 3) return '';
@@ -1010,11 +1010,11 @@ function partsBlock(day) {
       const bits = [];
       if (p.wind_ms != null) {
         // Gusts ride along with the wind rather than getting a cell of their
-        // own: "3 до 8 м/с" is one fact about how it will feel outside, and
+        // own: "3 м/с, порывы до 8" is one fact about how it will feel outside, and
         // the gust alone means nothing without the speed beside it.
         const gust = p.wind_gust_ms != null && p.wind_gust_ms > p.wind_ms
-          ? ` до ${num(p.wind_gust_ms)}` : '';
-        bits.push(`${num(p.wind_ms)}${gust} м/с ${shortDir(p.wind_dir)}`.trim());
+          ? `, порывы до ${num(p.wind_gust_ms)}` : '';
+        bits.push(`${num(p.wind_ms)} м/с${gust}${p.wind_dir ? ', ' + shortDir(p.wind_dir) : ''}`);
       } else if (p.wind_dir === 'штиль') {
         // Gismeteo publishes a direction of «штиль» and *no speed at all* for
         // a calm part of the day. Gating the whole cell on the speed dropped
@@ -1022,8 +1022,9 @@ function partsBlock(day) {
         bits.push('штиль');
       }
       if (p.precip_mm) bits.push(num(p.precip_mm) + ' мм');
-      if (p.humidity_pct != null) bits.push(Math.round(p.humidity_pct) + '%');
-      if (p.pressure_mmhg != null) bits.push(Math.round(p.pressure_mmhg) + ' мм рт.');
+      // Labelled: a bare "91%" under «Небольшой дождь» reads as the chance of it.
+      if (p.humidity_pct != null) bits.push('влажность ' + Math.round(p.humidity_pct) + '%');
+      if (p.pressure_mmhg != null) bits.push(Math.round(p.pressure_mmhg) + ' мм рт. ст.');
       const feels = p.feels_like_c != null
         && Math.round(p.feels_like_c) !== Math.round(p.temp_c)
         ? `ощущается ${fmtT(p.feels_like_c)}` : '';
@@ -1032,7 +1033,8 @@ function partsBlock(day) {
         ${icon(p.icon, 'wi')}
         <div class="tt">${fmtT(p.temp_c)}</div>
         <div class="m"><b>${esc(p.condition || '')}</b>
-          ${esc([bits.join(' · '), feels].filter(Boolean).join(' · '))}</div>
+          ${esc([...bits, feels].filter(Boolean)
+            .map((b) => b.replace(/ /g, '\u00a0')).join(' · '))}</div>
       </div>`;
     }).join('');
   return `<div class="card"><h2>По времени суток</h2>${rows}</div>`;
