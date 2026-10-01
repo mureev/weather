@@ -409,8 +409,6 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 @keyframes tw{0%,100%{opacity:.25}50%{opacity:.95}}
 @keyframes fall{from{transform:skewX(var(--sk,0deg)) translate3d(0,calc(var(--tile) * -1),0)}
                 to  {transform:skewX(var(--sk,0deg)) translate3d(0,0,0)}}
-@keyframes sway{from{transform:translate3d(calc(var(--sw) * -1),0,0) scale(var(--sc))}
-                to  {transform:translate3d(var(--sw),0,0) scale(var(--sc))}}
 @keyframes breathe{from{opacity:var(--o0,.45)}to{opacity:var(--o1,.8)}}
 /* In daylight the sky is pale, and white-on-pale is nothing at all. The drops
    go dark rather than light -- which is also what rain looks like against a
@@ -546,9 +544,6 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 @media (prefers-reduced-motion: reduce){
   .screen,.screen.open{transition:none}
 }
-/* Translucent, so content scrolls up *under* the title rather than being
-   clipped by a solid band -- the detail that makes a header read as chrome
-   belonging to the screen instead of a box drawn on top of it. */
 /* The bar spans the window; its *contents* do not. `calc((100% - var(--col))/2)`
    is the gutter that would centre a column of `--col`, and `max()` discards it
    below that width -- so one padding rule gives a full-bleed blurred bar on a
@@ -678,7 +673,6 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
           font-size:17px;position:relative;cursor:pointer}
 .group li + li::before{content:"";position:absolute;left:16px;right:0;top:0;
                        height:1px;background:var(--line)}
-.group li.icon + li::before,.group li + li.icon::before{left:52px}
 .group li:active{background:var(--card2)}
 .group li.sel{color:var(--accent)}
 .group .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;
@@ -833,8 +827,8 @@ html.locked{overflow:hidden;overscroll-behavior:none}
 .hour svg.wi{width:26px;height:26px;margin:2px 0 3px;display:block;
              margin-left:auto;margin-right:auto}
 .hour .hh{color:var(--faint);font-size:13px;font-variant-numeric:tabular-nums}
-/* Millimetres, only on the hours that have any. Always-present and mostly
-   empty would be a row of noise; the blank is the information. The row keeps
+/* The chance of rain where a source gives one, else millimetres. Always-
+   present and mostly empty would be a row of noise. The row keeps
    its height either way so the strip does not jump as the forecast changes. */
 /* `line-height` stated, not inherited. The body's 1.45 over 11.5px is a
    16.7px line box in a 15px-high element -- 2px of overflow, invisible on the
@@ -926,7 +920,6 @@ html.locked{overflow:hidden;overscroll-behavior:none}
    and "Загружаем погоду…" is that thing. */
 .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
     clip:rect(0 0 0 0);white-space:nowrap;border:0}
-.skel{opacity:.3}
 .boot{padding:2px 0 0}
 .boot i{display:block;border-radius:14px;
         background:linear-gradient(90deg,
@@ -1052,7 +1045,7 @@ html.locked{overflow:hidden;overscroll-behavior:none}
   <div class="navbar">
     <!-- Order matters, and not for layout: the close button is *last* in the
          DOM so it is last in the tab and VoiceOver order, matching where it
-         sits on screen. It is placed in the trailing grid column by CSS. -->
+         sits on screen. CSS positions it (see `.navbar .close`). -->
     <div class="t" id="screen-title" tabindex="-1"></div>
     <button class="close" id="close" aria-label="Закрыть">
       <svg viewBox="0 0 13 13" aria-hidden="true">

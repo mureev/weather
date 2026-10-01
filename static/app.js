@@ -177,7 +177,6 @@ const FX_OF = {
 
 let skyNow = null;
 let fxNow = null;
-let lastIcon = null;
 
 /** Deterministic star field. One that jumps around between renders is worse
  *  than no star field. */
@@ -193,7 +192,6 @@ function starField() {
 }
 
 function setSky(iconKey, night) {
-  lastIcon = iconKey;
   const kind = SKY_OF[iconKey] || 'cloudy-night';
   if (kind !== skyNow) {
     skyNow = kind;
@@ -302,7 +300,7 @@ function hourlyBlock(hours, nowcast, opts) {
     ? `<div class="nowcast">${icon('umbrella')}<span>${esc(nowcast)}</span></div>` : '';
   const list = (hours || []).slice(0, o.limit || 24).filter((h) => h.temp_c != null);
   if (list.length < 2) {
-    return summary ? `<div class="card">${summary.replace(/border-bottom[^"]*/, '')}</div>` : '';
+    return summary ? `<div class="card">${summary}</div>` : '';
   }
 
   // Column width comes from the stylesheet (--hour-w) rather than being
@@ -489,7 +487,7 @@ function render(d) {
   $('pin').style.visibility = (state.place && state.place.gps) ? '' : 'hidden';
   renderHealth(d, view);
 
-  // A ten-minute refresh landing while a detail screen is open must reach that
+  // A refresh landing while a detail screen is open must reach that
   // screen too. Otherwise the numbers behind it move and the ones in front of
   // you do not, which is the app quietly showing two different forecasts at
   // once -- and the one you are looking at is the stale one.
@@ -614,11 +612,9 @@ function useGeolocation() {
  * is wired to browser history, so pushing a history entry is what makes the
  * screen dismissable by the system gesture -- and the OS animates that itself.
  *
- * Which is why there is no touch handling here. A hand-written swipe runs
- * *in addition to* the system gesture rather than replacing it, and the app
- * navigates back twice; that bug has outlived several releases of Ionic. The
- * lesson generalises: on iOS the gesture is not ours to implement, only to
- * opt into.
+ * Which is why nothing here acts on a *horizontal* touch: a hand-written
+ * swipe runs *in addition to* the system gesture, and the app navigates back
+ * twice. The sheet's vertical drag below collides with nothing (invariant 13).
  *
  * Depth is deliberately one. Neither screen leads anywhere else, and a stack
  * that can only ever hold one thing should say so rather than carry the
@@ -804,7 +800,7 @@ function openScreen(name, arg) {
   const already = current !== null;
   const body = $('screen-body');
   // Redrawing the *same* screen must not move it. `scrollTop` is kept rather
-  // than zeroed, because this function also runs on the ten-minute refresh and
+  // than zeroed, because this function also runs on every refresh and
   // on a source switch -- and a screen that jumps to the top while you are
   // reading it is worse than one showing a stale number. A different screen
   // starts at the top, as arriving somewhere new should.
