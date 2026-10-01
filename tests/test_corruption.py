@@ -79,7 +79,7 @@ class TestWrongPlace:
         <h1>. Losing the JSON must not mean losing the safety check."""
         stripped = re.sub(r"self\.__next_f\.push\(.*?\)</script>", "</script>",
                           raw, flags=re.S)
-        doc_ident = X.identity(stripped, __import__("lxml.html", fromlist=["x"])
+        doc_ident = X.identity(__import__("lxml.html", fromlist=["x"])
                                .fromstring(stripped), "")
         assert doc_ident.h1 and "Йошкар-Ол" in doc_ident.h1
 

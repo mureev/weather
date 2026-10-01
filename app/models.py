@@ -32,12 +32,6 @@ class Status(str, Enum):  # noqa: UP042 - value goes straight to JSON
     DOWN = "down"           # nothing servable
 
 
-class Source(str, Enum):  # noqa: UP042 - value goes straight to JSON
-    YANDEX_HTML = "yandex_html"
-    OPENMETEO = "openmeteo"
-    CACHE = "cache"
-
-
 @dataclass
 class Place:
     slug: str
@@ -236,10 +230,6 @@ class Weather:
     # like everything else here, never from "the hour looks late" -- this is
     # Yoshkar-Ola, where June is light at eleven and December is dark at four.
     night: bool = False
-
-    @property
-    def view(self) -> SourceView | None:
-        return self.sources.get(self.selected)
 
     def to_dict(self) -> dict[str, Any]:
         d = prune(asdict(self))

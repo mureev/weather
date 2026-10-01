@@ -187,7 +187,7 @@ class Identity:
     lon: float | None = None
 
 
-def identity(html_text: str, doc: Any, stream: str) -> Identity:
+def identity(doc: Any, stream: str) -> Identity:
     ident = Identity()
     t = doc.xpath("//title/text()")
     ident.title = R.clean(t[0]) if t else None
@@ -297,7 +297,7 @@ def parse(html_text: str, *, today: dt.date | None = None) -> Extracted:
 
     doc = LH.fromstring(html_text)
     stream = flight(html_text)
-    out = Extracted(ident=identity(html_text, doc, stream))
+    out = Extracted(ident=identity(doc, stream))
 
     cur, prov = _current(doc, stream)
     out.current = cur

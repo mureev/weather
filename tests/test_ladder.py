@@ -96,7 +96,7 @@ class TestTierOneRemoved:
         is rejected whether or not its numbers parse -- see `DECISIONS.md` §2,
         the wrong-city failure nothing downstream can catch."""
         stripped = without_flight(current_html)
-        ident = X.identity(stripped, LH.fromstring(stripped), "")
+        ident = X.identity(LH.fromstring(stripped), "")
         assert ident.name and "ошкар" in ident.name
 
     def test_the_daily_series_survives_too(self, degraded):

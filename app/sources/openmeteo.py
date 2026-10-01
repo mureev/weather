@@ -153,7 +153,7 @@ def to_current(raw: dict[str, Any]) -> Current | None:
     )
 
 
-def to_hourly(raw: dict[str, Any], limit: int | None = None) -> list[Hour]:
+def to_hourly(raw: dict[str, Any]) -> list[Hour]:
     """Every hour the response carries, not the first day of them.
 
     There used to be a 24 here, and it was the reason the one source that can
@@ -166,7 +166,7 @@ def to_hourly(raw: dict[str, Any], limit: int | None = None) -> list[Hour]:
     times = h.get("time") or []
     offset = (raw or {}).get("utc_offset_seconds")
     out: list[Hour] = []
-    for i, t in enumerate(times if limit is None else times[:limit]):
+    for i, t in enumerate(times):
         cond, icon = _cond(_at(h, "weather_code", i))
         out.append(Hour(
             time=t,

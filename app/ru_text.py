@@ -154,18 +154,6 @@ CONDITIONS = (
     "мокрый снег", "морось", "туман", "метель", "град",
 )
 
-# Labels, for the tier-2 "labelled neighbourhood" strategy.
-LABELS = {
-    "humidity": ("влажность",),
-    "pressure": ("давление",),
-    "wind": ("ветер",),
-    "feels_like": ("ощущается как", "ощущается"),
-    "uv": ("уф-индекс", "уф индекс"),
-    "water": ("вода",),
-    "sunrise": ("восход",),
-    "sunset": ("закат",),
-}
-
 CAPTCHA_MARKERS = (
     "подтвердите, что запросы отправляли вы",
     "ой, captcha",

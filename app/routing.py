@@ -166,7 +166,3 @@ def sticky_route() -> Route | None:
     `/api/health`, which wants to say how the forecast actually got here."""
     return _sticky.get("route")
 
-
-def forget_route() -> None:
-    """Drop the remembered winner. For tests and for a manual re-probe."""
-    _sticky.pop("route", None)

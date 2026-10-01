@@ -1009,7 +1009,7 @@ class TestTheHourlyStripIsReadByColumn:
         raw = (FIXTURES / "mf-hourly.html").read_text(encoding="utf-8")
         doc = LH.fromstring(raw)
         mutate(doc)
-        hours, _, _ = G._hours(doc, G.state(raw) or {})
+        hours, _ = G._hours(doc, G.state(raw) or {})
         return {h.time: h for h in hours}
 
     def test_a_blank_temperature_costs_its_own_hour_only(self):

@@ -24,9 +24,12 @@ a page describing the wrong city is. Yandex ships that date as
 **How it is read.** Every column carries a visually-hidden sentence that names
 its own fields -- «днём: +18°, небольшой дождь, Ощущается как 18.» -- which is
 the tier-2 mechanism the main Yandex parser already leans on, and the reason a
-redesign here degrades rather than lies. The icon comes from Yandex's own sprite
-code (`style="--icon:6"`), which encodes day and night, with the condition words
-as the fallback.
+redesign here degrades rather than lies. The icon comes from the condition
+words, as on the main page's hourly strip and day cards: the cell also carries
+a sprite code (`style="--icon:6"`), but that is an offset into Yandex's own
+stylesheet and means nothing without it (`ru_text`, above its icon table, says
+why that stylesheet is never loaded). Day or night is decided later, by the
+sun.
 """
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ from lxml import html as LH
 
 from .. import ru_text as R
 from ..config import settings
-from ..models import Day, Hour, ParseError, Place, Tier
+from ..models import Day, Hour, ParseError, Place
 from . import yandex_html
 
 log = logging.getLogger(__name__)
@@ -188,9 +191,7 @@ def _fill(hour: Hour, cols: dict[str, list[Any]], i: int) -> None:
         hour.condition = R.condition(rest)
         if hour.condition:
             hour.condition = R.sentence(hour.condition)
-        icon = temp.xpath('.//*[contains(@class,"weatherIcon")]/@style')
-        hour.icon = (R.icon_from_yandex(icon[0]) if icon else None) \
-            or R.icon_key(hour.condition)
+        hour.icon = R.icon_key(hour.condition)
         prob = temp.xpath('.//*[contains(@class,"precProbability")]')
         if prob:
             hour.precip_prob = R.humidity_pct(prob[0].text_content())
@@ -236,15 +237,3 @@ def _astronomy(doc: Any, day: Day) -> None:
                 day.sunset = value
             elif low.startswith("световой") and not day.daylight:
                 day.daylight = value
-
-
-def provenance() -> dict[str, int]:
-    """Flat, and honestly so: everything here comes from the same rung.
-
-    The columns are found by their block headings and read from self-labelling
-    accessibility prose -- tier 2 throughout. There is no embedded JSON on this
-    page to fall back from, and no shape-classified reading to fall back to, so
-    a redesign takes the whole page rather than degrading it. That is worth
-    saying in `/api/health` rather than implying a ladder that is not there.
-    """
-    return {"day_detail": int(Tier.LABELLED)}

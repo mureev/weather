@@ -13,7 +13,7 @@ from itertools import pairwise
 import pytest
 
 from app import cities
-from app.models import ParseError, Tier
+from app.models import ParseError
 from app.sources import yandex_day as YD
 
 # What the recorded page is actually about, not when it was fetched.
@@ -128,10 +128,3 @@ class TestTheAstronomy:
         assert day.sunset == "19:48"
         assert day.daylight == "15 ч 48 мин"
 
-
-class TestItIsHonestAboutHavingNoLadder:
-    def test_provenance_says_tier_two_and_means_it(self):
-        """There is no embedded JSON on this page to fall back from and no
-        shape-classified reading to fall back to. Reporting a ladder that does
-        not exist would be worse than reporting one rung."""
-        assert YD.provenance() == {"day_detail": int(Tier.LABELLED)}

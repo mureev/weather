@@ -170,12 +170,6 @@ class Settings:
         return self.upstream_proxy or None
 
     @property
-    def gismeteo_proxies(self) -> str | None:
-        """The first configured proxy. For callers that want just one."""
-        egress = self.gismeteo_egress
-        return egress[0] if egress and egress[0] else None
-
-    @property
     def gismeteo_egress(self) -> tuple[str | None, ...]:
         """Every way *out* to Gismeteo, in the order they should be tried.
 

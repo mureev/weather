@@ -311,7 +311,7 @@ def parse(html_text: str, *, days_html: str | None = None,
     out.current = cur
     out.provenance.update(prov)
 
-    out.hourly, hprov, _hour_at = _hours(doc, st)
+    out.hourly, hprov = _hours(doc, st)
     out.provenance.update(hprov)
 
     if hourly_html:
@@ -319,7 +319,7 @@ def parse(html_text: str, *, days_html: str | None = None,
         # dedicated one blindly: if /hourly/ ever redesigns out from under the
         # parser, the landing page's three-hourly strip is still a forecast,
         # and silently serving nothing would be the worse outcome.
-        fine, fprov, _fine_at = _hours(LH.fromstring(hourly_html), st)
+        fine, fprov = _hours(LH.fromstring(hourly_html), st)
         if len(fine) > len(out.hourly):
             out.hourly = fine
             out.provenance.update(fprov)
@@ -549,10 +549,6 @@ def _now_column(doc: Any) -> tuple[int | None, int | None]:
     it is not «now» just because it is the last thing there.
     """
     stamps = doc.xpath(_TOKEN.format(cls="current-time") + "/@timestamp")
-    if not stamps:
-        stamps = doc.xpath('//time-value[contains(concat(" ",'
-                           ' normalize-space(@class), " "), " current-time ")]'
-                           "/@timestamp")
     now = R.to_float(stamps[0]) if stamps else None
     if now is None:
         return None, None
@@ -619,7 +615,7 @@ def _tz_offset_min(st: dict) -> int:
     return int(tz) if isinstance(tz, int) else 180        # MSK
 
 
-def _hours(doc: Any, st: dict) -> tuple[list[Hour], dict[str, int], list[int]]:
+def _hours(doc: Any, st: dict) -> tuple[list[Hour], dict[str, int]]:
     """Hourly, from `<time-value timestamp>` plus the chart's typed values.
 
     Times are rendered from the *city's* UTC offset, not the server's clock --
@@ -629,7 +625,7 @@ def _hours(doc: Any, st: dict) -> tuple[list[Hour], dict[str, int], list[int]]:
                        '//time-value[@timestamp]')
     chart = _temperature_chart(doc)
     if not stamps or chart is None:
-        return [], {"hourly": int(Tier.ABSENT)}, []
+        return [], {"hourly": int(Tier.ABSENT)}
 
     # Per column container, like the daily rows: a flat list of typed values
     # with one cell empty is one short, and every later hour takes its
@@ -641,7 +637,6 @@ def _hours(doc: Any, st: dict) -> tuple[list[Hour], dict[str, int], list[int]]:
 
     offset = dt.timezone(dt.timedelta(minutes=_tz_offset_min(st)))
     out: list[Hour] = []
-    at: list[int] = []          # the epoch behind each kept column, in step
     seen: set[str] = set()
     for i, tv in enumerate(stamps):
         try:
@@ -657,10 +652,9 @@ def _hours(doc: Any, st: dict) -> tuple[list[Hour], dict[str, int], list[int]]:
                         precip_mm=precip[i] if i < len(precip) else None,
                         condition=R.sentence(tip) if tip else None,
                         icon=R.icon_key(tip) if tip else None))
-        at.append(ts)
     if not out:
-        return [], {"hourly": int(Tier.ABSENT)}, []
-    return out, {"hourly": int(Tier.LABELLED)}, at
+        return [], {"hourly": int(Tier.ABSENT)}
+    return out, {"hourly": int(Tier.LABELLED)}
 
 
 # Matching a class by *token* rather than by substring. `contains(@class,
