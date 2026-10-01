@@ -58,6 +58,13 @@ def _fixture_now() -> dt.datetime:
 
 
 FIXTURE_NOW = _fixture_now()
+# The README's shots open on the Yandex tab, and the Yandex set was recorded
+# the morning *after* the Gismeteo one this pins to (AGENTS.md, "Where this
+# was left"). Shot at 21:15 on the 14th, that tab's list began «Завтра», no
+# hour said «сейчас», and today's range was missing. `PHONE_AT` shoots at
+# another instant: `PHONE_AT=2026-08-15T04:05:00+00:00` is Yandex's morning.
+if os.environ.get("PHONE_AT"):
+    FIXTURE_NOW = dt.datetime.fromisoformat(os.environ["PHONE_AT"])
 FIXTURE_DAY = FIXTURE_NOW.astimezone(zone(cities.get("yoshkar-ola").tz)).date()
 
 # iPhone 15 Pro, measured on the device by `static/debug.js`.
@@ -111,7 +118,7 @@ async def shoot(pg, name: str, strip: str):
 
 async def main(port=8097, mode="ok"):
     env = dict(os.environ, YW_MOCK=mode, PORT=str(port),
-               YW_TODAY=FIXTURE_DAY.isoformat())
+               YW_TODAY=FIXTURE_DAY.isoformat(), YW_NOW=FIXTURE_NOW.isoformat())
     srv = subprocess.Popen([sys.executable, "-m", "tests.mock_server"], env=env,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(3.5)

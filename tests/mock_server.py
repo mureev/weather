@@ -134,7 +134,16 @@ if os.environ.get("YW_TODAY"):
     from app import sun as _sun
     _real_now = _sun.local_now
 
+    # `YW_NOW` pins the instant, not only the day. Pinning the day alone kept
+    # the machine's time of day, so the night flag -- and with it the sky in
+    # the README's screenshots -- depended on when somebody ran the harness,
+    # while the browser beside it was frozen at the fixtures' 21:15 (§28).
+    _at = (dt.datetime.fromisoformat(os.environ["YW_NOW"])
+           if os.environ.get("YW_NOW") else None)
+
     def _pinned_now(tz: str) -> dt.datetime:
+        if _at is not None:
+            return _at.astimezone(_sun.zone(tz))
         now = _real_now(tz)
         return now.replace(year=TODAY.year, month=TODAY.month, day=TODAY.day)
 
