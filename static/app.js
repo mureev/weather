@@ -447,8 +447,8 @@ function render(d) {
   // The day whose date *is* today, not whichever day the source listed first.
   // The hero's high/low and the sunrise below it are statements about today,
   // and a source whose ten days begin tomorrow would otherwise have made them
-  // quietly about tomorrow instead.
-  const today = dayOn(view, cityToday()) || (view.daily && view.daily[0]) || null;
+  // quietly about tomorrow instead. No `|| daily[0]`: that did it anyway.
+  const today = dayOn(view, cityToday());
   const range = today && today.temp_max_c != null
     ? `<span class="hi">${fmtT(today.temp_max_c)}</span>`
       + ` / <span class="lo">${fmtT(today.temp_min_c)}</span>`
