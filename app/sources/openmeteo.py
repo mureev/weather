@@ -22,6 +22,7 @@ import httpx
 
 from ..config import settings
 from ..models import Current, Day, Hour, Place
+from ..ru_text import wind_dir_from_bearing
 
 log = logging.getLogger(__name__)
 
@@ -60,16 +61,6 @@ _DAILY = (
     "wind_speed_10m_max,wind_direction_10m_dominant,"
     "uv_index_max,sunrise,sunset,daylight_duration"
 )
-
-_DIRS = ("северный", "северо-восточный", "восточный", "юго-восточный",
-         "южный", "юго-западный", "западный", "северо-западный")
-
-
-def _bearing_to_ru(deg: float | None) -> str | None:
-    if deg is None:
-        return None
-    return _DIRS[int((float(deg) + 22.5) % 360 // 45)]
-
 
 def _cond(code: Any) -> tuple[str | None, str | None]:
     try:
@@ -147,7 +138,7 @@ def to_current(raw: dict[str, Any]) -> Current | None:
         humidity_pct=_num(c.get("relative_humidity_2m")),
         pressure_mmhg=round(hpa * 0.750062, 1) if isinstance(hpa, (int, float)) else None,
         wind_ms=_num(c.get("wind_speed_10m")),
-        wind_dir=_bearing_to_ru(c.get("wind_direction_10m")),
+        wind_dir=wind_dir_from_bearing(c.get("wind_direction_10m")),
         observed_at=c.get("time"),
         observed_epoch=_epoch(c.get("time"), (raw or {}).get("utc_offset_seconds")),
     )
@@ -198,7 +189,7 @@ def to_daily(raw: dict[str, Any]) -> list[Day]:
             feels_min_c=_num(_at(d, "apparent_temperature_min", i)),
             feels_max_c=_num(_at(d, "apparent_temperature_max", i)),
             wind_ms=_num(_at(d, "wind_speed_10m_max", i)),
-            wind_dir=_bearing_to_ru(_at(d, "wind_direction_10m_dominant", i)),
+            wind_dir=wind_dir_from_bearing(_at(d, "wind_direction_10m_dominant", i)),
             uv_index=_num(_at(d, "uv_index_max", i)),
             sunrise=_clock(_at(d, "sunrise", i)),
             sunset=_clock(_at(d, "sunset", i)),

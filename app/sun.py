@@ -139,20 +139,18 @@ def nightify(icon: str | None, night: bool) -> str | None:
     return f"{base}-night" if night else base
 
 
-def local_now(tz: str) -> dt.datetime:
-    try:
-        from zoneinfo import ZoneInfo
-        return dt.datetime.now(ZoneInfo(tz))
-    except Exception:                                   # pragma: no cover
-        return dt.datetime.now(dt.UTC)
-
-
 def zone(tz: str) -> dt.tzinfo:
+    """The named zone, or UTC when the name is not one. The one place a zone
+    name becomes a `tzinfo`; `series.py` and `service.py` import it from here."""
     try:
         from zoneinfo import ZoneInfo
         return ZoneInfo(tz)
     except Exception:                                   # pragma: no cover
         return dt.UTC
+
+
+def local_now(tz: str) -> dt.datetime:
+    return dt.datetime.now(zone(tz))
 
 
 def hour_times(times: list[str], tz: str,

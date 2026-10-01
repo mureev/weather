@@ -281,16 +281,6 @@ def _col(cw: dict, key: str, i: int = 0) -> float | None:
     return None
 
 
-_DIRS = ("северный", "северо-восточный", "восточный", "юго-восточный",
-         "южный", "юго-западный", "западный", "северо-западный")
-
-
-def _bearing_to_ru(deg: float | None) -> str | None:
-    if deg is None:
-        return None
-    return _DIRS[int((float(deg) + 22.5) % 360 // 45)]
-
-
 # --- parsing ---------------------------------------------------------------
 
 def parse(html_text: str, *, days_html: str | None = None,
@@ -414,7 +404,7 @@ def _current(doc: Any, st: dict) -> tuple[Current | None, dict[str, int]]:
                 prov[attr] = int(Tier.NAMED)
         bearing = _col(cw, "windDirection")
         if bearing is not None:
-            cur.wind_dir = _bearing_to_ru(bearing)
+            cur.wind_dir = R.wind_dir_from_bearing(bearing)
             prov["wind_dir"] = int(Tier.NAMED)
 
     # When the observation was taken. Load-bearing, not decoration: the

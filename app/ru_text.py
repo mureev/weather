@@ -112,6 +112,21 @@ WIND_DIRS = {
     "ЮВ": "юго-восточный", "Ю": "южный", "ЮЗ": "юго-западный",
     "З": "западный", "СЗ": "северо-западный", "Ш": "штиль",
 }
+# The eight long forms, clockwise from north. Every source is normalised to
+# these words whatever it ships -- an enum from Yandex, an abbreviation from
+# Gismeteo's grid, a bearing in degrees from Gismeteo's state blob and from
+# Open-Meteo -- so the client keeps one vocabulary instead of three.
+COMPASS = ("северный", "северо-восточный", "восточный", "юго-восточный",
+           "южный", "юго-западный", "западный", "северо-западный")
+
+
+def wind_dir_from_bearing(deg: float | None) -> str | None:
+    """A bearing in degrees, as the long form of the eighth it falls in."""
+    if deg is None:
+        return None
+    return COMPASS[int((float(deg) + 22.5) % 360 // 45)]
+
+
 WIND_DIR_RE = re.compile(r"(?<![А-Яа-яЁё])(СЗ|СВ|ЮЗ|ЮВ|С|Ю|В|З)(?![А-Яа-яЁё])")
 
 DAY_PART_CANON = {

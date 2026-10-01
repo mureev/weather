@@ -25,7 +25,7 @@ from itertools import pairwise
 import lxml.html as LH
 import pytest
 
-from app import cities
+from app import cities, ru_text
 from app.models import ParseError, Tier
 from app.sources import gismeteo as G
 
@@ -446,7 +446,7 @@ class TestTheMetricRows:
         dirs = [d.wind_dir for d in mf.daily if d.wind_dir]
         assert dirs, "no wind direction survived at all"
         for got in dirs:
-            assert got in G._DIRS or got == "штиль", (
+            assert got in ru_text.COMPASS or got == "штиль", (
                 f"{got!r} is not one of the eight long Russian forms -- an "
                 f"abbreviation reaching the client means three lookup tables "
                 f"on the front end instead of one")

@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime as dt
 
 from .models import Hour
+from .sun import zone
 
 
 def covering(hours: list[Hour], when: int | None,
@@ -67,14 +68,6 @@ def label_hour(text: str | None) -> int | None:
         return int(t[11:13]) if "T" in t else int(t.split(":")[0])
     except (ValueError, IndexError):
         return None
-
-
-def zone(tz: str) -> dt.tzinfo:
-    try:
-        from zoneinfo import ZoneInfo
-        return ZoneInfo(tz)
-    except Exception:                                    # pragma: no cover
-        return dt.UTC
 
 
 def align_to_now(hours: list[Hour], current, when: int | None,
