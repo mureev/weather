@@ -1207,13 +1207,10 @@ SCREENS.day = (date) => {
 
 function boot() {
   // Paint whatever we had last, immediately, before any network happens.
-  try {
-    const cached = localStorage.getItem(LS.payload);
-    const place = localStorage.getItem(LS.place);
-    if (place) state.place = JSON.parse(place);
-    state.source = localStorage.getItem(LS.source) || null;
-    if (cached) { state.data = JSON.parse(cached); render(state.data); }
-  } catch (e) { /* ignore */ }
+  const get = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+  state.place = get(LS.place);
+  try { state.source = localStorage.getItem(LS.source); } catch (e) { /* blocked */ }
+  try { if ((state.data = get(LS.payload))) render(state.data); } catch (e) { /* ignore */ }
 
   loadCities();
   load(state.place);
