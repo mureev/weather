@@ -1023,9 +1023,8 @@ function partsBlock(day) {
         bits.push('штиль');
       }
       if (p.precip_mm) bits.push(num(p.precip_mm) + ' мм');
-      // Labelled: a bare "91%" under «Небольшой дождь» reads as the chance of it.
-      if (p.humidity_pct != null) bits.push('влажность ' + Math.round(p.humidity_pct) + '%');
-      if (p.pressure_mmhg != null) bits.push(Math.round(p.pressure_mmhg) + ' мм рт. ст.');
+      // No humidity or pressure: a bare "91%" under «Небольшой дождь» read as
+      // its chance, and 744/745/745/745 says nothing about a morning.
       const feels = p.feels_like_c != null
         && Math.round(p.feels_like_c) !== Math.round(p.temp_c)
         ? `ощущается ${fmtT(p.feels_like_c)}` : '';
