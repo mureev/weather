@@ -516,8 +516,9 @@ function renderHealth(d, view) {
   const msgs = (h.warnings || []).concat((view && view.warnings) || []).slice(0, 4);
   if (msgs.length) {
     notes.className = 'notes show';
-    notes.innerHTML = `<b>Что не так</b><ul>` +
-      msgs.map((m) => `<li>${esc(m)}</li>`).join('') + `</ul>`;
+    // Folded, since these lines are for the maintainer; open with no forecast.
+    notes.innerHTML = `<details${view ? '' : ' open'}><summary>Что не так · ${msgs.length}`
+      + `</summary><ul>${msgs.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></details>`;
   } else {
     notes.className = 'notes';
     notes.innerHTML = '';
