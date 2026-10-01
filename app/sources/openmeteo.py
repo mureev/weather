@@ -86,7 +86,12 @@ async def fetch(client: httpx.AsyncClient, place: Place) -> dict[str, Any] | Non
         "current": _CURRENT,
         "hourly": _HOURLY,
         "daily": _DAILY,
-        "timezone": place.tz,
+        # A GPS fix or a searched place has no zone of its own -- `ad_hoc`
+        # places are born "Europe/Moscow" -- so ask Open-Meteo to resolve it,
+        # and the service adopts the answer. Otherwise Novosibirsk's days were
+        # Moscow's days, its sunrise was printed in Moscow time, and the
+        # client's «сейчас» column was four hours out.
+        "timezone": "auto" if place.ad_hoc else place.tz,
         "wind_speed_unit": "ms",
         "forecast_days": 10,
         # No `forecast_hours`. It was capping the hourly array at 24 entries,

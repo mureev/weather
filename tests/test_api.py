@@ -136,6 +136,31 @@ class TestWeatherEndpoint:
         assert r.status_code == 200
         assert r.json()["sources"]["yandex"]["current"]["temp_c"] == NOW_C
 
+    def test_a_gps_fix_gets_its_own_time_zone(self, client_, monkeypatch):
+        """Every ad-hoc place used to be "Europe/Moscow": the client's «сейчас»
+        and «сегодня» follow `place.tz`, so Novosibirsk was four hours out."""
+        async def om(_c, _place):
+            return {"timezone": "Asia/Novosibirsk", "utc_offset_seconds": 25200,
+                    "current": {"time": "2026-07-31T22:00", "temperature_2m": 9.0}}
+
+        monkeypatch.setattr(openmeteo, "fetch", om)
+        d = client_.get("/weather/api/weather?lat=55.03&lon=82.92").json()
+        assert d["place"]["tz"] == "Asia/Novosibirsk"
+
+    def test_open_meteo_is_asked_to_resolve_the_zone(self):
+        import asyncio
+
+        from app import cities
+        seen: dict = {}
+
+        class Recorder:
+            async def get(self, _url, params=None, timeout=None):
+                seen.update(params)
+                raise RuntimeError("offline")
+
+        asyncio.run(openmeteo.fetch(Recorder(), cities.ad_hoc(55.03, 82.92)))
+        assert seen["timezone"] == "auto"
+
     def test_coordinates_out_of_range_are_refused(self, client_):
         assert client_.get("/weather/api/weather?lat=999&lon=0").status_code == 400
 

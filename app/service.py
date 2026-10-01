@@ -38,6 +38,7 @@ import datetime as dt
 import logging
 import time
 import weakref
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -222,6 +223,12 @@ async def _build(place: Place, key: str) -> Weather:
     weather = Weather(place=place, fetched_at=now.isoformat(timespec="seconds"),
                       health=Health())
 
+    # Likewise its zone: asked for with `timezone=auto`, read back here, before
+    # anything below interprets an hour label against it.
+    resolved = (om_raw or {}).get("timezone") if place.ad_hoc else None
+    if isinstance(resolved, str) and _known_zone(resolved):
+        place.tz = resolved
+
     # The place a source actually resolved is a better label than the one we
     # guessed -- particularly for a GPS fix, where we had no name at all.
     if ya[0] is not None and ya[0].ident.name and (place.ad_hoc or not place.name):
@@ -260,6 +267,14 @@ async def _build(place: Place, key: str) -> Weather:
 
     _cache.put(key, weather)
     return weather
+
+
+def _known_zone(name: str) -> bool:
+    try:
+        ZoneInfo(name)
+    except Exception:
+        return False
+    return True
 
 
 # --- per-source assembly ---------------------------------------------------
