@@ -626,11 +626,12 @@ def _hours(doc: Any, st: dict) -> tuple[list[Hour], dict[str, int], list[int]]:
     if not stamps or chart is None:
         return [], {"hourly": int(Tier.ABSENT)}, []
 
-    temps = [R.to_float(tv.get("value") or "")
-             for tv in chart.xpath(".//temperature-value[@value]")]
-    tips = [R.clean(n.get("data-tooltip") or "") for n in
-            doc.xpath(_TOKEN.format(cls="widget-row-icon")
-                      + "//*[@data-tooltip]")]
+    # Per column container, like the daily rows: a flat list of typed values
+    # with one cell empty is one short, and every later hour takes its
+    # neighbour's temperature -- in range, smooth, and attached to the wrong
+    # hour. `_cells` is the reading that stays aligned.
+    temps = [_cell_value(c) for c in _cells(chart)]
+    tips = _tips(doc)
     precip = _precip_mm(doc)
 
     offset = dt.timezone(dt.timedelta(minutes=_tz_offset_min(st)))
@@ -663,6 +664,19 @@ def _hours(doc: Any, st: dict) -> tuple[list[Hour], dict[str, int], list[int]]:
 # contains "облачно". On the landing page the snow row carries no tooltips so
 # nothing broke; on a page where it does, every icon in the strip shifts.
 _TOKEN = '//*[contains(concat(" ", normalize-space(@class), " "), " {cls} ")]'
+
+
+def _tips(doc: Any) -> list[str | None]:
+    """Each icon column's condition tooltip, one entry per column."""
+    rows = doc.xpath(_TOKEN.format(cls="widget-row-icon"))
+    out: list[str | None] = []
+    for cell in _cells(rows[0]) if rows else []:
+        tip = cell.get("data-tooltip")
+        if tip is None:
+            got = cell.xpath(".//@data-tooltip")
+            tip = got[0] if got else ""
+        out.append(R.clean(tip) or None)
+    return out
 
 
 def _precip_mm(doc: Any) -> list[float | None]:
@@ -860,9 +874,7 @@ def _days(doc: Any, *, today: dt.date) -> tuple[list[Day], dict[str, int]]:
     dates = [R.clean(x.text_content()) for x in
              doc.xpath('//*[contains(@class,"widget-row-date")]'
                        '//*[contains(@class,"row-item")]')]
-    tips = [R.clean(n.get("data-tooltip") or "") for n in
-            doc.xpath(_TOKEN.format(cls="widget-row-icon")
-                      + "//*[@data-tooltip]")]
+    tips = _tips(doc)
     prov: dict[str, int] = {}
     highs = _row_values(doc, "temp", "maxt", prov)
     lows = _row_values(doc, "temp", "mint")
@@ -944,8 +956,7 @@ def _parts(doc: Any, *, today: dt.date) -> tuple[dict[str, list[DayPart]],
     if not dates or not names or len(names) != len(dates) * len(_PART_NAMES):
         return {}, {"parts": int(Tier.ABSENT)}
 
-    tips = [R.clean(n.get("data-tooltip") or "") for n in
-            doc.xpath(_TOKEN.format(cls="widget-row-icon") + "//*[@data-tooltip]")]
+    tips = _tips(doc)
     metrics = {attr: _row_values(doc, row, None, prov)
                for attr, row in _PART_FIELDS}
     dirs_row, _ = _find_row(doc, "wind_dir")

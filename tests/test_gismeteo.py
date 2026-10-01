@@ -993,3 +993,38 @@ class TestWhatTheStateBlobTookWithIt:
         assert mf.current.temp_c == pytest.approx(
             max(h.temp_c for h in mf.hourly[:2]), abs=3.0), (
             "the headline disagrees with the hours either side of it")
+
+
+class TestTheHourlyStripIsReadByColumn:
+    """The ten-day rows were already read as containers (`_cells`), because a
+    row missing one value shifts every later day onto its neighbour. The
+    hourly strip read its temperatures and tooltips as flat lists, which is
+    the same trap one page over."""
+
+    def _hours(self, mutate):
+        raw = (FIXTURES / "mf-hourly.html").read_text(encoding="utf-8")
+        doc = LH.fromstring(raw)
+        mutate(doc)
+        hours, _, _ = G._hours(doc, G.state(raw) or {})
+        return {h.time: h for h in hours}
+
+    def test_a_blank_temperature_costs_its_own_hour_only(self):
+        good = self._hours(lambda d: None)
+
+        def blank(doc):
+            tv = G._temperature_chart(doc).xpath(".//temperature-value")[9]
+            tv.getparent().remove(tv)
+
+        bad = self._hours(blank)
+        assert len(bad) == len(good) - 1
+        assert all(bad[t].temp_c == good[t].temp_c for t in bad)
+
+    def test_a_missing_tooltip_costs_its_own_hour_only(self):
+        good = self._hours(lambda d: None)
+
+        def strip(doc):
+            cell = G._cells(doc.xpath(G._TOKEN.format(cls="widget-row-icon"))[0])[9]
+            del cell.attrib["data-tooltip"]
+
+        bad = self._hours(strip)
+        assert sum(bad[t].condition != good[t].condition for t in bad) == 1
