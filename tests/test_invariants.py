@@ -626,3 +626,4 @@ class TestThePrivacyPromiseIsStructural:
         for smell in ("gtag", "analytics", "sentry", "datadog", "mixpanel",
                       "googletagmanager", "hotjar", "beacon("):
             assert smell not in blob, f"the shell mentions {smell!r}"
+

@@ -143,3 +143,27 @@ class TestCaptcha:
 
     def test_normal_page_is_not_a_captcha(self):
         assert not R.looks_like_captcha("<html>Погода в Йошкар-Оле +16°</html>")
+
+
+class TestLatin:
+    """Names nobody spelled for us, for the English screen: a GPS fix named by
+    Yandex's locality, a hand-added city. Russian places, for which the
+    transliteration is the English name. The six built-in cities do not come
+    through here -- «Москва» is Moscow, which no table would produce."""
+
+    @pytest.mark.parametrize("ru, en", [
+        ("Йошкар-Ола", "Yoshkar-Ola"),
+        ("Козьмодемьянск", "Kozmodemyansk"),     # the soft sign is silent
+        ("Ростов-на-Дону", "Rostov-na-Donu"),    # case kept letter by letter
+        ("Елабуга", "Yelabuga"),                 # е starting a word is ye
+        ("Подъездной", "Podyezdnoy"),            # ...and after a hard sign
+        ("Королёв", "Korolyov"),
+        ("Щёлково", "Shchyolkovo"),
+        ("Хабаровск", "Khabarovsk"),
+    ])
+    def test_a_russian_name_reads_as_its_english_one(self, ru, en):
+        assert R.latin(ru) == en
+
+    def test_what_is_not_cyrillic_is_left_alone(self):
+        assert R.latin("56.63, 47.90") == "56.63, 47.90"
+        assert R.latin(None) is None

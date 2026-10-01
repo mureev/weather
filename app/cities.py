@@ -18,17 +18,21 @@ import re
 
 from .config import settings
 from .models import Place
+from .ru_text import latin
 
 log = logging.getLogger(__name__)
 
-# slug, Russian name, lat, lon, yandex slug
-_BUILTIN: tuple[tuple[str, str, float, float, str], ...] = (
-    ("yoshkar-ola", "Йошкар-Ола", 56.6344, 47.8999, "yoshkar-ola"),
-    ("cheboksary", "Чебоксары", 56.1439, 47.2489, "cheboksary"),
-    ("kazan", "Казань", 55.7963, 49.1064, "kazan"),
-    ("nizhny-novgorod", "Нижний Новгород", 56.3269, 44.0059, "nizhniy-novgorod"),
-    ("moscow", "Москва", 55.7558, 37.6173, "moscow"),
-    ("saint-petersburg", "Санкт-Петербург", 59.9311, 30.3609, "sankt-peterburg"),
+# slug, Russian name, lat, lon, yandex slug, English name. The English names
+# are the ones English speakers use -- Moscow, not the transliterated Moskva.
+_BUILTIN: tuple[tuple[str, str, float, float, str, str], ...] = (
+    ("yoshkar-ola", "Йошкар-Ола", 56.6344, 47.8999, "yoshkar-ola", "Yoshkar-Ola"),
+    ("cheboksary", "Чебоксары", 56.1439, 47.2489, "cheboksary", "Cheboksary"),
+    ("kazan", "Казань", 55.7963, 49.1064, "kazan", "Kazan"),
+    ("nizhny-novgorod", "Нижний Новгород", 56.3269, 44.0059, "nizhniy-novgorod",
+     "Nizhny Novgorod"),
+    ("moscow", "Москва", 55.7558, 37.6173, "moscow", "Moscow"),
+    ("saint-petersburg", "Санкт-Петербург", 59.9311, 30.3609, "sankt-peterburg",
+     "Saint Petersburg"),
 )
 
 
@@ -50,7 +54,8 @@ def _parse_extra(spec: str) -> list[Place]:
         try:
             out.append(
                 Place(slug=slug.strip(), name=name.strip(),
-                      lat=float(lat), lon=float(lon), yandex_slug=ys.strip() or None)
+                      lat=float(lat), lon=float(lon), yandex_slug=ys.strip() or None,
+                      name_en=latin(name.strip()))
             )
         except ValueError:
             log.warning("EXTRA_CITIES: bad coordinates in %r", raw)
@@ -58,8 +63,8 @@ def _parse_extra(spec: str) -> list[Place]:
 
 
 REGISTRY: dict[str, Place] = {
-    s: Place(slug=s, name=n, lat=la, lon=lo, yandex_slug=ys)
-    for s, n, la, lo, ys in _BUILTIN
+    s: Place(slug=s, name=n, lat=la, lon=lo, yandex_slug=ys, name_en=en)
+    for s, n, la, lo, ys, en in _BUILTIN
 }
 for _p in _parse_extra(settings.extra_cities):
     REGISTRY[_p.slug] = _p
@@ -110,6 +115,7 @@ def ad_hoc(lat: float, lon: float, name: str | None = None) -> Place:
         lon=lon,
         yandex_slug=None,
         ad_hoc=True,
+        name_en=latin(label),
     )
 
 

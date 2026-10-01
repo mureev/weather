@@ -2052,3 +2052,131 @@ class TestItWorksWithoutAFingerOrALargeScreen:
               temp_max_c: 5, temp_min_c: 1})), null).match(/<h2>([^<]*)/)[1])""")
         assert heads == ["Прогноз на 1 день", "Прогноз на 3 дня",
                          "Прогноз на 10 дней"]
+
+
+# --- the English screen ------------------------------------------------------
+
+CYRILLIC = re.compile("[А-Яа-яЁё]")
+
+
+@pytest.fixture
+def english(browser, server):
+    ctx = browser.new_context(viewport={"width": 393, "height": 852},
+                              color_scheme="dark", locale="en-US")
+    pg = _pin(ctx.new_page())
+    pg.goto(server, wait_until="networkidle")
+    pg.wait_for_selector(".hero .t", timeout=10_000)
+    yield pg
+    ctx.close()
+
+
+def _russian_left(pg, selector: str) -> list[str]:
+    """Visible lines under `selector` that still carry Cyrillic. The switch
+    back to Russian is the one line that must -- it is addressed to someone who
+    reads it."""
+    text = pg.locator(selector).inner_text()
+    return [ln for ln in text.splitlines()
+            if CYRILLIC.search(ln) and ln.strip() != "Русский"]
+
+
+class TestTheEnglishScreen:
+    """A browser that prefers English gets an English app, all of it.
+
+    The sources speak Russian, so every word on screen is either the app's own
+    (from `STR`) or a source's reading turned into English by what it *means*
+    -- the icon key for a condition, a known shape for a nowcast. The strong
+    form of "it is translated" is that no Russian is left anywhere a reader can
+    see, on every tab and every day, which is what these walk."""
+
+    def test_it_is_chosen_from_the_browser_language(self, english):
+        assert english.evaluate("document.documentElement.lang") == "en"
+        assert english.title() == "Weather"
+        assert english.locator("#city").inner_text() == "Yoshkar-Ola"
+        assert english.locator("#btn-lang").inner_text() == "Русский"
+
+    def test_no_russian_is_left_on_the_forecast_of_any_source(self, english):
+        for src in english.locator(".srcs .src:not([disabled])").all():
+            src.click()
+            english.wait_for_timeout(150)
+            left = _russian_left(english, ".wrap")
+            assert not left, f"{src.get_attribute('data-src')}: {left}"
+
+    def test_no_russian_is_left_on_any_day_of_any_source(self, english):
+        n = english.locator(".day").count()
+        assert n >= 5
+        for i in range(n):
+            english.locator(".day").nth(i).click()
+            english.wait_for_timeout(500)
+            for src in english.locator("#screen .src:not([disabled])").all():
+                src.click()
+                english.wait_for_timeout(120)
+                left = _russian_left(english, "#screen")
+                assert not left, (f"day {i}, {src.get_attribute('data-src')}: "
+                                  f"{left}")
+            english.evaluate("history.back()")
+            english.wait_for_timeout(550)
+
+    def test_the_place_sheet_names_cities_as_english_speakers_do(self, english):
+        english.locator("#btn-place").click()
+        english.wait_for_timeout(500)
+        names = english.locator("#plist .group .nm").all_inner_texts()
+        assert "Moscow" in names and "Saint Petersburg" in names, names
+        assert not _russian_left(english, "#screen")
+
+    def test_a_condition_is_named_from_its_icon(self, english):
+        """«Пасмурно» reaches an English screen as what it means. The icon
+        key is the reading of the phrase the server has already checked, so
+        the word and the picture cannot disagree."""
+        icon = english.evaluate(
+            "state.data.sources[document.querySelector('.src.sel').dataset.src]"
+            ".current.icon")
+        assert english.locator(".hero .cond").inner_text() == english.evaluate(
+            f"COND[{icon!r}.replace('-night', '')]")
+
+    def test_the_switch_changes_the_language_and_it_stays_changed(self, english):
+        english.locator("#btn-lang").click()
+        english.wait_for_load_state("networkidle")
+        english.wait_for_selector(".hero .t")
+        assert english.evaluate("document.documentElement.lang") == "ru"
+        assert english.locator("#city").inner_text() == "Йошкар-Ола"
+        assert english.evaluate("localStorage.getItem('yw.lang')") == "ru"
+        english.reload(wait_until="networkidle")
+        assert english.evaluate("document.documentElement.lang") == "ru"
+
+    def test_a_link_can_ask_for_a_language(self, page, server):
+        """`?lang=en` opens in English on a Russian phone -- a link to send
+        someone -- and is remembered like the switch."""
+        page.goto(server + "?lang=en", wait_until="networkidle")
+        page.wait_for_selector(".hero .t")
+        assert page.evaluate("document.documentElement.lang") == "en"
+        assert page.locator("#city").inner_text() == "Yoshkar-Ola"
+
+    def test_a_language_that_is_neither_gets_english(self, browser, server):
+        ctx = browser.new_context(locale="de-DE")
+        pg = _pin(ctx.new_page())
+        pg.goto(server, wait_until="networkidle")
+        assert pg.evaluate("LANG") == "en"
+        ctx.close()
+
+    def test_the_installed_app_would_be_called_weather(self, english):
+        href = english.evaluate(
+            "document.querySelector('link[rel=manifest]').getAttribute('href')")
+        assert href.endswith("?lang=en")
+        assert english.evaluate(
+            "document.querySelector('meta[name=apple-mobile-web-app-title]')"
+            ".content") == "Weather"
+
+    def test_every_string_is_written_in_both_languages(self, english):
+        """`STR` is every word the interface says, as `key: ['русский',
+        'English']`. A key used and never defined renders as its own name, and
+        an entry missing a language renders `undefined`; both are read back
+        from the running page rather than trusted to the eye."""
+        bad = english.evaluate("""Object.entries(STR).filter(([k, v]) =>
+            !(Array.isArray(v) && v.length === 2
+              && v.every((x) => typeof x === 'string' && x.trim()))).map(([k]) => k)""")
+        assert not bad, f"entries without both languages: {bad}"
+        js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        used = set(re.findall(r"\btf?\('(\w+)'\s*[,)]", js))
+        assert len(used) > 40, "found too few t('...') calls: the pattern is stale"
+        defined = set(english.evaluate("Object.keys(STR)"))
+        assert used <= defined, f"t() keys with no entry: {sorted(used - defined)}"

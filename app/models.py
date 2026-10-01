@@ -48,6 +48,9 @@ class Place:
     tz: str = "Europe/Moscow"
     # True when this place came from a GPS fix rather than the registry.
     ad_hoc: bool = False
+    # For the English interface: "Yoshkar-Ola". Spelled by hand for the
+    # registry, by the geocoder for a search hit, else `ru_text.latin(name)`.
+    name_en: str | None = None
 
     @property
     def path(self) -> str | None:

@@ -47,6 +47,7 @@ from .config import settings
 from .http import client
 from .models import Day, Health, ParseError, Place, SourceView, Status, Weather
 from .routing import fetch_gismeteo, label_route, sticky_route
+from .ru_text import latin
 from .series import align_to_now
 from .sources import openmeteo, yandex_day, yandex_html
 from .sun import hour_times, is_night, local_now, nightify, zone
@@ -235,6 +236,7 @@ async def _build(place: Place, key: str) -> Weather:
     # guessed -- particularly for a GPS fix, where we had no name at all.
     if ya[0] is not None and ya[0].ident.name and (place.ad_hoc or not place.name):
         place.name = ya[0].ident.name
+        place.name_en = latin(place.name)
     weather.place = place
 
     weather.sources["yandex"] = _safely(

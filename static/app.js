@@ -63,8 +63,124 @@ const STR = {
   close: ['Закрыть', 'Close'],
   gps: ['по геолокации', 'by location'],
   otherLang: ['English', 'Русский'],
+  today: ['Сегодня', 'Today'],
+  tomorrow: ['Завтра', 'Tomorrow'],
+  now: ['сейчас', 'now'],
+  updatedAt: ['обновлено в %1', 'updated at %1'],
+  minAgo: ['%1 мин назад · %2', '%1 min ago · %2'],
+  hAgo: ['%1 ч назад · %2', '%1 h ago · %2'],
+  noData: ['нет данных', 'no data'],
+  hourly: ['По часам', 'Hourly'],
+  details: ['Подробности', 'Details'],
+  parts: ['По времени суток', 'Through the day'],
+  feelsLike: ['ощущается как %1', 'feels like %1'],
+  feels: ['ощущается %1', 'feels %1'],
+  gustsTo: ['порывы до %1', 'gusts to %1'],
+  noWeather: ['Погоду сейчас получить не удалось.', 'The weather could not be fetched just now.'],
+  degraded: ['неполные данные', 'incomplete data'],
+  stale: ['устарело', 'out of date'],
+  down: ['нет данных', 'no data'],
+  whatsWrong: ['Что не так', 'What is wrong'],
+  geoNone: ['Геолокация недоступна в этом браузере.', 'Location is not available in this browser.'],
+  geoDenied: ['Доступ к геолокации запрещён. Разрешите его в настройках Safari.',
+              'Location access is off. Allow it in Safari’s settings.'],
+  geoFail: ['Не удалось определить местоположение.', 'Could not determine your location.'],
+  place: ['Место', 'Place'],
+  search: ['Найти город…', 'Find a city…'],
+  myLoc: ['Моё местоположение', 'My location'],
+  on: ['включено', 'on'],
+  found: ['Найдено', 'Results'],
+  nothing: ['Ничего не найдено', 'Nothing found'],
+  cities: ['Города', 'Cities'],
+  wind: ['Ветер', 'Wind'],
+  humidity: ['Влажность', 'Humidity'],
+  pressure: ['Давление', 'Pressure'],
+  sunrise: ['Восход', 'Sunrise'],
+  sunset: ['Закат', 'Sunset'],
+  uv: ['УФ-индекс', 'UV index'],
+  water: ['Вода', 'Water'],
+  feelsRange: ['Ощущается как', 'Feels like'],
+  avg: ['Средняя за сутки', 'Daily mean'],
+  gusts: ['Порывы', 'Gusts'],
+  precip: ['Осадки', 'Precipitation'],
+  precipProb: ['Вероятность осадков', 'Chance of precipitation'],
+  snow: ['Снег', 'Snow'],
+  snowDepth: ['Высота снега', 'Snow depth'],
+  kp: ['Геомагнитная активность', 'Geomagnetic activity'],
+  daylight: ['Долгота дня', 'Daylight'],
+  magnetic: ['Магнитное поле', 'Magnetic field'],
+  ms: ['м/с', 'm/s'],
+  mm: ['мм', 'mm'],
+  mmHg: ['мм', 'mmHg'],
+  cm: ['см', 'cm'],
+  dayNoData: ['У источника «%1» нет данных на этот день.<br>Попробуйте другой источник выше.',
+              '%1 has nothing for this day.<br>Try another source above.'],
+  dayOnlyRange: ['Этот источник даёт на этот день только максимум и минимум.',
+                 'For this day this source gives only the high and the low.'],
 };
 const t = (k) => (STR[k] || [k, k])[EN];
+const tf = (k, ...a) => t(k).replace(/%(\d)/g, (_, i) => a[i - 1]);
+
+/* What the sources say, for an English screen. Never a translation of their
+ * prose: the condition is named from its icon key -- the one reading of the
+ * phrase that the server has already checked -- and anything else is matched
+ * against the few shapes it is known to take, or left out. */
+const COND = { 'clear': 'Clear', 'partly': 'Partly cloudy', 'cloudy': 'Cloudy',
+  'overcast': 'Overcast', 'fog': 'Fog', 'drizzle': 'Drizzle', 'rain-light': 'Light rain',
+  'rain': 'Rain', 'rain-heavy': 'Heavy rain', 'thunder': 'Thunderstorm', 'hail': 'Hail',
+  'sleet': 'Sleet', 'snow-light': 'Light snow', 'snow': 'Snow', 'snow-heavy': 'Heavy snow' };
+const cond = (x) => (!x ? '' : !EN ? x.condition || ''
+  : COND[String(x.icon || '').replace('-night', '')] || '');
+// The server's own words: reasons on a tab, parts of a day, the words a
+// source uses for a place or a field. Russian in, English out; anything not
+// listed stays as the server said it.
+const RU_EN = { 'Яндекс': 'Yandex', 'утро': 'morning', 'день': 'afternoon',
+  'вечер': 'evening', 'ночь': 'night', 'нет данных': 'no data',
+  'не прочиталось': 'unreadable', 'заблокирован': 'blocked', 'не найдено': 'not found',
+  'слишком часто': 'too many requests', 'сбой источника': 'source error',
+  'недоступен': 'unavailable', 'нет ответа': 'no answer', 'другой город': 'wrong place',
+  'нет города': 'city not covered', 'Нет сети и нет кэша': 'Offline, and nothing cached',
+  'Ни один источник не отвечает, кэш пуст': 'No source is answering, and nothing is cached',
+  'Слишком много запросов — попробуйте через минуту': 'Too many requests — try again in a minute' };
+const en = (v) => (EN && v && RU_EN[v]) || v;
+const PRECIP = { 'слабый дождь': 'Light rain', 'небольшой дождь': 'Light rain', 'дождь': 'Rain',
+  'сильный дождь': 'Heavy rain', 'ливень': 'Downpour', 'морось': 'Drizzle',
+  'слабый снег': 'Light snow', 'небольшой снег': 'Light snow', 'снег': 'Snow',
+  'сильный снег': 'Heavy snow', 'мокрый снег': 'Sleet', 'дождь со снегом': 'Rain and snow',
+  'град': 'Hail', 'гроза': 'Thunderstorm' };
+/** Yandex's nowcast, in English when it has a known shape; else nothing. */
+function nowcastText(s) {
+  if (!EN || !s) return s;
+  const x = s.replace(/\u2060/g, '').trim();
+  if (/^Сегодня осадков не ожидается$/i.test(x)) return 'No precipitation expected today';
+  const m = /^(.+?) с (\d\d?:\d\d) до (\d\d?:\d\d)$/.exec(x);
+  const what = m && PRECIP[m[1].toLowerCase()];
+  return what ? `${what}, ${m[2]}–${m[3]}` : null;
+}
+// The day's length and the magnetic field, as a source words them.
+const MAG = { 'слабая буря': 'Minor storm', 'умеренная буря': 'Moderate storm',
+  'сильная буря': 'Strong storm', 'очень сильная буря': 'Severe storm' };
+function enValue(k, v) {
+  if (!EN || !v) return v;
+  if (k === 'daylight') {
+    const m = /^(\d+)\s*ч\s*(\d+)\s*мин$/.exec(v);
+    return m ? `${m[1]} h ${m[2]} min` : null;
+  }
+  // `c` is Latin in Yandex's «cлабая»: read as the letter it looks like.
+  return MAG[v.toLowerCase().replace(/c/g, 'с')] || null;
+}
+/** A warning from the server, in English where it is one of the known ones. */
+function warnText(w) {
+  if (!EN) return w;
+  const old = /^Данные устарели на (\d+) мин — ни один источник сейчас не отвечает$/.exec(w);
+  if (old) return `Data is ${old[1]} min old — no source is answering right now`;
+  const fb = /^(.+?): все поля получены запасным способом/.exec(w);
+  if (fb) return `${en(fb[1])}: every field came from a fallback — the page has probably `
+    + 'changed. The data still agrees, but the parser needs a look.';
+  return en(w);
+}
+/** A place's name in the language on screen. */
+const placeName = (p) => (!p ? '' : EN && p.name_en || p.name || '');
 
 // `source` is the user's *preference*, remembered across cities and launches.
 // It is not necessarily what is on screen: if the preferred source has no data
@@ -83,9 +199,13 @@ const fmtT = (v) => {
 const icon = (key, cls) =>
   `<svg class="${cls || ''}" aria-hidden="true"><use href="#i-${key || 'unknown'}"></use></svg>`;
 
-const DOW = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен',
-             'окт', 'ноя', 'дек'];
+const DOW = EN ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  : ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+const MON = EN ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+                  'Oct', 'Nov', 'Dec']
+  : ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+// en-GB: day before month, and a 24-hour clock, like the Russian screen.
+const LOCALE = EN ? 'en-GB' : 'ru-RU';
 
 /** Today, as the *city* reckons it: `yyyy-mm-dd`. (`en-CA` formats that way.) */
 function cityToday() {
@@ -118,9 +238,9 @@ function daysFromToday(iso) {
 function dayLabel(iso, full) {
   const d = new Date(iso + 'T12:00:00');
   const away = daysFromToday(iso);
-  const f = (o) => d.toLocaleDateString('ru-RU', o);
+  const f = (o) => d.toLocaleDateString(LOCALE, o);
   const w = full && f({ weekday: 'long' });
-  const when = away === 0 ? 'Сегодня' : away === 1 ? 'Завтра'
+  const when = away === 0 ? t('today') : away === 1 ? t('tomorrow')
     : w ? w[0].toUpperCase() + w.slice(1) : DOW[d.getDay()];
   return { a: when, b: full ? f({ day: 'numeric', month: 'long' })
                             : `${d.getDate()} ${MON[d.getMonth()]}` };
@@ -130,11 +250,11 @@ function ago(iso) {
   const t = new Date(iso).getTime();
   if (!isFinite(t)) return '';
   const m = Math.max(0, Math.round((Date.now() - t) / 60000));
-  const hhmm = new Date(t).toLocaleTimeString('ru-RU',
+  const hhmm = new Date(t).toLocaleTimeString(LOCALE,
     { hour: '2-digit', minute: '2-digit' });
-  if (m < 1) return `обновлено в ${hhmm}`;
-  if (m < 60) return `${m} мин назад · ${hhmm}`;
-  return `${Math.round(m / 60)} ч назад · ${hhmm}`;
+  if (m < 1) return tf('updatedAt', hhmm);
+  if (m < 60) return tf('minAgo', m, hhmm);
+  return tf('hAgo', Math.round(m / 60), hhmm);
 }
 
 function esc(s) {
@@ -142,12 +262,12 @@ function esc(s) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
-const num = (v) => (Math.round(v * 10) / 10).toString().replace('.', ',');
+const num = (v) => (Math.round(v * 10) / 10).toString().replace('.', EN ? '.' : ',');
 const shortTime = (t) => (t || '').includes('T') ? t.slice(11, 16) : (t || '');
-const SHORT_DIR = { 'северный': 'С', 'северо-восточный': 'СВ', 'восточный': 'В',
-  'юго-восточный': 'ЮВ', 'южный': 'Ю', 'юго-западный': 'ЮЗ',
-  'западный': 'З', 'северо-западный': 'СЗ', 'штиль': 'штиль' };
-const shortDir = (d) => SHORT_DIR[d] || d || '';
+const SHORT_DIR = { 'северный': 'С N', 'северо-восточный': 'СВ NE', 'восточный': 'В E',
+  'юго-восточный': 'ЮВ SE', 'южный': 'Ю S', 'юго-западный': 'ЮЗ SW',
+  'западный': 'З W', 'северо-западный': 'СЗ NW', 'штиль': 'штиль calm' };
+const shortDir = (d) => (SHORT_DIR[d] ? SHORT_DIR[d].split(' ')[EN] : d || '');
 
 /* ---- the sky ---------------------------------------------------------------
  * The hero sits on this rather than in a card. A box with four lines in it
@@ -292,12 +412,12 @@ function sourceStrip(d, active, date) {
     // On a day's sheet, that day's range: "+9°" now beside a sheet about
     // Thursday's +22° compared the wrong two things.
     const day = date && dayOn(s, date);
-    const val = !s.available ? (s.reason || 'нет данных')
+    const val = !s.available ? (en(s.reason) || t('noData'))
       : date ? (day ? `${fmtT(day.temp_max_c)} / ${fmtT(day.temp_min_c)}` : '—')
-      : s.current && s.current.temp_c != null ? fmtT(s.current.temp_c) : 'нет данных';
+      : s.current && s.current.temp_c != null ? fmtT(s.current.temp_c) : t('noData');
     return `<button class="src ${k === active ? 'sel' : ''}" data-src="${esc(k)}"
       role="tab" aria-selected="${k === active}" ${s.available ? '' : 'disabled'}
-      title="${esc(s.reason || '')}">${esc(s.label)}<b>${esc(val)}</b></button>`;
+      title="${esc(en(s.reason) || '')}">${esc(en(s.label))}<b>${esc(val)}</b></button>`;
   }).join('');
   return `<div class="srcs" id="srcs" role="tablist">${tabs}</div>`;
 }
@@ -343,8 +463,9 @@ function hourlyBlock(hours, nowcast, opts) {
   // to stop happening on the server.
   const o = opts || {};
   const markNow = o.markNow !== false;
-  const summary = nowcast
-    ? `<div class="nowcast">${icon('umbrella')}<span>${esc(nowcast)}</span></div>` : '';
+  const said = nowcastText(nowcast);
+  const summary = said
+    ? `<div class="nowcast">${icon('umbrella')}<span>${esc(said)}</span></div>` : '';
   const list = (hours || []).slice(0, o.limit || 24).filter((h) => h.temp_c != null);
   if (list.length < 2) {
     return summary ? `<div class="card">${summary}</div>` : '';
@@ -406,13 +527,13 @@ function hourlyBlock(hours, nowcast, opts) {
       <div class="gz"><span class="hv" style="top:${(y(h.temp_c) - 20).toFixed(1)}px"
         >${fmtT(h.temp_c)}</span></div>
       ${icon(h.icon, 'wi')}
-      <div class="hh">${esc(isNow ? 'сейчас' : shortTime(h.time))}</div>
+      <div class="hh">${esc(isNow ? t('now') : shortTime(h.time))}</div>
       <div class="hp">${h.precip_prob ? Math.round(h.precip_prob) + '%'
-        : h.precip_mm ? esc(num(h.precip_mm)) + ' мм' : ''}</div>
+        : h.precip_mm ? esc(num(h.precip_mm)) + ' ' + t('mm') : ''}</div>
     </div>`;
   }).join('');
 
-  return `<div class="card">${summary}<h2>${esc(o.title || 'По часам')}</h2>
+  return `<div class="card">${summary}<h2>${esc(o.title || t('hourly'))}</h2>
     <div class="hours"><div class="hstrip" style="width:${width}px">
       ${svg}${cols}
     </div></div></div>`;
@@ -460,7 +581,9 @@ function dailyBlock(days, nowTemp) {
   }).join('');
 
   const n = list.length;                // 1..16: no source gives 21 days
-  return `<div class="card"><h2>Прогноз на ${n} ${n < 2 ? 'день' : n < 5 ? 'дня' : 'дней'}</h2>${rows}</div>`;
+  const head = EN ? `${n}-day forecast`
+    : `Прогноз на ${n} ${n < 2 ? 'день' : n < 5 ? 'дня' : 'дней'}`;
+  return `<div class="card"><h2>${head}</h2>${rows}</div>`;
 }
 
 /* ---- the quiet strip -------------------------------------------------------
@@ -475,23 +598,24 @@ function factsBlock(c, today) {
       <div class="v">${raw ? v : esc(v)}</div></div>`); };
 
   // The direction rides along as a smaller suffix so the cell never wraps.
-  add('Ветер', c.wind_ms != null
-    ? `${num(c.wind_ms)} м/с${c.wind_dir ? `<small>, ${esc(shortDir(c.wind_dir))}</small>` : ''}`
+  add(t('wind'), c.wind_ms != null
+    ? `${num(c.wind_ms)} ${t('ms')}${c.wind_dir ? `<small>, ${esc(shortDir(c.wind_dir))}</small>` : ''}`
     : null, true);
-  add('Влажность', c.humidity_pct != null ? Math.round(c.humidity_pct) + '%' : null);
-  add('Давление', c.pressure_mmhg != null ? Math.round(c.pressure_mmhg) + ' мм' : null);
+  add(t('humidity'), c.humidity_pct != null ? Math.round(c.humidity_pct) + '%' : null);
+  add(t('pressure'), c.pressure_mmhg != null
+    ? Math.round(c.pressure_mmhg) + ' ' + t('mmHg') : null);
   if (today) {
-    add('Восход', today.sunrise);
-    add('Закат', today.sunset);
-    add('УФ-индекс', today.uv_index != null ? num(today.uv_index) : null);
-    add('Вода', today.water_temp_c != null ? fmtT(today.water_temp_c) : null);
+    add(t('sunrise'), today.sunrise);
+    add(t('sunset'), today.sunset);
+    add(t('uv'), today.uv_index != null ? num(today.uv_index) : null);
+    add(t('water'), today.water_temp_c != null ? fmtT(today.water_temp_c) : null);
   }
   if (cells.length < 3) return '';
   // Whole rows only. Seven cells in a three-column grid leaves two empty boxes
   // staring at you, and the fix is to drop the least useful cell rather than
   // to invent filler for it.
   const whole = cells.slice(0, Math.floor(cells.length / 3) * 3);
-  return `<div class="card"><h2>Подробности</h2>
+  return `<div class="card"><h2>${t('details')}</h2>
     <div class="facts">${whole.join('')}</div></div>`;
 }
 
@@ -514,14 +638,14 @@ function render(d) {
       + ` / <span class="lo">${fmtT(today.temp_min_c)}</span>`
     : '';
   const feels = c.feels_like_c != null && Math.round(c.feels_like_c) !== Math.round(c.temp_c)
-    ? `ощущается как ${fmtT(c.feels_like_c)}` : '';
+    ? tf('feelsLike', fmtT(c.feels_like_c)) : '';
 
   setSky(c.icon, !!d.night);
 
   const hero = `<div class="hero">
     <div class="ic">${icon(c.icon)}</div>
     <div class="t">${fmtT(c.temp_c)}</div>
-    <div class="cond">${esc(c.condition || '')}</div>
+    <div class="cond">${esc(cond(c))}</div>
     ${range ? `<div class="sub">${range}</div>` : ''}
     ${feels ? `<div class="feels">${feels}</div>` : ''}
   </div>${sourceStrip(d, active)}`;
@@ -532,7 +656,10 @@ function render(d) {
     + a2hsBlock()
     + dailyBlock(view.daily, c.temp_c)
     + factsBlock(c, today);
-  $('city').textContent = (d.place && d.place.name) || '';
+  // A city picked from search keeps the geocoder's spelling: the server only
+  // learns its coordinates, and would transliterate «Париж» as Parizh.
+  $('city').textContent = EN && state.place && state.place.adhoc && state.place.name_en
+    || placeName(d.place);
   $('pin').style.visibility = (state.place && state.place.gps) ? '' : 'hidden';
   renderHealth(d, view);
 
@@ -547,8 +674,8 @@ function render(d) {
 function renderError(d) {
   // No reason here: «Что не так» below carries it, and the card repeated it.
   $('content').innerHTML = `<div class="card err">
-    <p>Погоду сейчас получить не удалось.</p></div>`;
-  if (d && d.place) $('city').textContent = d.place.name;
+    <p>${t('noWeather')}</p></div>`;
+  if (d && d.place) $('city').textContent = placeName(d.place);
   if (d) renderHealth(d, null);
 }
 
@@ -556,8 +683,7 @@ function renderHealth(d, view) {
   const h = d.health || {};
   const badge = $('badge');
   badge.className = 'badge ' + (h.status || 'ok');
-  badge.textContent = { degraded: 'неполные данные', stale: 'устарело',
-                        down: 'нет данных' }[h.status] || '';
+  badge.textContent = ['degraded', 'stale', 'down'].includes(h.status) ? t(h.status) : '';
   // Down: «обновлено в 00:25» would claim the failed attempt as an update.
   $('stamp').textContent = h.status === 'down' ? '' : ago(d.fetched_at);
 
@@ -569,8 +695,9 @@ function renderHealth(d, view) {
   if (msgs.length) {
     notes.className = 'notes show';
     // Folded, since these lines are for the maintainer; open with no forecast.
-    notes.innerHTML = `<details${view ? '' : ' open'}><summary>Что не так · ${msgs.length}`
-      + `</summary><ul>${msgs.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></details>`;
+    notes.innerHTML = `<details${view ? '' : ' open'}><summary>${t('whatsWrong')} · `
+      + `${msgs.length}</summary><ul>${msgs.map((m) => `<li>${esc(warnText(m))}</li>`)
+        .join('')}</ul></details>`;
   } else {
     notes.className = 'notes';
     notes.innerHTML = '';
@@ -604,7 +731,7 @@ async function load(place) {
     // adopt whatever it resolved -- otherwise the sheet has no idea which city
     // is current and shows no tick against any of them.
     if (!state.place && d.place) {
-      state.place = { slug: d.place.slug, name: d.place.name,
+      state.place = { slug: d.place.slug, name: d.place.name, name_en: d.place.name_en,
                       lat: d.place.lat, lon: d.place.lon,
                       adhoc: !!d.place.ad_hoc };
     }
@@ -632,7 +759,7 @@ async function load(place) {
  * would want. The server rounds again.
  */
 function useGeolocation() {
-  if (!navigator.geolocation) { alert('Геолокация недоступна в этом браузере.'); return; }
+  if (!navigator.geolocation) { alert(t('geoNone')); return; }
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       const lat = +pos.coords.latitude.toFixed(PRECISION);
@@ -642,8 +769,7 @@ function useGeolocation() {
     },
     (err) => {
       alert(err.code === 1
-        ? 'Доступ к геолокации запрещён. Разрешите его в настройках Safari.'
-        : 'Не удалось определить местоположение.');
+        ? t('geoDenied') : t('geoFail'));
     },
     { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
   );
@@ -955,8 +1081,8 @@ let lastQuery = '';
  * them would replace the element the keyboard is attached to -- on iOS that
  * closes the keyboard and drops the caret, once per keystroke. */
 SCREENS.place = () => ({
-  title: 'Место',
-  html: `<input id="q" type="search" placeholder="Найти город…"
+  title: t('place'),
+  html: `<input id="q" type="search" placeholder="${t('search')}"
            autocomplete="off" autocorrect="off" spellcheck="false"
            enterkeyhint="search" value="${esc(lastQuery)}">
          <div id="plist">${placeList()}</div>`,
@@ -970,23 +1096,23 @@ function placeList() {
   // An action, not a list item -- so it gets no container. Boxed, it echoed
   // the search field sitting right above it.
   if (window.YW_GEO !== false) out.push(`<button class="geolink" data-act="geo">${GEO_ICON}
-    <span>Моё местоположение</span>
-    ${onGps ? '<span class="on">включено</span>' : ''}</button>`);
+    <span>${t('myLoc')}</span>
+    ${onGps ? `<span class="on">${t('on')}</span>` : ''}</button>`);
 
   if (lastQuery.trim().length >= 2) {
-    out.push('<h3>Найдено</h3>');
+    out.push(`<h3>${t('found')}</h3>`);
     if (!found.length) {
-      out.push('<div class="empty">Ничего не найдено</div>');
+      out.push(`<div class="empty">${t('nothing')}</div>`);
     } else {
       out.push('<ul class="group">' + found.map((p, i) =>
-        `<li data-find="${i}"><button class="nm">${esc(p.name)}</button>
-          <span class="sub">${esc(p.subtitle || '')}</span></li>`).join('')
+        `<li data-find="${i}"><button class="nm">${esc(placeName(p))}</button>
+          <span class="sub">${esc((EN ? p.subtitle_en : p.subtitle) || '')}</span></li>`).join('')
         + '</ul>');
     }
   } else {
-    out.push('<h3>Города</h3><ul class="group">' + savedCities.map((c) =>
+    out.push(`<h3>${t('cities')}</h3><ul class="group">` + savedCities.map((c) =>
       `<li data-slug="${esc(c.slug)}" class="${c.slug === cur && !onGps ? 'sel' : ''}">
-        <button class="nm">${esc(c.name)}</button>
+        <button class="nm">${esc(placeName(c))}</button>
         ${c.slug === cur && !onGps ? TICK : ''}</li>`).join('') + '</ul>');
   }
   return out.join('');
@@ -1072,30 +1198,30 @@ function partsBlock(day) {
         // own: "3 м/с, порывы до 8" is one fact about how it will feel outside, and
         // the gust alone means nothing without the speed beside it.
         const gust = p.wind_gust_ms != null && p.wind_gust_ms > p.wind_ms
-          ? `, порывы до ${num(p.wind_gust_ms)}` : '';
-        bits.push(`${num(p.wind_ms)} м/с${gust}${p.wind_dir ? ', ' + shortDir(p.wind_dir) : ''}`);
+          ? ', ' + tf('gustsTo', num(p.wind_gust_ms)) : '';
+        bits.push(`${num(p.wind_ms)} ${t('ms')}${gust}${p.wind_dir ? ', ' + shortDir(p.wind_dir) : ''}`);
       } else if (p.wind_dir === 'штиль') {
         // Gismeteo publishes a direction of «штиль» and *no speed at all* for
         // a calm part of the day. Gating the whole cell on the speed dropped
         // the one reading that says something -- the row simply lost its wind.
-        bits.push('штиль');
+        bits.push(shortDir('штиль'));
       }
-      if (p.precip_mm) bits.push(num(p.precip_mm) + ' мм');
+      if (p.precip_mm) bits.push(num(p.precip_mm) + ' ' + t('mm'));
       // No humidity or pressure: a bare "91%" under «Небольшой дождь» read as
       // its chance, and 744/745/745/745 says nothing about a morning.
       const feels = p.feels_like_c != null
         && Math.round(p.feels_like_c) !== Math.round(p.temp_c)
-        ? `ощущается ${fmtT(p.feels_like_c)}` : '';
+        ? tf('feels', fmtT(p.feels_like_c)) : '';
       return `<div class="part">
-        <div class="n">${esc(p.name)}</div>
+        <div class="n">${esc(en(p.name))}</div>
         ${icon(p.icon, 'wi')}
         <div class="tt">${fmtT(p.temp_c)}</div>
-        <div class="m"><b>${esc(p.condition || '')}</b>
+        <div class="m"><b>${esc(cond(p))}</b>
           ${esc([...bits, feels].filter(Boolean)
             .map((b) => b.replace(/ /g, '\u00a0')).join(' · '))}</div>
       </div>`;
     }).join('');
-  return `<div class="card"><h2>По времени суток</h2>${rows}</div>`;
+  return `<div class="card"><h2>${t('parts')}</h2>${rows}</div>`;
 }
 
 function metricsBlock(day) {
@@ -1109,38 +1235,38 @@ function metricsBlock(day) {
     ? (a == null ? b : a) : `${a}–${b}`;
 
   if (day.feels_min_c != null || day.feels_max_c != null) {
-    add('Ощущается как', day.feels_min_c != null && day.feels_max_c != null
+    add(t('feelsRange'), day.feels_min_c != null && day.feels_max_c != null
       ? `${fmtT(day.feels_min_c)} … ${fmtT(day.feels_max_c)}`
       : fmtT(day.feels_max_c != null ? day.feels_max_c : day.feels_min_c));
   }
-  if (day.avg_temp_c != null) add('Средняя за сутки', fmtT(day.avg_temp_c));
+  if (day.avg_temp_c != null) add(t('avg'), fmtT(day.avg_temp_c));
   // Unit immediately after the number, direction after the unit. Written the
   // other way round it reads "3 З м/с", and Cyrillic З next to a digit is a 3
   // at a glance -- the cell said "3 3 м/с" and I had to look twice.
   if (day.wind_ms != null) {
-    add('Ветер', num(day.wind_ms),
-        ` м/с${day.wind_dir ? ', ' + shortDir(day.wind_dir) : ''}`);
+    add(t('wind'), num(day.wind_ms),
+        ` ${t('ms')}${day.wind_dir ? ', ' + shortDir(day.wind_dir) : ''}`);
   } else if (day.wind_dir) {
-    add('Ветер', shortDir(day.wind_dir));
+    add(t('wind'), shortDir(day.wind_dir));
   }
-  if (day.wind_gust_ms != null) add('Порывы', num(day.wind_gust_ms), ' м/с');
-  if (day.humidity_pct != null) add('Влажность', Math.round(day.humidity_pct), '%');
+  if (day.wind_gust_ms != null) add(t('gusts'), num(day.wind_gust_ms), ' ' + t('ms'));
+  if (day.humidity_pct != null) add(t('humidity'), Math.round(day.humidity_pct), '%');
   const p = range(day.pressure_min_mmhg != null ? Math.round(day.pressure_min_mmhg) : null,
                   day.pressure_max_mmhg != null ? Math.round(day.pressure_max_mmhg) : null);
-  if (p != null) add('Давление', p, ' мм');
-  if (day.precip_mm != null) add('Осадки', num(day.precip_mm), ' мм');
-  if (day.precip_prob != null) add('Вероятность осадков', Math.round(day.precip_prob), '%');
-  if (day.snow_cm) add('Снег', num(day.snow_cm), ' см');
-  if (day.snow_depth_cm) add('Высота снега', num(day.snow_depth_cm), ' см');
-  if (day.uv_index != null) add('УФ-индекс', num(day.uv_index));
-  if (day.kp_index != null) add('Геомагнитная активность', num(day.kp_index), ' Kp');
-  if (day.water_temp_c != null) add('Вода', fmtT(day.water_temp_c));
-  if (day.sunrise) add('Восход', day.sunrise);
-  if (day.sunset) add('Закат', day.sunset);
-  if (day.daylight) add('Долгота дня', day.daylight);
-  if (day.magnetic) add('Магнитное поле', day.magnetic);
+  if (p != null) add(t('pressure'), p, ' ' + t('mmHg'));
+  if (day.precip_mm != null) add(t('precip'), num(day.precip_mm), ' ' + t('mm'));
+  if (day.precip_prob != null) add(t('precipProb'), Math.round(day.precip_prob), '%');
+  if (day.snow_cm) add(t('snow'), num(day.snow_cm), ' ' + t('cm'));
+  if (day.snow_depth_cm) add(t('snowDepth'), num(day.snow_depth_cm), ' ' + t('cm'));
+  if (day.uv_index != null) add(t('uv'), num(day.uv_index));
+  if (day.kp_index != null) add(t('kp'), num(day.kp_index), ' Kp');
+  if (day.water_temp_c != null) add(t('water'), fmtT(day.water_temp_c));
+  if (day.sunrise) add(t('sunrise'), day.sunrise);
+  if (day.sunset) add(t('sunset'), day.sunset);
+  if (day.daylight) add(t('daylight'), enValue('daylight', day.daylight));
+  if (day.magnetic) add(t('magnetic'), enValue('magnetic', day.magnetic));
   if (!rows.length) return '';
-  return `<div class="card"><h2>Подробности</h2>${rows.join('')}</div>`;
+  return `<div class="card"><h2>${t('details')}</h2>${rows.join('')}</div>`;
 }
 
 /* ---- the deeper day, fetched when you open one -----------------------------
@@ -1208,13 +1334,12 @@ SCREENS.day = (date) => {
   const lab = dayLabel(date, 1);
   const tz = d.place && d.place.tz;
 
-  const foot = () => `<p class="screenfoot">${esc(view ? view.label : '')}`
+  const foot = () => `<p class="screenfoot">${esc(view ? en(view.label) : '')}`
     + `${d.fetched_at ? ' · ' + ago(d.fetched_at) : ''}</p>`;
 
   let body = sourceStrip(d, active, date);
   if (!day) {
-    body += `<div class="card nodata">У источника «${esc(view ? view.label : '')}»
-      нет данных на этот день.<br>Попробуйте другой источник выше.</div>`;
+    body += `<div class="card nodata">${tf('dayNoData', esc(view ? en(view.label) : ''))}</div>`;
     return { title: lab.a, sub: lab.b, html: body + foot() };
   }
 
@@ -1223,7 +1348,7 @@ SCREENS.day = (date) => {
       + `<span class="lo">${fmtT(day.temp_min_c)}</span>` : '';
   body += `<div class="dayhero">${icon(day.icon)}
     <div><div class="r">${range}</div>
-      <div class="c">${esc(day.condition || '')}</div></div></div>`;
+      <div class="c">${esc(cond(day))}</div></div></div>`;
 
   // Each source in the shape it is actually good at, ordered by how much of
   // the day each block answers at once. Four named parts summarise a day
@@ -1239,15 +1364,14 @@ SCREENS.day = (date) => {
   if (active === 'yandex' && !deep) fetchDeeper(active, date);
   const hours = (deep && deep.hours) || hoursOn(view.hourly, date, tz);
   const curve = hours.length >= 2
-    ? hourlyBlock(hours, null, { title: 'По часам',
+    ? hourlyBlock(hours, null, { title: t('hourly'),
                                  markNow: date === cityToday() }) : '';
   const parts = partsBlock(day);
   const metrics = metricsBlock(deep ? { ...day, ...pickTruthy(deep) } : day);
   body += [parts, curve, metrics].join('');
 
   if (!parts && !curve && !metrics) {
-    body += `<div class="card nodata">Этот источник даёт на этот день только
-      максимум и минимум.</div>`;
+    body += `<div class="card nodata">${t('dayOnlyRange')}</div>`;
   }
   return { title: lab.a, sub: lab.b, html: body + foot() };
 };

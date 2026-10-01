@@ -46,6 +46,41 @@ def clean(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+# --- a Russian name, in Latin letters ----------------------------------------
+# For the English interface, and only for names nobody has spelled for us:
+# the six built-in cities carry their English names, and a searched place
+# carries the geocoder's. What is left is a GPS fix named by Yandex's locality
+# or a hand-added city -- Russian places, almost always, for which a
+# transliteration *is* the English name (Kozmodemyansk, Zvenigovo).
+#
+# BGN/PCGN, simplified the way English signage does it: no apostrophes for
+# the soft and hard signs, `ye`/`yo` only where the letter starts a syllable.
+# Case is kept letter by letter, so «Ростов-на-Дону» is Rostov-na-Donu.
+_LAT = {"а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
+        "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+        "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+        "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch",
+        "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya"}
+_SOFT = set("аеёиоуыэюяъь")
+
+
+def latin(name: str | None) -> str | None:
+    if not name:
+        return name
+    out, prev = [], ""
+    for ch in name:
+        lo = ch.lower()
+        lat = _LAT.get(lo)
+        if lat is None:
+            out.append(ch)
+        else:
+            if lo == "е" and (not prev or prev in _SOFT or not prev.isalpha()):
+                lat = "ye"
+            out.append(lat[:1].upper() + lat[1:] if ch != lo else lat)
+        prev = lo
+    return "".join(out)
+
+
 def to_float(num: str) -> float | None:
     """Parse a Russian-formatted number: comma decimal separator, any of the
     five dash characters as a minus."""

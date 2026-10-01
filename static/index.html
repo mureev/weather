@@ -616,6 +616,8 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 .navbar .close:active{opacity:.55}
 .navbar .t{grid-column:2;font-size:16.5px;font-weight:600;text-align:center;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Focused on open so VoiceOver starts at the title; not a control, so no ring. */
+.navbar .t:focus{outline:none}
 .navbar .t small{display:block;font-size:12px;font-weight:500;
   color:var(--faint);letter-spacing:.02em}
 /* No bottom padding at all, and the last card carries no bottom margin, so the

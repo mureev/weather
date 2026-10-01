@@ -180,7 +180,8 @@ async def day_detail(date: str,
 @api.get("/api/cities")
 async def city_list():
     return {"default": settings.default_city,
-            "cities": [{"slug": p.slug, "name": p.name} for p in cities.listing()]}
+            "cities": [{"slug": p.slug, "name": p.name, "name_en": p.name_en}
+                       for p in cities.listing()]}
 
 
 @api.get("/api/search")
@@ -194,6 +195,7 @@ async def search(q: str = Query(min_length=2, max_length=64)):
                             status_code=429, headers={"Retry-After": "60"})
     return {"results": [
         {"slug": p.slug, "name": p.name, "subtitle": geocode.subtitle(p),
+         "name_en": p.name_en, "subtitle_en": geocode.subtitle(p, "en"),
          "lat": p.lat, "lon": p.lon}
         for p in found
     ]}

@@ -910,3 +910,71 @@ class TestTheLaunchIsOneContinuousColour:
         """The skeleton is aria-hidden, so something has to speak."""
         html = client_.get("/weather/index.html").text
         assert 'class="sr"' in html and "Загружаем" in html
+
+
+class TestTwoLanguages:
+    """The English interface, from the server's side: names spelled for
+    English readers, and nothing about the reader's language sent upstream."""
+
+    def test_the_built_in_cities_carry_their_english_names(self, client_):
+        got = {c["slug"]: c["name_en"]
+               for c in client_.get("/weather/api/cities").json()["cities"]}
+        assert got["moscow"] == "Moscow"            # not the transliterated Moskva
+        assert got["saint-petersburg"] == "Saint Petersburg"
+        assert got["yoshkar-ola"] == "Yoshkar-Ola"
+
+    def test_the_forecast_says_where_it_is_in_both(self, client_):
+        place = client_.get("/weather/api/weather").json()["place"]
+        assert (place["name"], place["name_en"]) == ("Йошкар-Ола", "Yoshkar-Ola")
+
+    def test_a_gps_fix_is_named_in_latin_letters_too(self, client_):
+        place = client_.get("/weather/api/weather?lat=55.30&lon=48.10").json()["place"]
+        assert place["name_en"] and not re.search("[А-Яа-я]", place["name_en"])
+
+    def test_a_search_asks_in_both_languages_whoever_is_asking(
+            self, client_, monkeypatch):
+        """Asking only in the reader's language would tell the geocoder what
+        it is -- an Accept-Language header by another name (invariant 5). So
+        every search asks twice, identically but for `language`, and the two
+        answers are joined by the geocoder's own id."""
+        from app.sources import geocode
+
+        asked = []
+
+        class Answer:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"results": self.rows}
+
+        async def fake_get(self, url, params=None, **_kw):
+            asked.append(dict(params))
+            name, admin, country = (("Париж", "Иль-де-Франс", "Франция")
+                                    if params["language"] == "ru"
+                                    else ("Paris", "Île-de-France", "France"))
+            return Answer([{"id": 2988507, "name": name, "admin1": admin,
+                            "country": country, "country_code": "FR",
+                            "latitude": 48.85, "longitude": 2.35,
+                            "timezone": "Europe/Paris", "population": 2_100_000}])
+
+        monkeypatch.setattr(geocode._cache, "get_fresh", lambda _k: None)
+        monkeypatch.setattr(geocode._cache, "get_stale", lambda _k: None)
+        import httpx
+        monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+        hit = client_.get("/weather/api/search?q=paris",
+                          headers={"Accept-Language": "en-US"}).json()["results"][0]
+        assert (hit["name"], hit["name_en"]) == ("Париж", "Paris")
+        assert hit["subtitle_en"] == "Île-de-France, France"
+        assert sorted(a["language"] for a in asked) == ["en", "ru"]
+        assert len({tuple(sorted((k, v) for k, v in a.items() if k != "language"))
+                    for a in asked}) == 1
+
+    def test_the_installed_name_follows_the_page_not_a_header(self, client_):
+        assert client_.get("/weather/manifest.webmanifest?lang=en").json()["name"] \
+            == "Weather"
+        assert client_.get("/weather/manifest.webmanifest",
+                           headers={"Accept-Language": "en"}).json()["name"] == "Погода"
