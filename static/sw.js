@@ -41,7 +41,7 @@ const PRECACHE = [
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(SHELL)
-      .then((c) => c.addAll(PRECACHE).catch(() => {}))
+      .then((c) => c.addAll(PRECACHE))      // uncaught: keep the old worker
       .then(() => self.skipWaiting())
   );
 });
