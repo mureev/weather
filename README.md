@@ -31,7 +31,7 @@ a measurement recorded in `DECISIONS.md` §18, not a test.
 
 ```bash
 make            # the everyday commands
-make check      # lint + 597 tests, no network required
+make check      # lint + 605 tests, no network required
 make run        # localhost:8080 against live upstreams
 git push        # to master: tested, published, live in minutes
 make status     # what is live: its build, then its own health verdict
@@ -44,7 +44,7 @@ make status     # what is live: its build, then its own health verdict
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 597 tests, no
+1. **`make check` must pass before you believe anything.** 605 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -269,6 +269,12 @@ the fetch refused, the screen is exactly what it was without it.
 name. Search, geolocation and saved cities are all answers to the same question,
 so they belong in one place rather than three permanent strips.
 
+**Installing is offered once, and only where it can happen**: in Safari outside
+the home screen, or in a browser that has handed over `beforeinstallprompt`. A
+card between the hourly curve and the ten days draws a phone with this app's
+icon on it and has one button — Safari's four steps on a sheet, or the
+browser's own one-tap install — and a × that means never (`DECISIONS.md` §35).
+
 ### The iOS constraint that shapes all of it
 
 **A PWA cannot refresh in the background. At all.** Background Sync, Periodic
@@ -431,7 +437,7 @@ app/
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
 docs/                the two screenshots at the top of this page
-tests/               597 tests: parsers, degradation, invariants, docs, API, browser
+tests/               605 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 ```
 

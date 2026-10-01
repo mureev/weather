@@ -1626,6 +1626,183 @@ class TestLayoutDoesNotWrap:
         assert len(set(heights)) == 1, f"a fact cell wrapped: {heights}"
 
 
+# `navigator.standalone` exists only in iOS WebKit, so this is how Chromium
+# plays an iPhone: false is Safari, true is the app on the home screen.
+def _as_ios(standalone: bool) -> str:
+    return ("Object.defineProperty(Navigator.prototype, 'standalone', "
+            f"{{get: () => {str(standalone).lower()}, configurable: true}});")
+
+
+def _banner_page(browser, server, standalone=False, **kw):
+    opts = {"viewport": {"width": 393, "height": 852},
+            "color_scheme": "dark", "locale": "ru-RU", **kw}
+    ctx = browser.new_context(**opts)
+    if standalone is not None:
+        ctx.add_init_script(_as_ios(standalone))
+    pg = _pin(ctx.new_page())
+    pg.goto(server, wait_until="networkidle")
+    pg.wait_for_selector(".hero .t", timeout=10_000)
+    return ctx, pg
+
+
+class TestTheHomeScreenBanner:
+    """It replaced a line of grey footnote under the footer that nobody had
+    ever read, which is to say it is the one thing on this screen that asks
+    for something. So it is held to being honest about where it appears:
+    only where an install can happen, never again once refused, and never
+    above the temperature. DECISIONS.md §35."""
+
+    def test_safari_is_offered_it_between_the_hours_and_the_days(self, browser, server):
+        ctx, pg = _banner_page(browser, server)
+        where = pg.evaluate("""(() => { const b = document.querySelector('.a2hs');
+          return b && {role: b.getAttribute('role'),
+            name: document.getElementById(b.getAttribute('aria-labelledby')).textContent,
+            before: !!b.previousElementSibling.querySelector('.hours'),
+            after: !!b.nextElementSibling.querySelector('.day'),
+            cta: b.querySelector('.go').tagName}; })()""")
+        ctx.close()
+        assert where, "no banner in iOS Safari"
+        assert where["role"] == "region" and where["name"].strip()
+        assert where["before"] and where["after"], \
+            "the banner left its place between the hourly card and the ten days"
+        assert where["cta"] == "BUTTON"
+
+    def test_nowhere_it_cannot_be_installed_or_already_is(self, page, browser, server):
+        """A plain Chromium has neither `navigator.standalone` nor a held
+        `beforeinstallprompt`, which is desktop Safari and Firefox too."""
+        assert page.locator(".a2hs").count() == 0, "offered where nothing can install"
+        ctx, pg = _banner_page(browser, server, standalone=True)
+        shown = pg.locator(".a2hs").count()
+        ctx.close()
+        assert shown == 0, "offered inside the installed app"
+
+    def test_the_cross_means_never_and_is_big_enough_to_hit(self, browser, server):
+        ctx, pg = _banner_page(browser, server)
+        box = pg.locator(".a2hs .x").bounding_box()
+        assert box["width"] >= 44 and box["height"] >= 44, f"× is {box}"
+        pg.click(".a2hs .x")
+        gone = pg.locator(".a2hs").count()
+        pg.reload(wait_until="networkidle")
+        pg.wait_for_selector(".hero .t", timeout=10_000)
+        back = pg.locator(".a2hs").count()
+        ctx.close()
+        assert gone == 0 and back == 0, "dismissed, and offered again after a reload"
+
+    def test_its_button_opens_safaris_steps_and_back_closes_them(self, browser, server):
+        """The sheet is the same history-backed primitive as a day, so the
+        system's edge swipe -- `history.back()` -- is what dismisses it."""
+        ctx, pg = _banner_page(browser, server)
+        pg.click(".a2hs .go")
+        pg.wait_for_selector(".screen.open")
+        state = pg.evaluate("history.state && history.state.yw")
+        steps = pg.locator(".a2steps li svg").count()
+        pg.go_back()
+        pg.wait_for_timeout(200)
+        hidden = pg.locator(".screen").get_attribute("aria-hidden")
+        ctx.close()
+        assert state == "install"
+        assert steps == 4, f"{steps} steps with a glyph, not four"
+        assert hidden == "true", "going back left the sheet up"
+
+    def test_a_browser_that_offers_an_install_gets_a_real_one(self, page):
+        """Chrome hands over `beforeinstallprompt`; the button spends it. No
+        sheet of instructions where one tap does the job."""
+        page.evaluate("""
+          window.__asked = 0;
+          window.__bip = new Event('beforeinstallprompt', {cancelable: true});
+          __bip.prompt = () => { window.__asked++; };
+          __bip.userChoice = Promise.resolve({outcome: 'accepted', platform: 'web'});
+          window.dispatchEvent(__bip); 0""")
+        assert page.evaluate("__bip.defaultPrevented"), \
+            "the browser's own mini-infobar was not held back"
+        label = page.locator(".a2hs .go").inner_text()
+        page.click(".a2hs .go")
+        page.wait_for_timeout(200)
+        assert label == page.evaluate("STR.a2hsInstall[EN]")
+        assert page.evaluate("__asked") == 1, "the button did not call prompt()"
+        assert page.locator(".a2hs").count() == 0, "still offered after installing"
+        assert page.locator(".screen.open").count() == 0
+
+    def test_it_speaks_both_languages(self, browser, server):
+        """Read back from `STR` rather than restated, as everything else that
+        must exist in two places is."""
+        seen = {}
+        for loc in ("ru-RU", "en-US"):
+            ctx, pg = _banner_page(browser, server, locale=loc)
+            words = pg.evaluate("""[document.querySelector('.a2hs p').textContent,
+              document.querySelector('.a2hs .go').textContent,
+              STR.a2hsTitle[EN], STR.a2hsHow[EN]]""")
+            pg.click(".a2hs .go")
+            pg.wait_for_selector(".screen.open")
+            title = pg.evaluate("[document.getElementById('screen-title')"
+                                ".firstChild.textContent, STR.a2hsSheet[EN]]")
+            seen[loc] = (words, title)
+            ctx.close()
+        for loc, (words, title) in seen.items():
+            assert words[:2] == words[2:], f"{loc}: banner says {words[:2]}"
+            assert title[0] == title[1], f"{loc}: sheet titled {title[0]!r}"
+        assert seen["ru-RU"][0][0] != seen["en-US"][0][0], "one language twice"
+
+    def test_it_fits_from_320_to_393(self, browser, server):
+        """Measured, not eyeballed: the phone never touches the words, the
+        title wraps rather than truncating, and nothing pushes the page
+        sideways. Drawn in `cqw`, so it is one picture at three sizes."""
+        bad = []
+        for loc in ("ru-RU", "en-US"):
+            ctx, pg = _banner_page(browser, server, locale=loc)
+            for w in (393, 375, 320):
+                pg.set_viewport_size({"width": w, "height": 852})
+                pg.wait_for_timeout(150)
+                m = pg.evaluate("""(() => {
+                  const q = (s) => document.querySelector(s).getBoundingClientRect();
+                  const p = document.querySelector('.a2hs p');
+                  const c = q('.a2hs'), ph = q('.a2hs .ph'), tx = q('.a2hs p'),
+                        go = q('.a2hs .go'), x = q('.a2hs .x');
+                  const r = document.createRange(); r.selectNodeContents(p);
+                  const last = [...r.getClientRects()].reduce((a, b) => b.right > a ? b.right : a, 0);
+                  const first = r.getClientRects()[0];
+                  return {gap: tx.left - ph.right, trunc: p.scrollWidth - p.clientWidth,
+                    goOut: go.right - (c.right - 16), textOut: last - c.right,
+                    underX: first.right > x.left && first.top < x.bottom,
+                    side: document.documentElement.scrollWidth
+                          - document.documentElement.clientWidth}; })()""")
+                if (m["gap"] < 8 or m["trunc"] > 0 or m["goOut"] > 0
+                        or m["textOut"] > 0 or m["underX"] or m["side"] > 0):
+                    bad.append((loc, w, m))
+            ctx.close()
+        assert not bad, f"the banner does not fit: {bad}"
+
+    def test_its_words_read_at_aa_on_the_pixels_in_both_schemes(self, browser, server):
+        """Over a gradient there is no single background colour to compute
+        against, so this asks the pixels: the card is shot once as drawn and
+        once with its words made transparent, and every pixel behind the title
+        and the button is scored against the colour of the text."""
+        Image = pytest.importorskip("PIL.Image", reason="pillow not installed")
+        worst = {}
+        for scheme in ("dark", "light"):
+            ctx, pg = _banner_page(browser, server, color_scheme=scheme)
+            card = pg.locator(".a2hs")
+            card.scroll_into_view_if_needed()
+            m = pg.evaluate("""(() => { const c = document.querySelector('.a2hs').getBoundingClientRect();
+              const f = (s) => { const e = document.querySelector('.a2hs ' + s), b = e.getBoundingClientRect();
+                return {box: [b.left - c.left, b.top - c.top, b.right - c.left, b.bottom - c.top],
+                        color: getComputedStyle(e).color}; };
+              return {p: f('p'), go: f('.go'), w: c.width}; })()""")
+            pg.add_style_tag(content=".a2hs p,.a2hs .go{color:transparent!important}")
+            pg.wait_for_timeout(100)
+            bare = Image.open(io.BytesIO(card.screenshot())).convert("RGB")
+            ctx.close()
+            for part in ("p", "go"):
+                x0, y0, x1, y1 = (int(v) for v in m[part]["box"])
+                px = [bare.getpixel((x, y)) for x in range(x0 + 1, x1 - 1)
+                      for y in range(y0 + 1, y1 - 1)
+                      if not (x > m["w"] - 44 and y < 44)]      # the × is not text
+                worst[(scheme, part)] = min(
+                    _contrast(m[part]["color"], f"rgb{p}") for p in px)
+        low = {k: round(v, 2) for k, v in worst.items() if v < 4.5}
+        assert not low, f"below WCAG AA 4.5:1: {low} (all: {worst})"
+
+
 class TestServiceWorker:
     def test_the_shell_version_is_substituted_on_serve(self, page, server):
         """Never bumped by hand. The server injects a hash of the shell files,

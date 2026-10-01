@@ -50,6 +50,7 @@ decision recorded without its reversal condition becomes dogma.
 | 32 ★ | [A source outage answers 200, and the recorder ate the evidence](#32-a-source-outage-answers-200-and-the-recorder-ate-the-evidence) | Download, inspect, then install — a recorder never overwrites its own evidence. |
 | 33 | [A push to master is the deploy, and nothing here can reach the server](#33-a-push-to-master-is-the-deploy-and-nothing-here-can-reach-the-server) | The suite is the gate, the server pulls, and nothing in this repo can reach it. |
 | 34 | [Fixtures are what the parsers read, not what the sites sent](#34-fixtures-are-what-the-parsers-read-not-what-the-sites-sent) | Test input is trimmed to what the code reads; a public repository does not redistribute pages. |
+| 35 | [The install offer is a banner in the forecast, with one button](#35-the-install-offer-is-a-banner-in-the-forecast-with-one-button) | Shown only where an install can happen, below the hourly card; the button does the one thing it can, and the × means never. |
 
 ---
 
@@ -1756,6 +1757,77 @@ scripts.
 The answer then is to re-record and widen the keep-list for that element, never
 to commit a whole page again; the tool's refusal to write is what makes the
 first such mistake loud rather than quiet.
+
+---
+
+## 35. The install offer is a banner in the forecast, with one button
+
+*Decided 2026-10-02, from a screenshot of Yandex Weather's.*
+
+The old offer was a line of grey 12.5px text under the footer: «Поделиться →
+На экран «Домой». В iOS 26 — в меню ⋯». It is now a card between the hourly
+card and the ten days, drawn after Yandex's: a phone cropped by the card's
+bottom edge with this app's own icon on its home screen, a two-line title, one
+button, and a × in the corner.
+
+**Why a banner rather than a footnote.** Installing is the largest single
+improvement to how this app behaves on the phone, and the footnote was placed
+where nothing is ever read: below the timestamp, below the language switch,
+last on the page. Added to the home screen the app opens full screen with no
+Safari bars, its storage is exempt from the seven-day ITP cap, and with no
+network it shows the last forecast the service worker kept. That is worth
+asking once, properly, and then never again.
+
+**Why one button, not Yandex's «Да» / «Нет».** "No" is the × already. And
+"Yes" cannot keep its promise on an iPhone: there is no API that installs a web
+app from Safari, so the most a page can do is show the steps. So the button
+says what it does. In Safari it is «Как добавить» and opens a sheet with
+Safari's four steps, each beside the glyph Safari draws on that button. Where
+the browser has handed over `beforeinstallprompt` (Chrome on Android or a
+desktop) it is «Установить» and calls the event's `prompt()`, which is a real
+one-tap install, and the banner goes once the choice is made.
+
+**Why inside the forecast, below the hourly card.** The temperature is the
+answer and the hero stays first; "what about later today" is the second
+question, so the hourly card stays second. The banner is met on the first
+scroll, after both answers, and never moves the hero down. Above the hero it
+would be the first thing on every launch in Safari, which is the shape of an
+advert in an app whose reason to exist is having none.
+
+**Why only where installing is possible.** `navigator.standalone` exists only
+in iOS and iPadOS WebKit, and is false outside the home screen; a held
+`beforeinstallprompt` is the other way to know an install can happen. A desktop
+Safari or Firefox visitor can do nothing with the offer, so they never see it,
+and an installed app (`standalone`, or `display-mode: standalone`) never does
+either. The × stores `yw.a2hs = no` in `localStorage`, and in memory as well,
+so it holds for the visit even where storage is blocked.
+
+Three things it cannot know. On iOS the installed app and Safari keep separate
+storage, so a Safari tab cannot learn the app was added; the × is what silences
+it there. Browsers built into other apps also report `standalone` as false and
+cannot add to the home screen at all, which is why the sheet says «в Safari».
+And Apple's Russian name for the "Open as Web App" switch could not be checked
+against Apple's own Russian pages — one translated article calls it «Открыть
+как веб-приложение» — so the Russian step says «переключатель» without naming
+it. It is the only switch on that screen.
+
+It cost 2.5 kB compressed (a cold load went from 50.3 to 52.8 kB), most of it
+the two languages' worth of steps and the phone, which is drawn in CSS and
+inline SVG rather than shipped as an image, and sized in `cqw` of the card so
+that 320pt gets the same picture smaller rather than a phone crowding the
+words. Crossing 64 KiB also exposed a gap in the budget test, which read
+`Content-Length` and found none: Starlette streams a file past one 64 KiB chunk,
+and its gzip middleware then states no length. `wire_bytes` now recompresses at
+the middleware's level instead, and a test holds that to the stated length
+wherever one is still stated.
+
+**What would reverse it.** Safari learning to install a web app from a page:
+then the iPhone gets the one-tap button too, and the sheet goes. If the steps
+move again in iOS 27, they are the `a2hsStep*` strings in `app.js`, not a
+reason to drop the banner. And if a budget raise is ever wanted for something
+that is information, the phone drawing is the first thing to give back: a
+plain card with the same title and button keeps the behaviour for a fraction
+of the bytes.
 
 ---
 

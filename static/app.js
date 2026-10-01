@@ -528,6 +528,8 @@ function render(d) {
 
   $('content').innerHTML = hero
     + hourlyBlock(view.hourly, view.nowcast)
+    // Under the hourly card, never above the hero: the temperature stays first.
+    + a2hsBlock()
     + dailyBlock(view.daily, c.temp_c)
     + factsBlock(c, today);
   $('city').textContent = (d.place && d.place.name) || '';
@@ -1250,6 +1252,95 @@ SCREENS.day = (date) => {
   return { title: lab.a, sub: lab.b, html: body + foot() };
 };
 
+/* ---- the home-screen banner (DECISIONS.md §35) -----------------------------
+ * Only where an install can happen and has not: Safari outside the home screen
+ * (`navigator.standalone` exists in iOS WebKit alone), or a browser that has
+ * handed us `beforeinstallprompt`, whose prompt is then a one-tap install. */
+Object.assign(STR, {
+  a2hsTitle: ['Добавьте значок на\u00a0экран «Домой»', 'Add the icon to your Home\u00a0Screen'],
+  a2hsApp: ['Установите «Погоду» как приложение', 'Install Weather as an app'],
+  a2hsHow: ['Как добавить', 'Show Me How'],
+  a2hsInstall: ['Установить', 'Install'],
+  a2hsNo: ['Больше не предлагать', 'Don’t suggest this again'],
+  a2hsSheet: ['На экран «Домой»', 'Add to Home Screen'],
+  a2hsIn: ['в Safari', 'in Safari'],
+  a2hsWhy: ['«Погода» откроется на\u00a0весь экран, без\u00a0панелей Safari, и\u00a0покажет'
+    + ' последний прогноз даже без\u00a0интернета.',
+  'It opens full screen, without Safari’s bars, and shows the last forecast even offline.'],
+  a2hsStep1: ['Нажмите <b>⋯</b> справа от адресной строки', 'Tap <b>⋯</b> next to the address bar'],
+  a2hsStep2: ['Выберите «Поделиться»', 'Tap <b>Share</b>'],
+  a2hsStep3: ['Пролистайте вниз и\u00a0выберите «На\u00a0экран „Домой“»',
+    'Scroll down and tap <b>Add to Home Screen</b>'],
+  // Not the switch's Russian name, which is unconfirmed; it is the only one there.
+  a2hsStep4: ['Оставьте переключатель включённым и\u00a0нажмите «Добавить»',
+    'Make sure <b>Open as Web App</b> is on, then tap <b>Add</b>'],
+  a2hsOld: ['До iOS\u00a026 кнопка «Поделиться»\u00a0— прямо на\u00a0панели\u00a0Safari.',
+    'Before iOS\u00a026, <b>Share</b> is right in Safari’s toolbar.'],
+});
+LS.a2hs = 'yw.a2hs';
+let bip = null;                     // a held `beforeinstallprompt`: one tap installs
+let a2hsOff = false;                // dismissed this visit, even if storage is not
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  bip = e;
+  if (state.data) render(state.data);
+});
+window.addEventListener('appinstalled', () => { a2hsOff = true; a2hsDrop(); });
+
+function a2hsWanted() {
+  try { if (localStorage.getItem(LS.a2hs) === 'no') return false; } catch (e) { /* blocked */ }
+  if (a2hsOff || matchMedia('(display-mode: standalone)').matches) return false;
+  return !!bip || navigator.standalone === false;
+}
+
+function a2hsBlock() {
+  if (!a2hsWanted()) return '';
+  return `<div class="card a2hs" role="region" aria-labelledby="a2t">
+    <div class="ph" aria-hidden="true"><svg class="st" viewBox="0 0 31 9"><path d="M0
+      9h2V6.5H0zm3 0h2V5H3zm3 0h2V3H6zm3 0h2V1H9zm5-5a6.4 6.4 0 0 1 9 0L18.5 8.5z"/>
+      <rect x="24" y="1.5" width="7" height="6" rx="1.8"/></svg><div class="g"><i></i><i></i>
+      <i></i><i></i><i></i><b>${icon('partly')}</b></div></div>
+    <div class="tx"><p id="a2t">${t(bip ? 'a2hsApp' : 'a2hsTitle')}</p><button class="go"
+      data-act="a2hs">${t(bip ? 'a2hsInstall' : 'a2hsHow')}</button></div>
+    <button class="x" data-act="a2hs-no" aria-label="${t('a2hsNo')}"><svg viewBox="0 0 12 12"
+      aria-hidden="true"><path d="M1 1l10 10M11 1 1 11"/></svg></button></div>`;
+}
+
+function a2hsDrop() {
+  const b = document.querySelector('.a2hs');
+  if (b) b.remove();
+}
+
+function a2hsGo() {
+  const e = bip;
+  if (!e) { push('install'); return; }
+  // One prompt per event; the browser sends another if it will ask again.
+  bip = null;
+  e.prompt();
+  e.userChoice.then(a2hsDrop, a2hsDrop);
+}
+
+function a2hsNo() {
+  a2hsOff = true;
+  try { localStorage.setItem(LS.a2hs, 'no'); } catch (e) { /* blocked: this visit only */ }
+  a2hsDrop();
+}
+
+// Safari's glyph for each step, so a row can be matched to its button.
+const A2G = ['<circle cx="12" cy="12" r="9.5"/><path d="M7.5 12h0M12 12h0M16.5 12h0" stroke-width="2.6"/>',
+  '<path d="M8.5 9.5H6v11h12v-11h-2.5M12 3.5v11M8.5 7 12 3.5 15.5 7"/>',
+  '<rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M12 8v8M8 12h8"/>',
+  '<rect x="1.5" y="6" width="21" height="12" rx="6"/><path d="M16.5 12h0" stroke-width="7"/>'];
+
+SCREENS.install = () => ({
+  title: t('a2hsSheet'),
+  sub: t('a2hsIn'),
+  html: `<p class="a2why">${t('a2hsWhy')}</p><ol class="group a2steps">${A2G.map((g, i) =>
+    `<li><svg viewBox="0 0 24 24" aria-hidden="true">${g}</svg><span>${t('a2hsStep' + (i + 1))}`
+    + '</span></li>').join('')}</ol><p class="screenfoot">${t('a2hsOld')}</p>`,
+});
+
 /* ------------------------------------------------------------------- boot */
 
 /** The words the static page carries, in the chosen language -- and the
@@ -1352,6 +1443,8 @@ function boot() {
   // The strip is rebuilt with the hero on every render, so the listener lives
   // on a container that never gets replaced.
   $('content').addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]');
+    if (act) { (act.dataset.act === 'a2hs' ? a2hsGo : a2hsNo)(); return; }
     const day = e.target.closest('[data-day]');
     if (day) { push('day', day.dataset.day); return; }
     const b = e.target.closest('.src');
@@ -1383,8 +1476,6 @@ function boot() {
   if (navigator.storage && navigator.storage.persist) {
     navigator.storage.persist().catch(() => {});
   }
-  if (window.navigator.standalone) $('install').classList.add('hide');
-
   // Quiet enough to ignore, present enough to answer "is my change live?"
   // without opening a terminal.
   if (window.YW_BUILD && window.YW_BUILD !== 'dev') {
@@ -1407,7 +1498,7 @@ function boot() {
       s.onload = () => s.remove();
       document.head.appendChild(s);
     });
-    $('install').after(b);
+    document.querySelector('.foot').after(b);
   }
 }
 

@@ -943,10 +943,49 @@ html.locked{overflow:hidden;overscroll-behavior:none}
 .foot .lang{font-size:13px;color:var(--faint);padding:8px 14px;margin:-6px 0 -8px}
 .build{text-align:center;margin-top:10px;font-size:10.5px;color:var(--faint);
        opacity:.5;font-variant-numeric:tabular-nums;letter-spacing:.04em}
-.install{font-size:12.5px;color:var(--faint);text-align:center;margin-top:12px;
-         line-height:1.55;max-width:30ch;margin-left:auto;margin-right:auto;
-         /* Keeps the browser from orphaning "⋯." on a line of its own. */
-         text-wrap:balance}
+/* ---- the home-screen banner (DECISIONS.md §35) ---------------------------
+ * Yandex Weather's, redrawn in this palette: a phone cropped by the card's
+ * bottom edge, the app's own icon on a dawn wallpaper, one call to action.
+ * Everything is in `cqw` of the card, so at 320pt it is the same picture
+ * smaller rather than the same phone crowding the words. */
+.a2hs{position:relative;overflow:hidden;padding:0;min-height:126px;
+  container-type:inline-size;
+  background:radial-gradient(85% 120% at 78% 128%,#b35a2e99,#0000 72%),
+    color-mix(in srgb,var(--card) 86%,transparent)}
+.a2hs .ph{position:absolute;left:6.5cqw;top:16px;width:30cqw;aspect-ratio:.49;
+  border:1.1cqw solid #05070d;border-radius:5.4cqw;box-shadow:0 0 0 .4cqw #3d4868;
+  background:linear-gradient(#f3cdb2,#e39673 13%,#b9475b 27%,#5a2140 40%,#1c1a2c 52%)}
+.a2hs .ph::before{content:'';position:absolute;left:50%;top:1.2cqw;width:8.6cqw;
+  height:2.5cqw;margin-left:-4.3cqw;border-radius:2cqw;background:#000}
+.a2hs .ph::after{content:'12:34';position:absolute;left:3.4cqw;top:1.55cqw;
+  font-size:2cqw;line-height:1.1;font-weight:600;color:#fffc}
+.a2hs .st{position:absolute;right:2.6cqw;top:2cqw;width:5.4cqw;height:1.6cqw;fill:#fffc}
+.a2hs .g{position:absolute;top:8.6cqw;left:1.7cqw;right:1.7cqw;display:grid;
+  grid-template-columns:repeat(4,1fr);gap:2.6cqw 1.4cqw}
+.a2hs .g>*{aspect-ratio:1;border-radius:27%;background:#ffffff47}
+.a2hs .g b{display:grid;place-items:center;background:#0b1220}
+.a2hs .g svg{width:86%;height:86%}
+.a2hs .tx{margin-left:calc(36.5cqw + 14px);padding:24px 16px 16px 0}
+/* Clears the × from the first line only, which is all it reaches. */
+.a2hs .tx::before{content:'';float:right;width:20px;height:20px}
+.a2hs p{margin:0 0 10px;font-size:clamp(14px,4.7cqw,17px);font-weight:600;
+  line-height:1.25}
+.a2hs .go{height:38px;padding:0 18px;border-radius:19px;font-size:15px;
+  font-weight:600;white-space:nowrap;color:#fff;background:#ffb08a33}
+.a2hs .go:active,.a2hs .x:active{opacity:.6}
+/* 44pt to hit, 12pt to see: the corner is where a thumb lands imprecisely. */
+.a2hs .x{position:absolute;top:0;right:0;width:44px;height:44px;display:grid;
+  place-items:center}
+.a2hs .x svg{width:12px;height:12px;stroke:#fff9;stroke-width:2;stroke-linecap:round}
+.a2why{margin:12px 4px 14px;color:var(--dim);font-size:15px;line-height:1.4}
+.a2steps li{cursor:auto;font-size:16px;line-height:1.35}
+.a2steps li:active{background:none}
+@media (prefers-color-scheme: light){
+  .a2hs{background:radial-gradient(85% 120% at 78% 128%,#ffa77a8c,#fff0 72%),
+    color-mix(in srgb,var(--card) 86%,transparent)}
+  .a2hs .go{color:#97380f;background:#e0703a24}
+  .a2hs .x svg{stroke:var(--faint)}
+}
 </style>
 </head>
 <body>
@@ -1030,10 +1069,6 @@ html.locked{overflow:hidden;overscroll-behavior:none}
          picker is, because it is addressed to someone who reads it. -->
     <button class="lang" id="btn-lang" lang="en">English</button>
   </div>
-
-  <p class="install" id="install">
-    <b>Поделиться</b> → <b>На экран «Домой»</b>. В iOS&nbsp;26 — в меню <b>⋯</b>
-  </p>
 </div>
 
 <!-- Outside `.wrap`, and that placement is load-bearing rather than tidy: this
