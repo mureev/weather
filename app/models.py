@@ -27,7 +27,7 @@ class Tier(int, Enum):
 
 class Status(str, Enum):  # noqa: UP042 - value goes straight to JSON
     OK = "ok"
-    DEGRADED = "degraded"   # serving, but something was dropped or substituted
+    DEGRADED = "degraded"   # serving, but a source is out, a field dropped or a check warned
     STALE = "stale"         # last good payload, upstream currently unusable
     DOWN = "down"           # nothing servable
 
@@ -102,7 +102,7 @@ class DayPart:
 
 @dataclass
 class Hour:
-    time: str                      # "21:00", or ISO when it came from Open-Meteo
+    time: str                      # "21:00" from a strip; ISO from Open-Meteo or a day page
     # The instant this entry describes, as a UTC epoch, when the source gives
     # one. A bare "21:00" cannot say which side of midnight it falls on, and
     # every attempt to infer that from position has been wrong at least once

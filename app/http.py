@@ -60,9 +60,6 @@ def client(http2: bool | None = None,
     egress = settings.proxies if proxy is None else (proxy or None)
     if egress:
         kw["proxy"] = egress
-    # HTTP/2 makes the request profile look more like a browser and less like a
-    # script. Not worth a hard dependency: without `h2` we use HTTP/1.1 rather
-    # than refusing to start.
     want = HTTP2_AVAILABLE if http2 is None else (http2 and HTTP2_AVAILABLE)
     if want:
         kw["http2"] = True

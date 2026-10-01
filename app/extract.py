@@ -688,7 +688,8 @@ def _hours(doc: Any) -> tuple[list[Hour], dict[str, int]]:
     Worth flagging against the handover docs, which routed hourly to Open-Meteo
     "by design -- the scrape has no reliable hourly series". It has one now,
     with accessible labels, so hourly comes from Yandex like everything else
-    and Open-Meteo goes back to being purely a referee.
+    on this tab. (Open-Meteo still has hours of its own, on its own tab: since
+    `DECISIONS.md` §4 no source stands in for another.)
     """
     items = doc.xpath('//*[contains(@class,"AppHourlyItem_container")]')
     out: list[Hour] = []

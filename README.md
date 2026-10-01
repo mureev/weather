@@ -82,7 +82,7 @@ temperature, so the disagreement is visible without switching at all.
 | source | current | hourly | 10-day | per-day detail | nowcast | any city? |
 |---|---|---|---|---|---|---|
 | Яндекс | RSC flight JSON | a11y prose, 24 h | a11y prose | 4 parts of day | ✓ | ✓ by lat/lon |
-| Gismeteo | `window.M.state` | typed attrs, own page, ~25 h | typed attrs | 4 parts × 13 metrics | — | only known ids |
+| Gismeteo | header prose + grid | typed attrs, own page, ~25 h | typed attrs | 4 parts × 13 metrics | — | only known ids |
 | Open-Meteo | JSON API | JSON API, ~240 h | JSON API | hourly, any day | — | ✓ by lat/lon |
 
 The **per-day detail** column is what the day screen renders, and the three
@@ -440,7 +440,7 @@ app/
     yandex_html.py   fetcher; request hygiene, host fallback
     yandex_day.py    one day, deeper — fetched only when you open one
     gismeteo.py      id registry, M.state, typed attrs
-    openmeteo.py     no key, no quota
+    openmeteo.py     the JSON API; no key
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
 docs/                the two screenshots at the top of this page
@@ -484,7 +484,8 @@ belongs to the service it came from, and this app only fetches it.
 `yandex.ru/robots.txt` permits `/pogoda`; `gismeteo.ru/robots.txt` permits
 `/weather-*` and disallows every URL with a query string, which is why Gismeteo
 is addressed only by its clean path form. We stay at human request rates — one
-fetch per source per city per ten minutes, serving every device — and identify
+fetch per source per city per ten minutes, serving every device, with a budget
+on what strangers can make the server fetch (`DECISIONS.md` §37) — and identify
 as a normal browser. Both sites' general ToS presumably carry the usual
 anti-automation clause, so this is a ToS question rather than a technical one;
 for a single private reader on his own phone the exposure is negligible.

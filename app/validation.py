@@ -35,7 +35,7 @@ The layers, each catching what the ones above it cannot:
    column describing now. That only shows when two fields are held up against
    each other, and it is the failure that actually shipped.
 
-A fifth check, corroboration against an independent model, used to live here
+One more check, corroboration against an independent model, used to live here
 and to *reject* a source that diverged too far. It was removed when the third
 source arrived: with all three temperatures on screen the user can see a
 disagreement directly, and an app that silently substitutes a different source

@@ -1,16 +1,15 @@
-"""Open-Meteo: the referee.
+"""Open-Meteo: the third source, and the only one with an API.
 
-Its job is to **disagree**. It is not a co-equal source and it does not get a
-vote on what the weather is; it gets a vote on whether our scraper has quietly
-started reading the wrong cell. It only becomes the *displayed* source when the
-scrape has failed or been rejected -- and when that happens, the UI says so in
-Russian rather than passing Open-Meteo off as Yandex.
+It began as the referee. With two sources it was fetched to *disagree*: a wide
+gap rejected the scrape and put Open-Meteo on screen in its place. That ended
+when it became a tab of its own (`DECISIONS.md` §4). The three readings now sit
+side by side, the gaps between them are recorded in `/api/health`, and nothing
+here overrules anything. What made it a good referee still makes it a good
+third opinion: it shares no code, no model and no vendor with the other two.
 
-The one place it is primary by design is hourly, because the scrape has no
-reliable hourly series to take.
-
-No key, no quota, documented and versioned. The ideal second opinion: it shares
-no code, no model and no vendor with the thing it is checking.
+It is also the deepest source by the hour -- ten days of hourly values, which is
+why this tab's day screen can draw a curve for any day you open -- and the only
+one that is documented, versioned and needs no key.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ from ..models import Current, Day, Hour, Place
 log = logging.getLogger(__name__)
 
 # WMO 4677-ish codes as Open-Meteo emits them, in the vocabulary Yandex uses,
-# so a fallback render doesn't visibly change language mid-app.
+# so switching tabs does not change the words the sky is described in.
 WMO: dict[int, tuple[str, str]] = {
     0: ("Ясно", "clear"),
     1: ("Малооблачно", "partly"),

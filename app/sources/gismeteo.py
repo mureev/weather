@@ -16,11 +16,14 @@ us by accident.
 **Parsing** turned out to be the easiest of the three, and for a pleasant
 reason: Gismeteo's markup is *typed*.
 
-* `window.M.state` is a plain JSON object holding `weather.cw` — current
-  conditions as parallel single-element arrays (`temperatureAir: [15]`,
-  `pressure: [748]`, `windDirection: [311]`) — and a `city` block carrying id,
+* `window.M.state` is a plain JSON object with a `city` block carrying id,
   slug **and coordinates**, which makes the identity check numeric rather than
-  a string comparison against an inflected Russian heading.
+  a string comparison against an inflected Russian heading. Until August 2026
+  it also held `weather.cw`, current conditions as parallel single-element
+  arrays (`temperatureAir: [15]`, `pressure: [748]`); that went away, and the
+  current block is now read from the header's own sentence and the grid column
+  covering the page's «now» (`DECISIONS.md` §27). Pages that still carry the
+  blob are read from it first.
 * Forecast temperatures live in custom elements: `<temperature-value
   value="21" from-unit="c">`. An attribute, already signed, already a number.
   The U+2212 trap that dominates the Yandex parser simply cannot occur here.
@@ -131,11 +134,13 @@ def headers() -> dict[str, str]:
 
     The first version of this sent `Upgrade-Insecure-Requests: 1` and a Chrome
     User-Agent but none of the `Sec-Fetch-*` family -- a combination real Chrome
-    never produces, since those headers ship together on every navigation. To a
-    WAF that reads as a script wearing a browser's name, and Gismeteo answered
-    403 while plain `curl` from the same address got 200. Sending *fewer*
-    headers was passing where sending *some* was not, which is the tell: it is
-    the inconsistency being scored, not the volume.
+    never produces, since those headers ship together on every navigation. When
+    Gismeteo answered 403 that looked like the reason, and it was not: every
+    variant of the request -- plain `curl`, stdlib `urllib`, this header set,
+    HTTP/1.1 or 2 -- was refused from this server's address and served from a
+    Russian one. The block is by IP (`DECISIONS.md` §7), and `meteofor.lv` is
+    how this server gets in. The headers stayed because they are what a browser
+    actually sends, not because they changed the answer.
 
     Nothing here derives from the phone. Not its Accept-Language, not its
     User-Agent, not its Referer, not its timezone.
@@ -146,8 +151,8 @@ def headers() -> dict[str, str]:
                   "image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "ru-RU,ru;q=0.9",
         "Upgrade-Insecure-Requests": "1",
-        # Present on every real Chrome navigation. Their absence beside the
-        # header above is the thing that looked wrong.
+        # Present on every real Chrome navigation, so they travel together
+        # here: one without the others is a request no browser makes.
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "none",

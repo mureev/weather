@@ -7,8 +7,10 @@ Request hygiene, which is most of the privacy model:
   `User-Agent`, not its `Referer`, not its timezone. `Europe/Moscow` versus
   anything else gives away region independently of IP, so a header that merely
   passes through is a leak with extra steps.
-* One upstream fetch per city per cache TTL, serving every device behind us.
-  That is a slower request rate than a single human with the page open.
+* One upstream fetch per city per cache TTL, serving every device behind us,
+  and a budget on how many a stranger can cause for places outside the
+  registry (`DECISIONS.md` §37). For the one phone this serves, that is a
+  slower request rate than a single human with the page open.
 * `robots.txt` permits `/pogoda`. It disallows `/pogoda/search`, `/pogoda/404`,
   `/pogoda/0` and the AMP paths, and we touch none of them. Note the asymmetry:
   `yandex.com/weather/*` *is* disallowed, which is why this is `.ru/pogoda`.

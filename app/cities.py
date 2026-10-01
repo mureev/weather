@@ -102,8 +102,9 @@ def ad_hoc(lat: float, lon: float, name: str | None = None) -> Place:
     """A place that isn't in the registry -- a GPS fix, or a search hit.
 
     Coordinates are rounded before they go anywhere. The client rounds too;
-    doing it again here means a hand-crafted request cannot ask us to log a
-    precise fix.
+    doing it again here means a hand-crafted request cannot make us send,
+    cache or log a precise fix -- except in uvicorn's access log, which writes
+    the request line down as it arrived, before any of this runs.
     """
     p = settings.coord_precision
     lat, lon = round(float(lat), p), round(float(lon), p)

@@ -139,15 +139,17 @@ class Settings:
     # numeric id, and there is no way to derive one, so extra cities need it
     # supplied by hand.
     gismeteo_ids: str = field(default_factory=lambda: _s("GISMETEO_IDS", ""))
-    # Gismeteo is fetched over HTTP/1.1 by default. httpx negotiates HTTP/2 via
-    # ALPN when `h2` is installed, and a WAF that checks whether the HTTP/2
-    # SETTINGS frame matches the browser named in the User-Agent will not like
-    # what Python sends. `curl` defaults to 1.1 and is not blocked.
+    # Gismeteo is fetched over HTTP/1.1 by default, as `curl` would. HTTP/2
+    # fingerprinting was the second theory for its 403 and, like the first, it
+    # was wrong: the refusal is by address (`DECISIONS.md` §7). The default
+    # stayed because it is the more conservative request and costs nothing.
     gismeteo_http2: bool = field(default_factory=lambda: _b("GISMETEO_HTTP2", False))
 
     allow_geolocation: bool = field(default_factory=lambda: _b("ALLOW_GEOLOCATION", True))
-    # Client rounds first; we round again server-side. Belt and braces, and it
-    # means a hand-crafted request can't ask us to log a precise fix.
+    # Client rounds first; we round again server-side. Belt and braces: a
+    # hand-crafted request cannot make us send a precise fix upstream, key a
+    # cache by it or write it into our own log lines. uvicorn's access log is
+    # the exception -- it records the request line as it arrived.
     coord_precision: int = field(default_factory=lambda: _i("COORD_PRECISION", 2))
 
     debug_token: str = field(default_factory=lambda: _s("DEBUG_TOKEN", ""))
