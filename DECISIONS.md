@@ -733,9 +733,12 @@ failure than the OOM killer taking the container down for everyone.
 
 ### The budget is a test
 
-`TestItIsCheapToLoad` asserts the compressed cold load stays under 32 kB and the
-shell source under 80 kB. The budgets sit just above the measurements, so the
-test that fails is the one where somebody adds a charting library.
+`TestItIsCheapToLoad` asserts the compressed cold load stays under a byte
+budget and the shell source under another, each set just above the measurement
+of its day, so the test that fails is the one where somebody adds a charting
+library. They started at 32 kB and 80 kB; they are 49,000 and 131,000 bytes
+now, and every raise in between is argued for where it was made (§24, and the
+test's own docstring), which is the only way a budget stays one.
 
 Two of these tests were wrong when first written, in the way this file keeps
 recording. The byte budget read `len(response.content)` — and the test client
@@ -1735,7 +1738,11 @@ round-tripped through a parser would change `&nbsp;` and quoting underneath
 them. The tool refuses to write a page the app would read any differently,
 including with each fallback tier forced off the way `test_ladder` forces it,
 and the `make fixtures*` targets run it, so a re-recorded page arrives
-trimmed.
+trimmed. A page it refuses is left as recorded, because a redesign is exactly
+the page a parser has to be fixed against, and
+`TestTheFixturesStayTrimmed` in `tests/test_invariants.py` fails on any
+committed fixture that trimming would still change. Leaving one whole is a
+mistake the suite catches, not one a reviewer has to.
 
 **What it cost.** Two tests measured the page rather than the parser and were
 re-aimed: a truncation that cut at a fixed 40,000 characters now cuts where the

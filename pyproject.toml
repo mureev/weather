@@ -1,5 +1,5 @@
 [project]
-name = "cm-weather"
+name = "weather"
 version = "1.0.0"
 description = "Self-hosted, ad-free weather PWA with three independent sources"
 requires-python = ">=3.11"
@@ -7,7 +7,9 @@ requires-python = ">=3.11"
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-exclude = ["tests/fixtures"]
+# extend-, not exclude: `exclude` replaces ruff's own list, and a virtualenv
+# in the checkout then lints (and `make fmt` rewrites) every installed package.
+extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]

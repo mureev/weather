@@ -18,8 +18,9 @@ async def shoot(mode="ok", port=8098):
     time.sleep(3.5)
     try:
         async with async_playwright() as pw:
-            b = await pw.chromium.launch(executable_path="/opt/pw-browsers/chromium"
-                if pathlib.Path("/opt/pw-browsers/chromium").exists() else None)
+            # $CHROMIUM_PATH, as in tests/test_ui.py; else Playwright's own.
+            b = await pw.chromium.launch(
+                executable_path=os.environ.get("CHROMIUM_PATH") or None)
             for scheme in ("dark","light"):
                 ctx = await b.new_context(viewport={"width":393,"height":852},
                     device_scale_factor=2, color_scheme=scheme, locale="ru-RU")

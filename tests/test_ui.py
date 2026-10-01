@@ -141,8 +141,10 @@ def _free_port() -> int:
 
 
 def _chromium_path() -> str | None:
-    p = Path("/opt/pw-browsers/chromium")
-    return str(p) if p.exists() else None
+    """A Chromium to use instead of the one `playwright install` put in place:
+    `$CHROMIUM_PATH` when it is set -- a sandbox or CI image with a browser
+    baked in -- and otherwise `None`, which lets Playwright use its own."""
+    return os.environ.get("CHROMIUM_PATH") or None
 
 
 @pytest.fixture(scope="module")

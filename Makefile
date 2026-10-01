@@ -6,8 +6,10 @@
 # through the public site, like any other visitor.
 #
 #   make test          the full suite (no network needed)
-#   make check         lint + test -- what CI runs
-#   make run           run locally on :8080 against live upstreams
+#   make check         lint + test -- the same suites CI runs as its gate
+#   make mock          offline on :8098, against the recorded fixtures
+#   make run           run locally on :8080 against live upstreams (Docker)
+#   make shots         screenshots of the mock, light + dark
 #   make status        what is live: the build it reports, then its own health
 #   make fixtures      re-record test fixtures from the box that does the fetching
 #   make fixtures-ya   re-record Yandex from this machine (no DEBUG_TOKEN)
@@ -16,12 +18,13 @@
 #   make probe         diagnose a source that is refusing us
 #   make canary        has an upstream changed under us? (live, not fixtures)
 #   make routes        which way in to Gismeteo works from here
+#   make selftest      per-source fetch/parse/identity breakdown (DEBUG_TOKEN)
 #
 # Override anything on the command line:
-#   make status SITE=http://localhost:8080/weather
+#     make status SITE=http://localhost:8080/weather
 
 IMAGE      ?= ghcr.io/mureev/weather:master
-SERVICE    ?= cm-weather
+SERVICE    ?= weather
 PORT       ?= 8080
 SITE       ?= https://mureev.com/weather
 CITY       ?= yoshkar-ola
@@ -75,9 +78,14 @@ check: lint test
 # Native arch, so it starts fast. For looking at it, not for shipping -- CI
 # builds what ships. Stamped all the same, so /api/version on localhost says
 # which commit you are looking at.
+#
+# Settings come from `.env` when there is one (copy `.env.example`). Bound to
+# 127.0.0.1, because `DEBUG_TOKEN=local` is a token everyone knows: on all
+# interfaces, the debug routes would answer anyone on the same network.
 run:
 	docker build $(BUILDARGS) -t $(SERVICE):dev .
-	docker run --rm -p $(PORT):8080 -e DEBUG_TOKEN=local $(SERVICE):dev
+	docker run --rm -p 127.0.0.1:$(PORT):8080 $$(test -f .env && echo --env-file .env) \
+	  -e DEBUG_TOKEN=local $(SERVICE):dev
 
 # Offline, against the recorded fixtures. YW_MOCK=winter|degraded|down
 mock:
@@ -130,14 +138,25 @@ test-if-possible:
 # actually does the fetching, then let the tests say what moved.
 # Needs DEBUG_TOKEN set in the container's environment and exported here.
 #
-# Every recipe below trims what it records to the parts the parsers read
+# Every recipe below records into a scratch directory and replaces a fixture
+# only once the fetch has succeeded. `curl ... > fixture` empties the committed
+# file the moment the shell opens it, so a refused fetch used to destroy the
+# very recording that would have shown what changed -- `fixtures-gm`'s lesson
+# (below), applied to all of them.
+#
+# Then each trims what it recorded to the parts the parsers read
 # (tools/trim_fixtures.py): the rest is somebody else's site, and this
 # repository is public. A page the parsers would read differently once trimmed
-# is left as recorded, with a message saying so -- do not commit it like that.
+# -- or cannot read at all, which is what a redesign looks like -- is left as
+# recorded, so the parser can be fixed against it, and the target stops there.
+# Do not commit it like that: `tests/test_invariants.py` fails on any fixture
+# that trimming would still change.
 fixtures:
 	@test -n "$(DEBUG_TOKEN)" || (echo "set DEBUG_TOKEN=... first, or use \`make fixtures-ya\`" && exit 1)
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
 	curl -fsS -H "X-Debug-Token: $(DEBUG_TOKEN)" \
-	  "$(SITE)/api/debug/raw?city=$(CITY)" > tests/fixtures/current.html
+	  "$(SITE)/api/debug/raw?city=$(CITY)" > "$$tmp/current.html"; \
+	mv "$$tmp/current.html" tests/fixtures/current.html
 	python3 tools/trim_fixtures.py tests/fixtures/current.html
 	@$(MAKE) test-if-possible
 
@@ -153,7 +172,9 @@ fixtures:
 # never mattered, but if a fixture taken this way ever parses differently from
 # one taken through the server, believe the server's.
 fixtures-ya:
-	curl -fsS --compressed -A '$(UA)' '$(YA_URL)' > tests/fixtures/current.html
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	curl -fsS --compressed -A '$(UA)' '$(YA_URL)' > "$$tmp/current.html"; \
+	mv "$$tmp/current.html" tests/fixtures/current.html
 	python3 tools/trim_fixtures.py tests/fixtures/current.html
 	@$(MAKE) test-if-possible
 
@@ -196,13 +217,12 @@ fixtures-gm:
 	    echo "  Your existing fixtures are untouched. Try again when it is back."; \
 	    echo; exit 1; \
 	  fi; \
-	  python3 tools/trim_fixtures.py "$$tmp/$$name.html" \
-	    || { echo "  Your existing fixtures are untouched."; exit 1; }; \
 	done; \
 	for name in current hourly 10days 3days; do \
 	  mv "$$tmp/$$name.html" "tests/fixtures/$(GM_PREFIX)-$$name.html"; \
-	done; \
-	wc -c tests/fixtures/$(GM_PREFIX)-*.html
+	done
+	python3 tools/trim_fixtures.py tests/fixtures/$(GM_PREFIX)-*.html
+	@wc -c tests/fixtures/$(GM_PREFIX)-*.html
 	@# All four together, and that matters more than it looks: they are fetched
 	@# in the same second in production, and a set captured across midnight makes
 	@# the parts of Tuesday hang off Monday in the fixtures and nowhere else --
@@ -225,9 +245,10 @@ fixtures-gm:
 #     make fixtures-day DAY=3
 DAY        ?= 5
 fixtures-day:
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
 	curl -fsS --compressed -A '$(UA)' -H 'Accept-Language: ru-RU,ru;q=0.9' \
-	  '$(YA_URL)/details/auto/10-day-weather/day-$(DAY)' \
-	  > tests/fixtures/ya-day$(DAY).html
+	  '$(YA_URL)/details/auto/10-day-weather/day-$(DAY)' > "$$tmp/day.html"; \
+	mv "$$tmp/day.html" tests/fixtures/ya-day$(DAY).html
 	python3 tools/trim_fixtures.py tests/fixtures/ya-day$(DAY).html
 	@wc -c tests/fixtures/ya-day$(DAY).html
 	@echo "\n  Recorded. make check says whether yandex_day still reads it.\n"

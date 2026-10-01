@@ -416,6 +416,31 @@ class TestTheFixturesAreOneRecording:
             f"in common. Re-record both -- `make fixtures && make fixtures-gm`")
 
 
+class TestTheFixturesStayTrimmed:
+    """A recording is somebody else's page, and this repository is public.
+
+    `tools/trim_fixtures.py` cuts every capture down to what the parsers read
+    (DECISIONS.md §34), and every `make fixtures*` recipe runs it. But a recipe
+    leaves a page it cannot trim *as recorded*, deliberately -- a redesign is
+    exactly the page a parser has to be fixed against -- and a page left that
+    way is one `git add` from republishing a whole site. Trimming is
+    idempotent, so a committed fixture has to come back from it unchanged.
+    """
+
+    def test_every_fixture_is_already_trimmed(self):
+        from tools import trim_fixtures
+
+        untrimmed = []
+        for page in sorted((ROOT / "tests" / "fixtures").glob("*.html")):
+            raw = page.read_text(encoding="utf-8", errors="replace")
+            if trim_fixtures.trim(raw)[0] != raw:
+                untrimmed.append(f"{page.name} ({len(raw.encode()):,} bytes)")
+        assert not untrimmed, (
+            f"untrimmed fixtures: {untrimmed}. Run `python3 "
+            f"tools/trim_fixtures.py tests/fixtures/*.html`; if it refuses a "
+            f"page, fix the parser or KEEP first, then commit what it writes.")
+
+
 class TestNothingPinsTheDocument:
     """The single most expensive line this project has ever contained was
 

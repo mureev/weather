@@ -67,14 +67,14 @@ class Settings:
     # Gismeteo blocks by IP, not by request shape: identical requests get 200
     # from a Russian residential address and 403 from this Latvian VPS -- plain
     # curl and stdlib urllib included. No header or transport change touches
-    # it. This is the only thing that will: an egress proxy on a box whose
-    # address they accept. Falls back to UPSTREAM_PROXY, then to direct.
+    # it. Short of knocking on another host (`gismeteo_hosts`, below), the one
+    # thing that will is an egress proxy on a box whose address they accept.
+    # Falls back to UPSTREAM_PROXY, then to direct.
     #
-    # **Comma-separated**, tried in order, because the realistic supply of
-    # Russian exit addresses is public free-proxy lists whose entries die in
-    # hours. One value is a coin flip; a list of eight is a service. See
-    # `gismeteo_routes` below for the ordering, and `tools/proxy-probe.py` for
-    # where the list comes from.
+    # **Comma-separated**, tried in order, because any one egress can die and
+    # a list is what turns a dead entry into a non-event. See `gismeteo_egress`
+    # below for the ordering, and `make routes` (`tools/route_probe.py`) to
+    # test a candidate against the real page before it goes in here.
     gismeteo_proxy: str = field(default_factory=lambda: _s("GISMETEO_PROXY", ""))
     # Total wall-clock the route search may spend before giving up for this
     # fetch. Without it, eight dead proxies at a 12 s timeout each would hold

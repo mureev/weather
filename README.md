@@ -8,11 +8,20 @@ licence, and no upstream ever sees the phone's IP.
 
 The owner directs; Claude Code builds — see [How this was built](#how-this-was-built).
 
-Live at **`mureev.com/weather`**. Default city Yoshkar-Ola, text search for
-anywhere else, and a **Моё местоположение** button when you want *here*.
+Default city Yoshkar-Ola, text search for anywhere else, and a **Моё
+местоположение** button when you want *here*. One instance runs on the owner's
+server for his own phone: a personal tool, not a public service
+([Legal](#legal) says why).
 
 Three independent sources — **Яндекс**, **Gismeteo**, **Open-Meteo** — fetched
 together and switchable with one tap.
+
+<p align="center">
+  <img src="docs/forecast.png" width="295" alt="The forecast screen: Yoshkar-Ola, +9° and overcast, the three sources as tabs with their own temperatures, and an hourly chart">
+  &nbsp;
+  <img src="docs/day.png" width="295" alt="Tomorrow opened as a sheet over the forecast: +12° / +10°, light rain, and the day by morning, afternoon and evening">
+</p>
+<p align="center"><sub>Rendered by <code>python -m tools.phone</code> from the recorded fixtures, at the iPhone's 393×852 view.</sub></p>
 
 Compressed, the shell — page, script and service worker, with a stand-in
 payload — measures about 49 kB, against a test that fails at 49,000 bytes; a
@@ -22,7 +31,7 @@ a measurement recorded in `DECISIONS.md` §18, not a test.
 
 ```bash
 make            # the everyday commands
-make check      # lint + 564 tests, no network required
+make check      # lint + 565 tests, no network required
 make run        # localhost:8080 against live upstreams
 git push        # to master: tested, published, live in minutes
 make status     # what is live: its build, then its own health verdict
@@ -35,7 +44,7 @@ make status     # what is live: its build, then its own health verdict
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 564 tests, no
+1. **`make check` must pass before you believe anything.** 565 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -319,9 +328,22 @@ connection. It cannot hand back a forged forecast.
 
 ## Working on it
 
+Python 3.11 or newer. The app itself needs only `requirements.txt`; the suite
+and the tools need four more packages and a browser:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt pytest ruff playwright pillow
+python -m playwright install chromium   # the browser suite and tools.phone
+```
+
+Without Chromium the browser tests skip themselves: fine on a laptop, and the
+reason CI refuses to accept a skip. To use a browser that is already installed,
+point `CHROMIUM_PATH` at it.
+
 ```bash
 make check                              # lint + everything
-make run                                # live upstreams, native arch, fast start
+make run                                # Docker: live upstreams, native arch, fast start
 make mock                               # offline, against the fixtures
 YW_MOCK=winter   make mock              # negative temperatures, U+2212
 YW_MOCK=degraded make mock              # a source down, tabs disabled
@@ -408,7 +430,8 @@ app/
     openmeteo.py     no key, no quota
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
-tests/               564 tests: parsers, degradation, invariants, docs, API, browser
+docs/                the two screenshots at the top of this page
+tests/               565 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 ```
 

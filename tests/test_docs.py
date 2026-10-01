@@ -149,10 +149,9 @@ class TestEverySettingIsDiscoverable:
         config = (ROOT / "app" / "config.py").read_text(encoding="utf-8")
         env = (ROOT / ".env.example").read_text(encoding="utf-8")
         mentioned = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]{3,})=", env, re.M))
-        # Read elsewhere than config.py, or consumed by compose/nginx rather
-        # than by the app.
-        elsewhere = {"PORT", "YW_MOCK", "APP_BUILD", "APP_BUILT_AT",
-                     "VIRTUAL_HOST", "LETSENCRYPT_HOST", "TZ"}
+        # Read elsewhere than config.py: the mock server, the image's build
+        # stamp, and the container's own clock.
+        elsewhere = {"PORT", "YW_MOCK", "APP_BUILD", "APP_BUILT_AT", "TZ"}
         phantom = sorted(n for n in mentioned - elsewhere if n not in config)
         assert not phantom, f".env.example documents unread variables: {phantom}"
 

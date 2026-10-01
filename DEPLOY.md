@@ -24,8 +24,9 @@ requests get the same three jobs and publish nothing.
 
 It checks that the code does what its tests say: every parser against real
 captured pages, the invariants, the front end in a browser, the byte budgets.
-Then it checks that the image builds, and that the app starts and answers
-through the proxy.
+Then it checks that the image builds, starts, and reports this commit as its
+build. On the server, a new image is kept only once it answers through the
+reverse proxy.
 
 It does not check that the numbers are right today. The suite reads committed
 fixtures, so a site that redesigned overnight is invisible to it; that is the

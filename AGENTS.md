@@ -196,9 +196,10 @@ Extraction is a **three-tier ladder**, and each tier fails independently:
 | 2 `LABELLED` | accessibility prose, labelled cells | the information architecture changes |
 | 3 `SHAPE` | content-classified DOM | the CSS class names change |
 
-Fix the highest tier that can be fixed, and check `health.fallback_profile`
-afterwards: all-tier-3 means the ground moved and the parser is one edit from
-confidently reading the wrong cell.
+Fix the highest tier that can be fixed, and check
+`health.sources.<source>.fallback_profile` afterwards: all-tier-3 means the
+ground moved and the parser is one edit from confidently reading the wrong
+cell.
 
 **Classify a cell by what it contains, never by its position or its class
 name.** `ru_text.classify` is the pattern. Position-based parsing is what makes

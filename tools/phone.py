@@ -91,12 +91,11 @@ INSETS = f"""
 
 
 def _chromium_path() -> str | None:
-    """The same discovery as `tests/test_ui.py`: a pre-installed Chromium where
-    there is one, otherwise `None`, which lets Playwright use the browser
-    `playwright install` put in place. Hard-coding that path meant this tool
-    ran only on machines that happened to have it."""
-    p = pathlib.Path("/opt/pw-browsers/chromium")
-    return str(p) if p.exists() else None
+    """The same discovery as `tests/test_ui.py`: `$CHROMIUM_PATH` when it is
+    set, otherwise `None`, which lets Playwright use the browser `playwright
+    install` put in place. Hard-coding a path meant this tool ran only on
+    machines that happened to have one there."""
+    return os.environ.get("CHROMIUM_PATH") or None
 
 
 async def shoot(pg, name: str, strip: str):
