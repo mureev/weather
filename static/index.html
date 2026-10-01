@@ -647,12 +647,12 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
    same 59pt of nothing below it. DECISIONS.md §26. */
 .screenfoot{margin:22px 0 0;padding-bottom:30px;text-align:center;
   color:var(--faint);font-size:13px}
-.screen input{width:100%;padding:13px 15px;border-radius:14px;background:var(--card);
+.screen input{width:100%;padding:13px 16px;border-radius:14px;background:var(--card);
   border:1px solid var(--line);color:var(--fg);font-size:17px;outline:none;
   margin:10px 0 4px}
 .screen input:focus{border-color:var(--accent)}
 .screen h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;
-          color:var(--faint);margin:18px 4px 8px;font-weight:600}
+          color:var(--faint);margin:18px 17px 8px;font-weight:600}
 
 /* Not a cell. As a single-row group it sat directly under the search field at
    the same width and the same corner radius, so the two read as a pair of
@@ -660,7 +660,7 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
    fix: an accent-coloured line with an arrow is unmistakably a thing you do,
    not a thing you pick from a list. */
 .geolink{display:flex;align-items:center;gap:9px;width:100%;
-  padding:13px 6px 3px;color:var(--accent);font-size:15.5px;font-weight:560}
+  padding:13px 17px 3px;color:var(--accent);font-size:15.5px;font-weight:560}
 .geolink svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;
              stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .geolink:active{opacity:.55}
@@ -874,7 +874,7 @@ html.locked{overflow:hidden;overscroll-behavior:none}
        background:var(--line);border-radius:14px;overflow:hidden}
 .fact{background:var(--card);padding:13px 14px}
 .fact .k{color:var(--faint);font-size:11.5px;text-transform:uppercase;
-         letter-spacing:.06em}
+         letter-spacing:.06em;white-space:nowrap}
 .fact .v{font-size:17px;font-weight:560;font-variant-numeric:tabular-nums;
          margin-top:1px;white-space:nowrap;letter-spacing:-.01em}
 /* "0,8 м/с СЗ" does not fit a third of the width at full size. The direction
