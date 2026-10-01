@@ -924,7 +924,7 @@ function placeList() {
 
   // An action, not a list item -- so it gets no container. Boxed, it echoed
   // the search field sitting right above it.
-  out.push(`<button class="geolink" data-act="geo">${GEO_ICON}
+  if (window.YW_GEO !== false) out.push(`<button class="geolink" data-act="geo">${GEO_ICON}
     <span>Моё местоположение</span>
     ${onGps ? '<span class="on">включено</span>' : ''}</button>`);
 
