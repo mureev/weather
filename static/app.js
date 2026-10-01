@@ -626,6 +626,7 @@ function useGeolocation() {
  */
 const SCREENS = {};                 // name -> (arg) => {title, sub, html}
 let current = null;                 // {name, arg} or null
+let opener = null;
 
 function pushMs() {
   // Read back from CSS rather than restated -- the same rule as --hour-w, and
@@ -815,6 +816,7 @@ function openScreen(name, arg) {
   body.scrollTop = at;
   if (already) return true;
 
+  opener = document.activeElement;
   $('screen').setAttribute('aria-hidden', 'false');
   for (const id of ['screen', 'scrim', 'sheetfade']) $(id).classList.add('open');
   // Parked off-screen and reflowed *before* the detent is set. Without the
@@ -832,6 +834,7 @@ function openScreen(name, arg) {
   // the whole document in the same task that starts the sheet's transition.
   // See the `html.locked` rule for what that did to the animation.
   document.documentElement.classList.add('locked');
+  $('screen-title').focus({ preventScroll: true });
   return true;
 }
 
@@ -842,6 +845,7 @@ function closeScreen() {
   document.querySelector('.wrap').inert = false;
   // Nothing to restore: the document never moved.
   document.documentElement.classList.remove('locked');
+  if (opener && opener.isConnected) opener.focus({ preventScroll: true });
   current = null;
   // Emptied only after it has finished sliding out, or the screen goes blank
   // in front of you for the length of the animation.

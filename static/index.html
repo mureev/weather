@@ -1041,12 +1041,13 @@ html.locked{overflow:hidden;overscroll-behavior:none}
      the ancestors to keep it that way. -->
 <div class="scrim" id="scrim" aria-hidden="true"></div>
 <div class="sheetfade" id="sheetfade" aria-hidden="true"></div>
-<div class="screen" id="screen" role="dialog" aria-modal="true" aria-hidden="true">
+<div class="screen" id="screen" role="dialog" aria-modal="true" aria-hidden="true"
+     aria-labelledby="screen-title">
   <div class="navbar">
     <!-- Order matters, and not for layout: the close button is *last* in the
          DOM so it is last in the tab and VoiceOver order, matching where it
          sits on screen. It is placed in the trailing grid column by CSS. -->
-    <div class="t" id="screen-title"></div>
+    <div class="t" id="screen-title" tabindex="-1"></div>
     <button class="close" id="close" aria-label="Закрыть">
       <svg viewBox="0 0 13 13" aria-hidden="true">
         <path d="M1 1l11 11M12 1L1 12"/></svg>
