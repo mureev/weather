@@ -47,6 +47,7 @@ import sys
 import time
 from pathlib import Path
 from typing import ClassVar
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -1637,3 +1638,240 @@ class TestServiceWorker:
     def test_it_refuses_cross_origin_requests(self, page, server):
         sw = page.request.get(server + "sw.js").text()
         assert "url.origin !== self.location.origin" in sw
+
+
+# A request can be made to lose a race *inside the page*: `window.__slow` maps
+# a URL pattern to a delay. Done here rather than in a route handler because a
+# sleeping handler blocks Playwright's own loop and serialises everything,
+# which is the one thing a race test cannot afford.
+SLOW = """(() => {
+  const real = window.fetch.bind(window);
+  window.__slow = {};
+  window.fetch = (input, init) => {
+    const u = decodeURIComponent(String(input && input.url || input));
+    const k = Object.keys(window.__slow).find((s) => new RegExp(s).test(u));
+    const ms = k === undefined ? 0 : window.__slow[k];
+    return ms ? new Promise((r) => setTimeout(r, ms)).then(() => real(input, init))
+              : real(input, init);
+  };
+})();"""
+
+
+@pytest.fixture
+def quiet(browser, server):
+    """No service worker, because Playwright's routing does not see what a
+    worker answers and these tests are about what app.js does with an answer."""
+    ctx = browser.new_context(viewport={"width": 393, "height": 852},
+                              color_scheme="dark", locale="ru-RU",
+                              service_workers="block")
+    ctx.add_init_script(SLOW)
+    pg = _pin(ctx.new_page())
+    pg.goto(server, wait_until="networkidle")
+    pg.wait_for_selector(".hero .t", timeout=10_000)
+    yield ctx, pg
+    ctx.close()
+
+
+def _json(route, body, status=200):
+    route.fulfill(status=status, content_type="application/json",
+                  body=json.dumps(body, ensure_ascii=False))
+
+
+class TestEachAnswerBelongsToItsQuestion:
+    """Three request paths, and each one drew the answer to one question as the
+    answer to another: a day page under the wrong city, an old query's results
+    under a new one, an error in place of the forecast it failed to refresh."""
+
+    def test_a_day_screen_never_shows_another_citys_day_page(self, quiet):
+        """The per-day cache was keyed "source|date", so Moscow's Tuesday drew
+        Yoshkar-Ola's Tuesday and never asked for its own."""
+        ctx, pg = quiet
+        date = pg.locator(".day[data-day]").nth(2).get_attribute("data-day")
+        other = pg.evaluate("state.data")
+        other["place"].update(slug="moscow", name="Москва")
+        asked = []
+
+        def day(route):
+            if "city=moscow" not in route.request.url:
+                return route.continue_()
+            asked.append(route.request.url)
+            return _json(route, {"source": "yandex", "day": {
+                "date": date, "parts": [],
+                "hours": [{"time": f"{date}T{h:02d}:00+03:00", "temp_c": -40.0}
+                          for h in range(0, 24, 3)]}})
+
+        ctx.route("**/api/day*", day)
+        ctx.route("**/api/weather?city=moscow*", lambda r: _json(r, other))
+        pg.click(f'.day[data-day="{date}"]')
+        pg.wait_for_timeout(1200)
+        first = pg.locator("#screen-body .hour .hv").all_inner_texts()
+        assert first, "Yoshkar-Ola's per-day page never arrived; nothing to compare"
+        pg.click("#close")
+        pg.wait_for_timeout(600)
+        pg.click("#btn-place")
+        pg.wait_for_selector(".screen.open")
+        pg.click('li[data-slug="moscow"]')
+        pg.wait_for_timeout(1200)
+        pg.click(f'.day[data-day="{date}"]')
+        pg.wait_for_timeout(1200)
+        assert asked, "Moscow's day was never requested -- the cache answered"
+        shown = pg.locator("#screen-body .hour .hv").all_inner_texts()
+        assert shown != first, f"Moscow's {date} shows Yoshkar-Ola's hours"
+
+    def test_a_failed_refresh_keeps_the_forecast_on_screen(self, quiet):
+        """The worker's "no network, no cache" and the server's "all down" are
+        503s in the payload's shape. Either replaced the forecast, and the
+        copy in localStorage with it."""
+        ctx, pg = quiet
+        hero = pg.locator(".hero .t").inner_text()
+        ctx.route("**/api/weather*", lambda r: _json(
+            r, {"health": {"status": "down", "warnings": ["Нет сети"]}}, 503))
+        pg.click("#btn-refresh")
+        pg.wait_for_timeout(800)
+        assert pg.locator(".hero .t").all_inner_texts() == [hero], \
+            "a failed refresh replaced the forecast with an error card"
+        kept = pg.evaluate("JSON.parse(localStorage.getItem('yw.payload'))")
+        assert "sources" in kept, "the cached forecast was overwritten"
+
+    def test_a_city_picked_during_a_refresh_is_the_one_shown(self, quiet):
+        """`load()` set the place, then returned on `busy`; the refresh in
+        flight landed with the old city and the new one was never fetched."""
+        _, pg = quiet
+        pg.evaluate("window.__slow['api/weather\\\\?'] = 1500; 0")
+        pg.evaluate("document.dispatchEvent(new Event('visibilitychange')); 0")
+        pg.click("#btn-place")
+        pg.wait_for_selector(".screen.open")
+        pg.wait_for_timeout(300)
+        pg.click('li[data-slug="kazan"]')
+        pg.wait_for_timeout(4000)
+        assert pg.locator("#city").inner_text() == "Казань"
+        assert pg.evaluate("state.data.place.slug") == "kazan"
+
+    def test_search_results_answer_what_the_field_says(self, quiet):
+        """The older query answered last and was drawn under the newer one."""
+        ctx, pg = quiet
+
+        def search(route):
+            q = parse_qs(urlparse(route.request.url).query)["q"][0]
+            _json(route, {"results": [{"slug": q, "name": f"ответ на {q}",
+                                       "subtitle": "", "lat": 1.0, "lon": 2.0}]})
+
+        ctx.route("**/api/search*", search)
+        pg.evaluate("window.__slow['q=Ка$'] = 1200; window.__slow['q=Каз$'] = 50; 0")
+        pg.click("#btn-place")
+        pg.wait_for_selector("#q")
+        pg.type("#q", "Ка", delay=30)
+        pg.wait_for_timeout(350)
+        pg.type("#q", "з", delay=30)
+        pg.wait_for_timeout(2000)
+        assert pg.locator("#plist .group .nm").all_inner_texts() == ["ответ на Каз"]
+
+    def test_a_searched_city_is_not_labelled_as_gps(self, quiet):
+        """A search hit is asked for by coordinates, so it was `adhoc` -- which
+        the title's arrow and «Моё местоположение · включено» read as GPS."""
+        ctx, pg = quiet
+        ctx.route("**/api/search*", lambda r: _json(r, {"results": [
+            {"slug": "moskva", "name": "Москва", "subtitle": "Россия",
+             "lat": 55.75, "lon": 37.62}]}))
+        pg.click("#btn-place")
+        pg.fill("#q", "Москва")
+        pg.wait_for_timeout(700)
+        pg.locator("#plist .group li").first.click()
+        pg.wait_for_timeout(1500)
+        assert not pg.locator("#pin").is_visible(), "a searched city wears the pin"
+        pg.click("#btn-place")
+        pg.wait_for_selector(".screen.open")
+        assert pg.locator(".geolink .on").count() == 0
+
+    def test_a_refresh_does_not_replace_the_search_field(self, quiet):
+        """`render()` redrew the open screen, and for the place screen that is
+        the input the keyboard is attached to."""
+        _, pg = quiet
+        pg.click("#btn-place")
+        pg.wait_for_selector("#q")
+        pg.evaluate("document.getElementById('q').dataset.mark = 'same'; 0")
+        pg.focus("#q")
+        pg.keyboard.type("Сан")
+        pg.evaluate("document.dispatchEvent(new Event('visibilitychange')); 0")
+        pg.wait_for_timeout(800)
+        assert pg.evaluate("document.getElementById('q').dataset.mark") == "same"
+        assert pg.input_value("#q") == "Сан"
+
+    def test_a_corrupt_saved_place_still_paints_the_cached_forecast(self, quiet):
+        """All three keys were read in one `try`, place first, so a place that
+        did not parse cost the cached forecast as well."""
+        ctx, pg = quiet
+        pg.evaluate("localStorage.setItem('yw.place', '{oops'); 0")
+        ctx.add_init_script("window.__slow['api/weather\\\\?'] = 3000;")
+        pg.reload(wait_until="domcontentloaded")
+        pg.wait_for_timeout(800)
+        assert pg.locator(".hero .t").count() == 1, \
+            "the cached forecast was not painted before the network answered"
+
+
+class TestItWorksWithoutAFingerOrALargeScreen:
+    def test_the_sheet_is_named_takes_focus_and_gives_it_back(self, page):
+        """Focus fell to <body> on open -- the row had just been made inert --
+        and stayed there on close; the dialog had no name at all."""
+        row = page.locator(".day[data-day]").nth(1)
+        row.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_selector(".screen.open")
+        assert page.evaluate("document.activeElement.id") == "screen-title"
+        assert page.get_attribute("#screen", "aria-labelledby") == "screen-title"
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(500)
+        assert page.evaluate(
+            "document.activeElement === document.querySelectorAll('.day')[1]")
+
+    def test_the_cities_can_be_reached_from_the_keyboard(self, page):
+        page.click("#btn-place")
+        page.wait_for_selector(".screen.open")
+        seen = []
+        for _ in range(12):
+            page.keyboard.press("Tab")
+            seen.append(page.evaluate("document.activeElement.className"))
+        assert seen.count("nm") >= 5, f"tab order never reaches a city: {seen}"
+
+    def test_reduced_motion_stops_the_sheet_too(self, browser, server):
+        """`.screen.open` outranked the reduced-motion rule for `.screen`."""
+        ctx = browser.new_context(viewport={"width": 393, "height": 852},
+                                  locale="ru-RU", reduced_motion="reduce")
+        pg = _pin(ctx.new_page())
+        pg.goto(server, wait_until="networkidle")
+        pg.wait_for_selector(".hero .t", timeout=10_000)
+        pg.click(".day[data-day]")
+        pg.wait_for_selector(".screen.open")
+        got = pg.evaluate("getComputedStyle(document.getElementById('screen'))"
+                          ".transitionDuration")
+        ctx.close()
+        assert set(got.split(", ")) == {"0s"}, f"the sheet still animates: {got}"
+
+    def test_nothing_scrolls_sideways_at_320pt(self, browser, server):
+        """An SE, or any iPhone with Display Zoom: a day row was 41px wider
+        than its card and the facts grid ran off the right edge."""
+        ctx = browser.new_context(viewport={"width": 320, "height": 700},
+                                  locale="ru-RU")
+        pg = _pin(ctx.new_page())
+        pg.goto(server, wait_until="networkidle")
+        pg.wait_for_selector(".hero .t", timeout=10_000)
+        over = {}
+        for src in ("yandex", "gismeteo", "openmeteo"):
+            tab = pg.locator(f'.src[data-src="{src}"]')
+            if tab.is_disabled():
+                continue
+            tab.click()
+            pg.wait_for_timeout(200)
+            over[src] = pg.evaluate("document.documentElement.scrollWidth"
+                                    " - document.documentElement.clientWidth")
+        ctx.close()
+        assert over and not any(over.values()), f"sideways scroll at 320pt: {over}"
+
+    def test_near_zero_is_zero_and_a_few_days_take_the_plural(self, page):
+        assert page.evaluate("[fmtT(-0.4), fmtT(0.3), fmtT(-0.6)]") == \
+            ["0°", "0°", "−1°"]
+        heads = page.evaluate("""[1, 3, 10].map((n) => dailyBlock(
+            Array.from({length: n}, (_, i) => ({date: `2026-09-1${i}`,
+              temp_max_c: 5, temp_min_c: 1})), null).match(/<h2>([^<]*)/)[1])""")
+        assert heads == ["Прогноз на 1 день", "Прогноз на 3 дня",
+                         "Прогноз на 10 дней"]
