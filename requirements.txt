@@ -1,5 +1,7 @@
 # Runtime only. Everything here is imported by the app on a normal request
 # path; nothing is here "in case".
+#
+# Lower bounds for humans; `requirements.lock` is what is installed and shipped.
 fastapi>=0.115          # routing, DI, the security-header plumbing
 uvicorn>=0.30           # ASGI server
 httptools>=0.6          # C HTTP parser for uvicorn -- measurable, 2 MB

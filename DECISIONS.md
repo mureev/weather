@@ -1689,8 +1689,13 @@ browser does.
   than a person remembering one.
 - **Credentials go the right way round.** CI holds no key to the server, only a
   token scoped to the run that can publish this repository's image. The server
-  fetches the image; nothing reaches in. Nothing in this repository can touch
-  the server, so nothing in it can be turned into a way to.
+  fetches the image; nothing reaches in. That makes the image the way in
+  instead: whatever can change what `release` publishes -- a push to
+  `master`, an action running in that job, a dependency resolved at build
+  time -- runs on the server within minutes, which is why each of those is
+  pinned rather than trusted (amended 2026-10-02: actions by commit SHA,
+  runtime dependencies by hash in `requirements.lock`, and `release` publishes
+  the image `image` built and started rather than building a second one).
 - **Rollback stopped being a procedure.** A failed health check undoes itself.
   A bad build that passes the check is undone the ordinary way — `git revert`
   and push — or, while `master` cannot be trusted, by pinning a known-good

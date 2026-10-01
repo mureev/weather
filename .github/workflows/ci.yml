@@ -15,11 +15,21 @@ on:
 # is a queue nobody reads. The event is part of the key: the Monday run or a
 # manual one for the canary must never cancel a push that is mid-release, or
 # that commit is simply never shipped.
+#
+# Never on master, though. There a newer push queues behind a run in flight
+# instead of cancelling it. Cancelling could drop a commit that was green and
+# already publishing, and if the newer push was red, neither shipped -- even
+# when the older one was the `git revert` DEPLOY.md gives as the rollback.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 # Read-only by default. `release` asks for the one thing it needs, on its own.
+#
+# Every action is pinned to a commit, with its tag beside it. A tag can be
+# moved to other code by whoever controls the action's repository (it has
+# happened, to tj-actions/changed-files in 2025), and the job holding
+# `packages: write` publishes what the server deploys within minutes.
 permissions:
   contents: read
 
@@ -41,12 +51,16 @@ jobs:
     name: lint + unit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install -r requirements.txt pytest ruff
+      # The lock, as the image installs it, and the tools at fixed versions:
+      # an unpinned ruff or pytest turns master red on its own release day.
+      - run: |
+          pip install --require-hashes --no-deps -r requirements.lock
+          pip install pytest==9.1.1 ruff==0.16.10
       - name: lint
         run: ruff check .
       - name: unit + parser + routing tests
@@ -74,14 +88,16 @@ jobs:
     name: browser
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       # pillow too: the status-bar seam tests compare pixels, and without it
       # they skip -- five tests that had never once run here.
-      - run: pip install -r requirements.txt pytest playwright pillow
+      - run: |
+          pip install --require-hashes --no-deps -r requirements.lock
+          pip install pytest==9.1.1 playwright==1.63.0 pillow==12.3.0
       - run: python -m playwright install --with-deps chromium
       - name: browser tests
         # One run, read twice. These tests skip themselves when Chromium or
@@ -101,25 +117,35 @@ jobs:
     name: image builds
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - id: built
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       # Builds for the platform the VPS actually runs, because a Dockerfile
       # that only works on the arch you happen to be sitting at is a deploy-day
       # surprise -- and this repo has already had one (`exec format error`).
       # Not pushed: `release` publishes, and only once this job and both test
-      # suites have passed on a push to master.
+      # suites have passed on a push to master -- *this* image, written out
+      # once and handed over, not a second build. A rebuild there re-resolved
+      # the base tag and every `>=` requirement minutes after the tests ran,
+      # so what shipped was never quite what was checked.
       - name: build amd64
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64
           push: false
-          load: true
           tags: weather:ci
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
             APP_BUILD=${{ github.sha }}
+            APP_BUILT_AT=${{ steps.built.outputs.at }}
+          outputs: type=docker,dest=/tmp/weather.tar
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - run: docker load -i /tmp/weather.tar
       # A built image is not yet a running app: a missing module, a bad CMD or
       # a user who cannot read the code all build fine. Start it the way the
       # server does and ask the two routes that touch no upstream. The build
@@ -140,6 +166,13 @@ jobs:
       - name: container log
         if: failure()
         run: docker logs app || true
+      - name: hand the checked image to release
+        if: github.repository == 'mureev/weather' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image
+          path: /tmp/weather.tar
+          retention-days: 1
 
   # Delivery (2026-10-01). When every job above passes on a push to master,
   # publish the image as :master and :sha-<short>. That is the whole of this
@@ -158,34 +191,24 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: image
+          path: /tmp
+      - run: docker load -i /tmp/weather.tar
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/mureev/weather
-          tags: |
-            type=raw,value=master
-            type=sha,format=short,prefix=sha-
-      - id: built
-        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            APP_BUILD=${{ github.sha }}
-            APP_BUILT_AT=${{ steps.built.outputs.at }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # Promoted, not rebuilt: the image `image` started and asked for this
+      # commit, under the two names the server and DEPLOY.md use.
+      - name: publish
+        run: |
+          for tag in master "sha-${GITHUB_SHA::7}"; do
+            docker tag weather:ci "ghcr.io/mureev/weather:$tag"
+          done
+          docker push --all-tags ghcr.io/mureev/weather
 
   # Not part of the gate: `release` does not wait for it and a push never runs
   # it. It reads the live site's /api/health, so a red tick here can mean "the
@@ -197,8 +220,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: has an upstream changed under us?

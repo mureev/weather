@@ -8,9 +8,10 @@ in this repository can reach the server.
 1. **CI** (`.github/workflows/ci.yml`) runs three jobs: lint and the unit
    suite, the browser suite in a real Chromium, and an image build for
    `linux/amd64`.
-2. **`release`** runs only when all three pass on a push to `master`. It builds
-   the image with the commit stamped in and publishes it to GHCR as
-   `ghcr.io/mureev/weather:master` and `ghcr.io/mureev/weather:sha-<short>`.
+2. **`release`** runs only when all three pass on a push to `master`. It
+   publishes the image the `image` job built, stamped and started -- the same
+   bytes, not a rebuild -- to GHCR as `ghcr.io/mureev/weather:master` and
+   `ghcr.io/mureev/weather:sha-<short>`.
 3. **The server** polls `:master` every two minutes. A new digest is pulled,
    started, and checked through the reverse proxy; if the check fails, the
    previous image is put back. That tool, and the server's configuration —

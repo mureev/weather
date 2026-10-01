@@ -16,8 +16,12 @@ ENV PIP_NO_CACHE_DIR=1 \
 RUN python -m venv /venv
 ENV PATH="/venv/bin:$PATH"
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Exactly the versions CI tested, hash-checked, and nothing they did not pull
+# in. `requirements.txt` says what the app needs; `requirements.lock` is what
+# it gets. Regenerate the lock with the command at its top and read its diff
+# like code: that is where a new transitive dependency shows itself.
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 
 
 FROM python:3.12-slim
