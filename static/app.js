@@ -1099,9 +1099,10 @@ function metricsBlock(day) {
  * before this existed. A loading state would be advertising a thing that may
  * not arrive, in place of a thing that already has.
  */
-const deeper = {};                   // "yandex|2026-08-07" -> Day, or null
+const deeper = {};                   // "kazan|yandex|2026-08-07" -> Day, or null
 
-function deepKey(source, date) { return `${source}|${date}`; }
+const deepKey = (source, date) =>
+  `${state.data && state.data.place && state.data.place.slug}|${source}|${date}`;
 
 /** The set fields of an object. Merging the deep day over the shallow one has
  *  to skip its blanks, or a page that omits a value would *erase* one the main
