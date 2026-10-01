@@ -15,6 +15,7 @@ button working while denying it to anything embedded.
 from __future__ import annotations
 
 import datetime
+import hmac
 import logging
 import time
 from dataclasses import asdict
@@ -110,7 +111,8 @@ def _resolve(city: str | None, lat: float | None, lon: float | None):
 
 
 @api.get("/api/weather")
-async def weather(city: str | None = None,
+async def weather(request: Request,
+                  city: str | None = None,
                   lat: float | None = None,
                   lon: float | None = None,
                   force: bool = False):
@@ -119,8 +121,18 @@ async def weather(city: str | None = None,
     All three readings are taken at the same moment and shipped together, so
     the switcher in the UI is a client-side choice with no refetch -- and, more
     importantly, so that comparing them compares like with like.
+
+    `force` skips the cache, and the cache is the whole of this app's manners
+    upstream: one fetch per source per city per ten minutes, however many
+    people are asking. Honoured for anyone, it would let a stranger spend a
+    full round of upstream fetches, from the server's address, on every
+    request they cared to send. So it takes the debug token, the same one the
+    debug routes take. Without it, `force` is accepted and ignored and the
+    answer comes from the cache like any other -- which is also what the app's
+    own refresh button gets, since it carries no token.
     """
-    w = await get_weather(_resolve(city, lat, lon), force=force)
+    w = await get_weather(_resolve(city, lat, lon),
+                          force=force and _has_token(request))
     status = 200 if w.health.status is not Status.DOWN else 503
     return JSONResponse(w.to_dict(), status_code=status,
                         headers={"Cache-Control": "no-cache"})
@@ -207,10 +219,26 @@ async def health():
 
 # --- debug (token-gated) ---------------------------------------------------
 
+def _has_token(request: Request) -> bool:
+    """Does this request carry the configured debug token?
+
+    `hmac.compare_digest` rather than `!=`, so how long the comparison takes
+    says nothing about how much of a guess was right, and the token cannot be
+    recovered a character at a time from response timings. And no token
+    configured means nobody holds one: without that first check, an empty
+    header would match an empty setting.
+    """
+    expected = settings.debug_token
+    if not expected:
+        return False
+    given = request.headers.get("X-Debug-Token", "")
+    return hmac.compare_digest(given.encode(), expected.encode())
+
+
 def _require_token(request: Request) -> None:
     if not settings.debug_token:
         raise HTTPException(404)
-    if request.headers.get("X-Debug-Token") != settings.debug_token:
+    if not _has_token(request):
         raise HTTPException(403, "bad debug token")
 
 

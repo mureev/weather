@@ -6,6 +6,7 @@ fails on a train.
 """
 
 
+import dataclasses
 import datetime as dt
 import re
 from pathlib import Path
@@ -74,6 +75,17 @@ def client_(request, monkeypatch):
     return TestClient(app)
 
 
+def with_debug_token(monkeypatch, token: str = "s3cret-for-tests") -> dict[str, str]:
+    """Configure a debug token for one test and return the header that carries
+    it. Settings are a frozen dataclass read at import, so the instance
+    `app.main` holds is swapped for a copy rather than edited."""
+    from app import main
+
+    monkeypatch.setattr(main, "settings",
+                        dataclasses.replace(main.settings, debug_token=token))
+    return {"X-Debug-Token": token}
+
+
 class TestWeatherEndpoint:
     def test_default_city(self, client_):
         r = client_.get("/weather/api/weather")
@@ -136,6 +148,63 @@ class TestWeatherEndpoint:
         d = client_.get("/weather/api/weather?lat=56.64&lon=47.90").json()
         assert d["place"]["slug"] == "yoshkar-ola"
         assert d["place"]["ad_hoc"] is False
+
+
+class TestForceTakesTheToken:
+    """`force=1` skips the cache, and the cache is what holds this app to one
+    fetch per source per city per ten minutes, however many people are asking.
+    Honoured for anyone, it let any stranger spend the server's upstream
+    requests -- from the server's address, which is the one thing Gismeteo has
+    already shown it will block (DECISIONS.md §7) -- as fast as they could send
+    them.
+
+    So it takes the debug token now. Without it the request is still answered,
+    from the cache, exactly as if `force` had not been asked for.
+    """
+
+    @pytest.fixture
+    def asked(self, client_, monkeypatch):
+        """Every URL Yandex is asked for, so a test can tell a cache hit from
+        a refetch without reading timestamps."""
+        urls: list[str] = []
+        inner = yandex_html.fetch_html
+
+        async def counting(c, url, **kw):
+            urls.append(url)
+            return await inner(c, url, **kw)
+
+        monkeypatch.setattr(yandex_html, "fetch_html", counting)
+        return urls
+
+    def test_a_stranger_is_answered_from_the_cache(self, client_, asked,
+                                                   monkeypatch):
+        with_debug_token(monkeypatch)
+        assert client_.get("/weather/api/weather").status_code == 200
+        before = len(asked)
+        assert before, "the first request should have fetched upstream"
+        for headers in ({}, {"X-Debug-Token": "a-good-guess"}):
+            r = client_.get("/weather/api/weather?force=1", headers=headers)
+            assert r.status_code == 200
+        assert len(asked) == before, \
+            "force=1 without the debug token went upstream anyway"
+
+    def test_the_token_still_forces_a_refetch(self, client_, asked, monkeypatch):
+        token = with_debug_token(monkeypatch)
+        client_.get("/weather/api/weather")
+        before = len(asked)
+        client_.get("/weather/api/weather?force=1", headers=token)
+        assert len(asked) > before
+
+    def test_no_token_configured_means_nobody_has_one(self, client_, asked,
+                                                      monkeypatch):
+        """Unset is the default, and an empty header compared against an empty
+        setting is equal -- so without an explicit check, every box that never
+        configured a token would have handed `force` back to everyone."""
+        empty = with_debug_token(monkeypatch, "")
+        client_.get("/weather/api/weather")
+        before = len(asked)
+        client_.get("/weather/api/weather?force=1", headers=empty)
+        assert len(asked) == before
 
 
 class TestDegradation:
@@ -239,7 +308,10 @@ class TestDegradation:
             raise RuntimeError("gone")
 
         monkeypatch.setattr(yandex_html, "fetch_html", boom)
-        d = c.get("/weather/api/weather?force=1").json()
+        # With the token: an anonymous `force` is answered from the cache now
+        # (TestForceTakesTheToken), which would never reach the broken fetch.
+        token = with_debug_token(monkeypatch)
+        d = c.get("/weather/api/weather?force=1", headers=token).json()
         assert d["sources"]["yandex"]["current"]["temp_c"] == NOW_C
         assert d["health"]["status"] == "stale"
         assert any("устарели" in w for w in d["health"]["warnings"])
@@ -267,6 +339,14 @@ class TestSurfaces:
     def test_debug_routes_404_without_a_token(self, client_):
         """404, not 403 -- their existence is not advertised."""
         assert client_.get("/weather/api/debug/selftest").status_code == 404
+
+    def test_debug_routes_take_the_token_and_nothing_else(self, client_,
+                                                          monkeypatch):
+        token = with_debug_token(monkeypatch)
+        flush = "/weather/api/debug/flush"
+        assert client_.post(flush).status_code == 403
+        assert client_.post(flush, headers={"X-Debug-Token": "x"}).status_code == 403
+        assert client_.post(flush, headers=token).json() == {"flushed": "all"}
 
     def test_root_redirects_into_the_subsection(self, client_):
         r = client_.get("/", follow_redirects=False)

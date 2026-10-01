@@ -17,7 +17,7 @@ three are asserted by tests rather than hoped for.
 
 ```bash
 make            # list every command
-make check      # lint + 560 tests, no network required
+make check      # lint + 564 tests, no network required
 make run        # localhost:8080 against live upstreams
 make deploy     # build amd64, push to GHCR, restart on the VPS, check health
 ```
@@ -29,7 +29,7 @@ make deploy     # build amd64, push to GHCR, restart on the VPS, check health
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 560 tests, no
+1. **`make check` must pass before you believe anything.** 564 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -401,7 +401,7 @@ app/
     openmeteo.py     no key, no quota
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
-tests/               560 tests: parsers, degradation, invariants, docs, API, browser
+tests/               564 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 deploy/              nginx-proxy vhost snippet + compose service block
 ```
