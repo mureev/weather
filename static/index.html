@@ -18,10 +18,8 @@
      places because each is read by a different consumer at a different moment;
      a test asserts all three agree.
 
-     **One rule for both appearances, and that is the point of it.** The sky is
-     the same in light mode (DECISIONS.md §40), so the manifest's single colour
-     is right for both -- light mode used to launch on this navy and then step
-     to a paler sky, which no manifest could fix. -->
+     One rule for both appearances: the sky is the same in light mode (§40),
+     so the manifest's single colour is right for both. -->
 <style>html{background:#0d1630}</style>
 
 <!-- ==========================================================================
@@ -65,16 +63,14 @@
    =========================================================================== */
 
 :root{
-  /* `--sky3` is the foot of the sky, and in the dark scheme the sheets are the
-     same colour so that a sheet and the canvas below it cannot disagree (§26).
-     In light mode `--bg` becomes a light surface and `--sky3` does not move:
-     the sky is the weather, not the appearance setting (§40). */
+  /* `--sky3` is the foot of the sky. The dark sheets are the same colour, so a
+     sheet and the canvas below it cannot disagree (§26); in light mode `--bg`
+     is a light surface and `--sky3` does not move (§40). */
   --sky3:#0a1020; --bg:var(--sky3);
   --bg2:#141d33; --card:#161f38; --card2:#1b2542;
   --line:#26314f; --fg:#eef3ff; --dim:#8f9dbe; --faint:#8390b3;
   --accent:#71a9ff; --warn:#ffb454; --bad:#ff6b6b;
-  /* A card is glass: the sky shows through a little. Written once because the
-     banner is a card with a picture under its glass. */
+  /* A card is glass; the banner is a card with a picture under its glass. */
   --glass:color-mix(in srgb,var(--card) 86%,transparent);
   /* The one place the hourly column width is written down. app.js reads it
      back to lay the curve out on the same grid. It lives on :root rather than
@@ -107,22 +103,15 @@
      as `--hour-w` and `--push-ms`. */
   --nav-inset:22px;
 }
-/* Light mode is the **surfaces**: the cards, the sheets, the text on them. The
-   sky above them is not in this block, and nothing that sits on it is either
-   -- see the rule list under `.hero` for what that means for colour.
-
-   `--dim` and `--faint` are as light as AA allows on the darkest surface each
-   one is drawn on: `--dim` on the sheet's segmented control (`--bg2`),
-   `--faint` on the sheet itself. `--cold` is the chance of rain under each
-   hour; the dark scheme's sky blue is 1.8:1 on a white card. */
+/* Light mode is the surfaces -- cards, sheets, the text on them -- and never
+   the sky (§40). `--dim`, `--faint` and `--cold` are as light as AA allows on
+   the surfaces they are drawn on; the dark `--cold` is 1.8:1 on white. */
 @media (prefers-color-scheme: light){
   :root{ --bg:#eef2fa; --bg2:#e2e9f7; --card:#fff; --card2:#f4f7fd;
          --line:#dce3f1; --fg:#0d1526; --dim:#52617f; --faint:#5f6c88;
          --accent:#2563eb; --cold:#1767b8;
-         /* Opaque. White at 86% over a navy sky is grey -- #dcdde2 -- and so
-            is 94%, enough that the white cells of the facts grid read as
-            tiles laid on it. A light card on a dark sky is a widget on a
-            dark wallpaper, and those are solid. */
+         /* Opaque: white at 86% over navy is grey (#dcdde2), and the facts
+            grid's white cells read as tiles laid on it. */
          --glass:var(--card) }
   /* The sheet's strip is on the sheet, not on the sky: ink on a segmented
      control. */
@@ -275,20 +264,11 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 :root[data-sky="overcast"]    {--sky1:#232c40;--sky2:#111827}
 :root[data-sky="rain"]        {--sky1:#1a2740;--sky2:#0d1524}
 :root[data-sky="snow"]        {--sky1:#26314c;--sky2:#131b2c}
-/* **One sky for both appearances** (DECISIONS.md §40). It used to have a light
-   version that started deep -- it had to, because iOS draws white status-bar
-   glyphs over it under `black-translucent` -- and opened out to near-white by
-   the middle of the screen, which is exactly where the conditions and the
-   source strip sit: 1.4 to 3.1:1, measured on the pixels, on every one of the
-   seven skies. The sky is a picture of the weather, and the weather does not
-   change with the phone's appearance setting; Apple Weather draws it the same
-   way in both. What light mode changes is the surfaces -- see `--glass`.
-
-   It follows that **nothing on the sky takes a colour from the palette**: the
-   palette changes with the appearance and the sky does not. Everything that
-   sits on it rather than on a card -- the place, the hero, the source strip,
-   the footer -- is white at a fixed alpha (§11), and the alphas are the
-   lowest that keep 4.5:1 on the brightest sky, `cloudy-day` under its haze. */
+/* **One sky for both appearances** (DECISIONS.md §40). Light mode had its own,
+   near-white by mid-screen, where the hero and the strip sit: 1.4 to 3.1:1.
+   So **nothing on the sky takes a palette colour** -- the palette follows the
+   appearance and the sky does not. The place, the hero, the strip and the
+   footer are white at fixed alphas (§11), chosen on the brightest sky. */
 /* ---- weather, moving ------------------------------------------------------
  * Every layer here is one `<i>` inside `#sky`, and every one of them animates
  * `transform` or `opacity` and nothing else -- those two are the only
