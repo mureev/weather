@@ -81,25 +81,25 @@ def stdlib():
 show("python urllib (stdlib ssl)", stdlib)
 
 try:
-    import httpx
+    import httpx2
     def h1():
-        with httpx.Client(http2=False, follow_redirects=True, timeout=20) as c:
+        with httpx2.Client(http2=False, follow_redirects=True, timeout=20) as c:
             return len(c.get(url, headers=hdrs).raise_for_status().text)
     def h2():
-        with httpx.Client(http2=True, follow_redirects=True, timeout=20) as c:
+        with httpx2.Client(http2=True, follow_redirects=True, timeout=20) as c:
             return len(c.get(url, headers=hdrs).raise_for_status().text)
-    show("httpx HTTP/1.1", h1)
-    show("httpx HTTP/2", h2)
+    show("httpx2 HTTP/1.1", h1)
+    show("httpx2 HTTP/2", h2)
 except ImportError:
-    print("  httpx not installed locally -- skipped (pip3 install httpx[http2])")
+    print("  httpx2 not installed locally -- skipped (pip3 install 'httpx2[http2]')")
 except Exception as e:
-    print(f"  httpx setup failed: {e}")
+    print(f"  httpx2 setup failed: {e}")
 PY
 
 echo
 echo "=== how to read this ==============================================="
 echo "  A row in section 1 flips to 403  -> that header is the trigger."
-echo "  Section 1 all 200, httpx 403     -> header ORDER or TLS, not content."
+echo "  Section 1 all 200, httpx2 403    -> header ORDER or TLS, not content."
 echo "  http/2 row 403, http/1.1 row 200 -> HTTP/2 fingerprinting."
 echo "  curl all 200, python all 403     -> TLS fingerprint. Needs curl_cffi;"
 echo "                                      headers cannot fix it."

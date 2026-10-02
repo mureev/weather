@@ -16,7 +16,7 @@ question is whether a *usable, correctly-identified* forecast comes back, and a
 challenge page answers 200 too. So each row ends in the temperature that was
 extracted and the city the page says it is for -- or the reason there is none.
 
-Runs inside the image, where httpx and the parsers already live:
+Runs inside the image, where httpx2 and the parsers already live:
 
     docker run --rm -i -v "$PWD/tools/route_probe.py:/probe.py:ro" IMAGE \\
         python /probe.py
@@ -33,7 +33,7 @@ import time
 # importable already; this is for the case where it is run from elsewhere.
 sys.path.insert(0, "/app")
 
-import httpx
+import httpx2
 
 from app import routing
 from app.cities import get as get_city
@@ -51,9 +51,9 @@ async def probe(route: routing.Route, place, timeout: float) -> tuple[bool, str]
             got, _url = await gismeteo.load(c, place, host=host, timeout=timeout)
     except Blocked as e:
         return False, f"refused (challenge page): {e}"
-    except httpx.HTTPStatusError as e:
+    except httpx2.HTTPStatusError as e:
         return False, f"HTTP {e.response.status_code}"
-    except httpx.HTTPError as e:
+    except httpx2.HTTPError as e:
         return False, f"{type(e).__name__}: {str(e)[:70]}"
     except ParseError as e:
         # Reached and readable, but not usable -- a real parser finding, and

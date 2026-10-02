@@ -13,7 +13,7 @@ happened with Gismeteo. See tools/gm-probe.sh for the no-dependency version
 that bisects that too.
 """
 
-import httpx
+import httpx2
 
 URL = "https://www.gismeteo.ru/weather-yoshkar-ola-11975/"
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -37,7 +37,7 @@ CHROME = dict(APP, **{
 for hname, hdrs in (("curlish", CURLISH), ("app", APP), ("chrome", CHROME)):
     for pname, h2 in (("h1", False), ("h2", True)):
         try:
-            with httpx.Client(http2=h2, follow_redirects=True, timeout=20) as c:
+            with httpx2.Client(http2=h2, follow_redirects=True, timeout=20) as c:
                 r = c.get(URL, headers=hdrs)
                 print(f"  {hname:8} {pname}  ->  {r.status_code}  "
                       f"{len(r.text):>7} bytes  proto={r.http_version}")

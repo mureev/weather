@@ -19,7 +19,7 @@ import datetime as dt
 import logging
 from typing import Any
 
-import httpx
+import httpx2
 
 from ..config import settings
 from ..models import Current, Day, Hour, Place
@@ -70,7 +70,7 @@ def _cond(code: Any) -> tuple[str | None, str | None]:
         return None, None
 
 
-async def fetch(client: httpx.AsyncClient, place: Place) -> dict[str, Any] | None:
+async def fetch(client: httpx2.AsyncClient, place: Place) -> dict[str, Any] | None:
     params = {
         "latitude": f"{place.lat:.4f}",
         "longitude": f"{place.lon:.4f}",

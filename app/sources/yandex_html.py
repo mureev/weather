@@ -27,7 +27,7 @@ import datetime as dt
 import logging
 from urllib.parse import urlencode
 
-import httpx
+import httpx2
 
 from ..config import settings
 from ..extract import Extracted, check_identity, parse
@@ -60,14 +60,14 @@ def urls_for(place: Place, host: str | None = None) -> list[str]:
     return out
 
 
-async def fetch_html(client: httpx.AsyncClient, url: str) -> str:
+async def fetch_html(client: httpx2.AsyncClient, url: str) -> str:
     r = await client.get(url, headers=headers(), follow_redirects=True,
                          timeout=settings.upstream_timeout_s)
     r.raise_for_status()
     return r.text
 
 
-async def load(client: httpx.AsyncClient, place: Place, *,
+async def load(client: httpx2.AsyncClient, place: Place, *,
                today: dt.date | None = None) -> tuple[Extracted, str]:
     """Fetch and parse, trying each addressing form and then the fallback host.
 

@@ -27,7 +27,7 @@ trustme = pytest.importorskip("trustme")
 hypercorn_asyncio = pytest.importorskip("hypercorn.asyncio")
 hypercorn_config = pytest.importorskip("hypercorn.config")
 
-import httpx  # noqa: E402
+import httpx2  # noqa: E402
 
 from app import http, routing  # noqa: E402
 
@@ -155,7 +155,7 @@ class TestTheClientSpeaksToARealServer:
     def test_a_403_is_an_http_error_with_its_status(self, origin):
         """What `routing.py` catches as a refusal, and how it reports it."""
         e = refusal(f"{origin}/refused")
-        assert isinstance(e, httpx.HTTPError)
+        assert isinstance(e, httpx2.HTTPError)
         assert routing._brief(e) == "HTTP 403"
 
     def test_a_closed_port_is_an_http_error_too(self):
@@ -163,7 +163,7 @@ class TestTheClientSpeaksToARealServer:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
         e = refusal(f"https://127.0.0.1:{port}/page")
-        assert isinstance(e, httpx.HTTPError), type(e)
+        assert isinstance(e, httpx2.HTTPError), type(e)
 
 
 class TestTheTrustIsReal:
@@ -172,7 +172,7 @@ class TestTheTrustIsReal:
         trust store, so the handshake must fail -- as a refusal `routing.py`
         catches, not as something that escapes it."""
         e = refusal(f"{origin}/page")
-        assert isinstance(e, httpx.HTTPError), type(e)
+        assert isinstance(e, httpx2.HTTPError), type(e)
         assert "CERTIFICATE_VERIFY_FAILED" in str(e)
 
     def test_the_trust_store_is_loaded_once_and_is_not_empty(self):

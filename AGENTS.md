@@ -140,7 +140,7 @@ Everything below follows from that.
    is that the phone talks only to this server.
 5. **Nothing from the phone goes upstream.** Not `Accept-Language`, not
    `User-Agent`, not the timezone. Only rounded coordinates, and only on demand.
-6. **A retry is for refusals, not for parse failures.** `Blocked` and `httpx`
+6. **A retry is for refusals, not for parse failures.** `Blocked` and `httpx2`
    errors earn another route; `ParseError` stops the search. Getting this
    backwards hides a broken parser behind a timeout.
 7. **No build step.** No bundler, no framework, no `node_modules`. Three static
@@ -242,7 +242,7 @@ One line each; the story is behind the reference — a § of `DECISIONS.md`,
 
 ```
 app/main.py        routes, CSP, static      — the only module importing fastapi
-app/http.py        builds clients           — the only module constructing httpx
+app/http.py        builds clients           — the only module constructing httpx2
 app/routing.py     which host, which egress — Gismeteo's IP block lives here
 app/service.py     orchestration            — assembly, divergence, day/night
 app/extract.py     Yandex parser            \

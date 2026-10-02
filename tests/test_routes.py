@@ -8,7 +8,7 @@ walk. No network: the loads are stubbed, because what is under test is the
 
 The distinction that matters most is which failures are worth another route:
 
-    Blocked / httpx errors -> refused. Another route may work.
+    Blocked / httpx2 errors -> refused. Another route may work.
     ParseError             -> the page arrived and did not parse. Every route
                               returns the same page, so retrying spends the
                               whole budget reproducing one bug and then reports
@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 
-import httpx
+import httpx2
 import pytest
 
 from app import cities
@@ -129,9 +129,9 @@ class TestDirectMeansDirect:
                 return False
 
         async def refused(*_a, **_k):
-            raise httpx.ConnectError("refused")
+            raise httpx2.ConnectError("refused")
 
-        monkeypatch.setattr("app.http.httpx.AsyncClient", Recorder)
+        monkeypatch.setattr("app.http.httpx2.AsyncClient", Recorder)
         monkeypatch.setattr("app.sources.gismeteo.load", refused)
         run(R.fetch_gismeteo(place))
         proxied = [kw.get("proxy") for kw in built]
@@ -169,9 +169,9 @@ class TestFailover:
         seen: list[str] = []
         good = Got()
         stub(monkeypatch, {
-            "https://www.gismeteo.ru": httpx.HTTPStatusError(
-                "403", request=httpx.Request("GET", "https://x/"),
-                response=httpx.Response(403)),
+            "https://www.gismeteo.ru": httpx2.HTTPStatusError(
+                "403", request=httpx2.Request("GET", "https://x/"),
+                response=httpx2.Response(403)),
             "https://meteofor.lv/ru": good,
         }, seen)
         got, err = run(R.fetch_gismeteo(place))
@@ -226,7 +226,7 @@ class TestFailover:
     def test_every_route_refused_reports_the_last_reason(self, monkeypatch, place):
         reconfigure(monkeypatch, GISMETEO_PROXY="")
         seen: list[str] = []
-        boom = httpx.ConnectError("no route to host")
+        boom = httpx2.ConnectError("no route to host")
         stub(monkeypatch, {
             "https://www.gismeteo.ru": boom,
             "https://meteofor.lv/ru": boom,
@@ -251,7 +251,7 @@ class TestStickiness:
         reconfigure(monkeypatch, GISMETEO_PROXY="")
         seen: list[str] = []
         stub(monkeypatch, {
-            "https://www.gismeteo.ru": httpx.ConnectError("nope"),
+            "https://www.gismeteo.ru": httpx2.ConnectError("nope"),
             "https://meteofor.lv/ru": Got(),
         }, seen)
         run(R.fetch_gismeteo(place))
@@ -266,7 +266,7 @@ class TestStickiness:
         R._sticky["route"] = ("https://meteofor.lv/ru", None)
         seen: list[str] = []
         stub(monkeypatch, {
-            "https://meteofor.lv/ru": httpx.ConnectError("gone"),
+            "https://meteofor.lv/ru": httpx2.ConnectError("gone"),
             "https://www.gismeteo.ru": Got(),
         }, seen)
         run(R.fetch_gismeteo(place))
@@ -287,7 +287,7 @@ class TestBudget:
         async def slow_load(client, place, *, host, timeout=None, today=None):
             seen.append(host)
             await asyncio.sleep(0.15)
-            raise httpx.ConnectError("dead")
+            raise httpx2.ConnectError("dead")
 
         monkeypatch.setattr("app.sources.gismeteo.load", slow_load)
         got, err = run(R.fetch_gismeteo(place))
@@ -299,7 +299,7 @@ class TestBudget:
 class TestTheBudgetIsWallClock:
     def test_a_route_that_drips_cannot_outlast_the_budget(self, monkeypatch,
                                                           place):
-        """httpx bounds each read, so an answer arriving a byte at a time
+        """httpx2 bounds each read, so an answer arriving a byte at a time
         never times out; GISMETEO_ROUTE_BUDGET_S promised total wall-clock."""
         reconfigure(monkeypatch, GISMETEO_ROUTE_BUDGET_S="1.5",
                     UPSTREAM_TIMEOUT_S="1")

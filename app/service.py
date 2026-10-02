@@ -40,7 +40,7 @@ import time
 import weakref
 from zoneinfo import ZoneInfo
 
-import httpx
+import httpx2
 
 from .cache import TTLCache
 from .config import settings
@@ -213,7 +213,7 @@ async def _build(place: Place, key: str) -> Weather:
     previous = _cache.get_stale(key)
 
     # Gismeteo opens its own clients: its transport differs (HTTP/1.1 while the
-    # others use whatever httpx negotiates) and it may have to try several
+    # others use whatever httpx2 negotiates) and it may have to try several
     # egress routes, each of which needs a client of its own.
     async with client() as c:
         ya, gm, om_raw = await asyncio.gather(
@@ -300,7 +300,7 @@ def _safely(key: str, build, *args) -> SourceView:
         return sv
 
 
-async def _yandex(c: httpx.AsyncClient, place: Place):
+async def _yandex(c: httpx2.AsyncClient, place: Place):
     try:
         got, url = await yandex_html.load(
             c, place, today=local_now(place.tz).date())
@@ -368,7 +368,7 @@ def _view_from_scrape(key: str, result, previous, tz: str = "UTC") -> SourceView
 
 
 # These land in a tab a third of a card wide, so they have to be short enough
-# to read at a glance. The full text -- httpx's three-line message with its MDN
+# to read at a glance. The full text -- httpx2's three-line message with its MDN
 # link -- still goes to `detail`, where whoever is debugging wants it.
 #
 # 403 from Gismeteo has exactly one cause and it is not the headers: they block
@@ -387,7 +387,7 @@ _HTTP_REASONS = {
 def _reason(error: str | None) -> str:
     """A short Russian line for the disabled tab.
 
-    httpx's own message is three lines ending in a MDN link, which is useful in
+    httpx2's own message is three lines ending in a MDN link, which is useful in
     a log and useless on a phone. The full text still goes to `detail`.
     """
     if not error:

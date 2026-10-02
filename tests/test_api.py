@@ -1167,8 +1167,8 @@ class TestTwoLanguages:
 
         monkeypatch.setattr(geocode._cache, "get_fresh", lambda _k: None)
         monkeypatch.setattr(geocode._cache, "get_stale", lambda _k: None)
-        import httpx
-        monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+        import httpx2
+        monkeypatch.setattr(httpx2.AsyncClient, "get", fake_get)
         hit = client_.get("/weather/api/search?q=paris",
                           headers={"Accept-Language": "en-US"}).json()["results"][0]
         assert (hit["name"], hit["name_en"]) == ("Париж", "Paris")

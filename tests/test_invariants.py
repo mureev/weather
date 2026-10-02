@@ -151,9 +151,9 @@ class TestPureModulesStayPure:
 
     @pytest.mark.parametrize("name", PURE)
     def test_no_network_library(self, name):
-        bad = imports_of(APP / f"{name}.py") & {"httpx", "requests", "urllib",
-                                                "urllib.request", "aiohttp",
-                                                "socket", "http.client"}
+        bad = imports_of(APP / f"{name}.py") & {"httpx", "httpx2", "requests",
+                                                "urllib", "urllib.request",
+                                                "aiohttp", "socket", "http.client"}
         assert not bad, f"{name}.py imports {bad}: it is supposed to be pure"
 
     @pytest.mark.parametrize("name", ["extract", "ru_text", "validation",
@@ -181,7 +181,7 @@ class TestSingleResponsibilityWhereItCosts:
         source that works locally and 403s on the server."""
         offenders = [p.name for p in PY_MODULES
                      if p.name != "http.py" and "AsyncClient(" in source(p)]
-        assert not offenders, f"{offenders} construct their own httpx client"
+        assert not offenders, f"{offenders} construct their own httpx2 client"
 
     def test_only_main_py_imports_the_web_framework(self):
         """Keeps FastAPI at the edge. Everything below it is importable from a

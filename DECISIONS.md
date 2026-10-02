@@ -54,7 +54,7 @@ decision recorded without its reversal condition becomes dogma.
 | 36 | [English is a reading of the sources, not a translation of them](#36-english-is-a-reading-of-the-sources-not-a-translation-of-them) | Chosen on the device, never sent upstream; a condition is named from its icon, and prose of no known shape is left out. |
 | 37 | [A public instance gets a budget for strangers](#37-a-public-instance-gets-a-budget-for-strangers) | Places outside the registry and search misses draw on one bucket; registry cities never do. |
 | 38 | [`/api/health` is retired, and the forecast is the diagnostic](#38-apihealth-is-retired-and-the-forecast-is-the-diagnostic) | It told strangers what the server tells itself, and nothing outside this repository read it; it answers 410 now. |
-| 39 | [Dependencies earn their place, and the locks say what ships](#39-dependencies-earn-their-place-and-the-locks-say-what-ships) | New ones for the tests only; both locks hashed and written by `make lock`; Dependabot for the actions; httpx2 for the upstreams, as a change of its own. |
+| 39 | [Dependencies earn their place, and the locks say what ships](#39-dependencies-earn-their-place-and-the-locks-say-what-ships) | New ones for the tests; both locks hashed and written by `make lock`; Dependabot for the actions; httpx2 in place of httpx for the upstreams, as a change of its own. |
 | 40 | [The sky is the same in both appearances; light mode is the surfaces](#40-the-sky-is-the-same-in-both-appearances-light-mode-is-the-surfaces) | A pale sky put the hero at 1.4–3.1:1; one sky, white on it, and light cards and sheets. |
 
 ---
@@ -320,7 +320,7 @@ When a Gismeteo fetch fails, whether to try the next route depends entirely on
 *which* failure it was:
 
 ```
-refused  (Blocked, or any httpx error)  -> another route may work. Retry.
+refused  (Blocked, or any httpx2 error) -> another route may work. Retry.
 parsed and wrong  (ParseError)          -> every route returns this page. Stop.
 ```
 
@@ -335,7 +335,7 @@ another mirror until one agrees with us" is exactly the plausible wrong fix,
 and it would defeat §2 by construction.
 
 This is why `Blocked` exists as its own exception. A 403 arrives as
-`httpx.HTTPStatusError` and classifies itself, but a challenge page arrives as
+`httpx2.HTTPStatusError` and classifies itself, but a challenge page arrives as
 **200 with a captcha in the body**, and calling that a parse failure would stop
 the search on the first host that refuses politely.
 
@@ -2051,7 +2051,8 @@ Until then every dependency waited for the owner's word (`AGENTS.md`), and the
 lock was a day old. This is what came in when that changed, how the locks are
 kept, and the one earlier choice worth revisiting: the HTTP client.
 
-**What came in -- all of it for the tests.** Nothing new ships in the image.
+**What came in for the tests.** The image's one change, of HTTP client, is
+further down.
 
 - `httpx2`, for Starlette's TestClient. From Starlette 1.7 it prefers httpx2
   and warns on every run that falls back to httpx -- a warning
@@ -2118,10 +2119,10 @@ OpenTelemetry SDK, exporter or instrumentation in `requirements.lock`. With
 one in the image, an environment variable alone could start sending request
 paths -- coordinates included -- off the box.
 
-**httpx or httpx2, for the upstreams.** Moving is right, and it is prepared as
-a change of its own (the branch `httpx2-runtime`), to be deployed by itself:
-the suite cannot fetch from Yandex, and the deploy's check fetches only the
-app's own pages, so a regression there would ship without a sound.
+**httpx2, for the upstreams.** Moved, in a change of its own, deployed by
+itself: the suite cannot fetch from Yandex, and the deploy's check fetches only
+the app's own pages, so a regression there would ship without a sound. The
+commit that moved it says what to watch once it is live.
 
 - *Why move.* httpx's last release is 0.28.1, of December 2024. httpx2 forked
   from it and released fifteen times between May and September 2026, under
@@ -2129,22 +2130,28 @@ app's own pages, so a regression there would ship without a sound.
   unchanged but for the module's name, and the default headers differ only in
   the User-Agent, which the two scrapers set for themselves. Among its fixes,
   two touch this app: bounded memory while decoding compressed responses, and
-  a cap of five chained content-encodings.
+  a cap of five chained content-encodings. And the tests already needed it.
 - *What changes underneath.* Compared function by function with httpx 0.28.1
   and httpcore 1.0.9: the HTTP/2 connection, the TLS start, the redirect
   headers and the decoders were all reworked in places. That is what
-  `tests/test_transport.py` runs, on both clients alike.
+  `tests/test_transport.py` runs, and it ran unchanged on both, but for the
+  exception class it names.
 - *TLS.* httpx2's default context is `truststore`, the operating system's
   store, which on Linux it applies afresh to every new connection. In
   `python:3.12-slim` -- Debian 13, `ca-certificates` and `openssl` installed --
   that is a re-read of `/usr/lib/ssl/cert.pem` per connection: 19 ms at the
   median and up to 37 ms, on the event loop, measured on that same layout.
   The context `http.py` builds once at import costs nothing per connection.
-  So the switch keeps that context and its anchors -- certifi, loaded once, the
-  trust the app has always had -- and takes none of truststore's.
+  So `http.py` keeps building its own, from certifi -- now a direct
+  dependency -- and the switch changes nothing about who is believed.
+  truststore is installed, because httpx2 requires it, and verifies no
+  origin. (An `https://` egress proxy's own certificate would be checked
+  against the system store by httpcore2's default; none is configured.)
 - *Size.* About half a megabyte more installed (35.1 to 35.6 MB, bytecode
   included): httpx2 carries WebSocket and SSE support nothing here uses, and
-  truststore comes with it.
+  truststore comes with it. The diagnostics that run inside the image
+  (`tools/probe403.py`, `tools/route_probe.py`) moved with it, since httpx is
+  no longer there to import.
 
 **What would reverse it.** Each part has its own condition. The hashed dev
 lock: a tool that publishes nothing hashable for a platform someone works on.

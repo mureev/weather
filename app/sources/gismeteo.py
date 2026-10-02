@@ -46,7 +46,7 @@ import re
 from itertools import pairwise
 from typing import Any
 
-import httpx
+import httpx2
 from lxml import html as LH
 
 from .. import ru_text as R
@@ -174,7 +174,7 @@ async def _optional(coro) -> str | None:
         return None
 
 
-async def fetch_html(client: httpx.AsyncClient, url: str, *,
+async def fetch_html(client: httpx2.AsyncClient, url: str, *,
                      timeout: float | None = None) -> str:
     """One page. `timeout` overrides the default so a route search can give
     each candidate a slice of its budget rather than the whole thing."""
@@ -184,7 +184,7 @@ async def fetch_html(client: httpx.AsyncClient, url: str, *,
     return r.text
 
 
-async def load(client: httpx.AsyncClient, place: Place, *,
+async def load(client: httpx2.AsyncClient, place: Place, *,
                today: dt.date | None = None,
                timeout: float | None = None,
                host: str = HOST) -> tuple[Extracted, str]:

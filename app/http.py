@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import ssl
 
-import httpx
+import certifi
+import httpx2
 
 from .config import settings
 
@@ -28,7 +30,17 @@ if not HTTP2_AVAILABLE:  # pragma: no cover - environment probe
 # 30 ms of CPU, synchronously on the event loop -- and a client is built per
 # request, including requests that end up fetching nothing. Shared, a client
 # costs well under a millisecond.
-_TLS = httpx.create_ssl_context()
+#
+# Built here, from certifi, rather than by `httpx2.create_ssl_context()`. Its
+# default is `truststore`, the operating system's store, which on Linux it
+# applies afresh to every new connection: a re-read of the whole bundle each
+# time on Debian's layout, the image's -- 19 ms at the median, on the event
+# loop, measured (DECISIONS.md §39). That is the cost this context exists to
+# pay once. certifi's anchors are also the ones the app has always trusted, so
+# the change of client changes nothing about who is believed. Unlike httpx's
+# builder it does not read SSL_CERT_FILE: as with `trust_env=False` below, the
+# environment is not a second place to say who is trusted.
+_TLS = ssl.create_default_context(cafile=certifi.where())
 
 
 # An explicit "no proxy". `proxy=None` means "the default egress", which is
@@ -39,7 +51,7 @@ DIRECT = ""
 
 def client(http2: bool | None = None,
            proxy: str | None = None,
-           timeout: float | None = None) -> httpx.AsyncClient:
+           timeout: float | None = None) -> httpx2.AsyncClient:
     """One client, and the only place an egress proxy is configured.
 
     `UPSTREAM_PROXY` is empty by default. Point it at a box in-country and the
@@ -63,4 +75,4 @@ def client(http2: bool | None = None,
     want = HTTP2_AVAILABLE if http2 is None else (http2 and HTTP2_AVAILABLE)
     if want:
         kw["http2"] = True
-    return httpx.AsyncClient(**kw)
+    return httpx2.AsyncClient(**kw)

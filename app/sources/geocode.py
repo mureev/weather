@@ -31,7 +31,7 @@ import asyncio
 import logging
 from typing import Any
 
-import httpx
+import httpx2
 
 from ..cache import TTLCache
 from ..cities import ad_hoc, slugify_ru
@@ -48,7 +48,7 @@ _cache: TTLCache[list[dict[str, Any]]] = TTLCache(ttl_s=7 * 86400, grace_s=30 * 
 _PREFERRED = ("RU", "BY", "KZ")
 
 
-async def search(client: httpx.AsyncClient, q: str, limit: int = 8,
+async def search(client: httpx2.AsyncClient, q: str, limit: int = 8,
                  allow_fetch=lambda: True) -> list[Place] | None:
     """Places matching `q`, or None when `allow_fetch` refused a cache miss."""
     q = (q or "").strip()
@@ -78,7 +78,7 @@ async def search(client: httpx.AsyncClient, q: str, limit: int = 8,
     return [_to_place(r) for r in rows][:limit]
 
 
-async def _ask(client: httpx.AsyncClient, q: str, lang: str) -> list | None:
+async def _ask(client: httpx2.AsyncClient, q: str, lang: str) -> list | None:
     params = {"name": q, "count": 20, "language": lang, "format": "json"}
     try:
         r = await client.get(settings.geocode_url, params=params,

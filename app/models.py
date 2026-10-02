@@ -297,7 +297,7 @@ class Blocked(ParseError):
     timeout. A `Blocked` means *this exit address* was refused, which is the
     one failure another route can actually fix.
 
-    A 403 arrives as `httpx.HTTPStatusError` and is treated the same way; this
+    A 403 arrives as `httpx2.HTTPStatusError` and is treated the same way; this
     exists for the polite refusals that come back as 200 with a challenge page
     in the body, which would otherwise look like a parser bug.
     """

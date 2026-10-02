@@ -7,7 +7,11 @@
 fastapi>=0.115          # routing, DI, the security-header plumbing
 uvicorn>=0.30           # ASGI server
 httptools>=0.6          # C HTTP parser for uvicorn -- measurable, 2 MB
-httpx[http2]>=0.27      # upstream fetches; [http2] pulls h2, which we use
+httpx2[http2]>=2.13     # upstream fetches; [http2] pulls h2, which we use.
+                        # The maintained HTTPX (DECISIONS.md §39).
+certifi>=2024.2         # the trust anchors http.py loads once -- in place of
+                        # httpx2's default, which re-reads the system store
+                        # on every new connection (§39)
 lxml>=5.2               # the parsers. The one genuinely large dependency, 12 MB
 
 # Deliberately NOT `uvicorn[standard]`. That extra pulls uvloop (14 MB),

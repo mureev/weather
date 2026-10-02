@@ -40,7 +40,7 @@ import re
 from itertools import pairwise
 from typing import Any
 
-import httpx
+import httpx2
 from lxml import html as LH
 
 from .. import ru_text as R
@@ -74,7 +74,7 @@ def url_for(place: Place, offset: int, host: str | None = None) -> str | None:
             f"/details/auto/10-day-weather/day-{offset}")
 
 
-async def load(client: httpx.AsyncClient, place: Place, want: dt.date,
+async def load(client: httpx2.AsyncClient, place: Place, want: dt.date,
                *, today: dt.date) -> Day:
     """Fetch and parse the page for `want`, or raise."""
     offset = (want - today).days

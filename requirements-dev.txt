@@ -21,8 +21,9 @@ pillow==12.3.0       # pixel comparisons: the status-bar seam tests, tools/phone
 
 # Starlette's TestClient, which tests/test_api.py drives the app through. From
 # Starlette 1.7 it prefers httpx2 -- Pydantic's maintained continuation of
-# HTTPX -- and warns on every run that falls back to httpx. Only the tests talk
-# through it; the app's own upstream fetches use requirements.txt's client.
+# HTTPX -- and warns on every run that falls back to httpx. The app fetches with
+# it too now (requirements.txt), and the constraint above keeps the two at one
+# version; it stays listed here because the TestClient needs it regardless.
 httpx2==2.13.1
 
 # tests/test_transport.py: the app's own client over a real socket, against a

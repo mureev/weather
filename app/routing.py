@@ -20,7 +20,7 @@ import datetime as dt
 import logging
 import time
 
-import httpx
+import httpx2
 
 from .config import settings
 from .http import DIRECT, client
@@ -55,7 +55,7 @@ def _mask(proxy: str | None) -> str:
     if not proxy:
         return "direct"
     try:
-        u = httpx.URL(proxy)
+        u = httpx2.URL(proxy)
         host = f"{u.host}:{u.port}" if u.port else (u.host or "?")
         return f"{u.scheme}://{host}"
     except Exception:
@@ -68,8 +68,8 @@ def label_route(route: Route) -> str:
 
 
 def _brief(e: Exception) -> str:
-    """httpx's own message is three lines ending in an MDN link."""
-    if isinstance(e, httpx.HTTPStatusError):
+    """httpx2's own message is three lines ending in an MDN link."""
+    if isinstance(e, httpx2.HTTPStatusError):
         return f"HTTP {e.response.status_code}"
     return f"{type(e).__name__}: {e}"[:120]
 
@@ -106,7 +106,7 @@ async def fetch_gismeteo(place: Place, today: dt.date | None = None):
 
     The retry rule is the whole point, and it is a rule about *which failure*:
 
-      refused (`Blocked`, or any httpx error)  -> another route may work
+      refused (`Blocked`, or any httpx2 error) -> another route may work
       parsed and wrong (`ParseError`)          -> every route returns this page
 
     Retrying a genuine parse failure down eight routes would spend the whole
@@ -136,7 +136,7 @@ async def fetch_gismeteo(place: Place, today: dt.date | None = None):
             break
         per = min(settings.upstream_timeout_s, max(left, 1.0))
         try:
-            # httpx's timeout bounds each *read*, not the request: a route
+            # httpx2's timeout bounds each *read*, not the request: a route
             # that drips bytes never trips it, so without this the budget
             # bounded only the gaps between routes.
             async with asyncio.timeout(per), client(
@@ -144,7 +144,7 @@ async def fetch_gismeteo(place: Place, today: dt.date | None = None):
                     timeout=per) as c:
                 got, url = await gismeteo.load(c, place, today=today,
                                               host=host, timeout=per)
-        except (Blocked, httpx.HTTPError, TimeoutError) as e:
+        except (Blocked, httpx2.HTTPError, TimeoutError) as e:
             last = f"{label_route(route)}: {_brief(e)}"
             log.info("gismeteo route %d/%d refused -- %s", n, len(candidates), last)
             if _sticky.get("route") == route:

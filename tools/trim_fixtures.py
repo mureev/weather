@@ -71,7 +71,7 @@ for field. If they are not, a redesign has moved something these lists do not
 know about, and nothing is written. Nor is it for a page the parsers cannot
 read at all. Either way the recording is left exactly as it came, to fix the
 parser against -- and must not be committed like that. Where the app itself
-cannot be imported (lxml present but not httpx, say) the check is skipped with
+cannot be imported (lxml present but not httpx2, say) the check is skipped with
 a warning, and `make check` is the backstop.
 
 Idempotent: a trimmed page comes out byte for byte as it went in.
