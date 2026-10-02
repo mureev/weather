@@ -31,6 +31,22 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-filterwarnings = ["ignore::DeprecationWarning"]
+# A deprecation fails the suite. One in this project's code is ours to fix the
+# day it appears. One inside a dependency can only arrive with a change to a
+# lock, which is a reviewed diff: the bump that brings it either deals with it
+# or adds an `ignore` line here naming the message and the module, with the
+# reason and the release that will let it go. Nothing needs one today.
+#
+# The third line is not redundant. Starlette, FastAPI and httpx2 issue their
+# deprecations as UserWarning subclasses so that they show by default, which
+# puts them outside both of the first two -- the TestClient's httpx warning
+# printed on every run under the old `ignore::DeprecationWarning` for exactly
+# that reason. Matched on the message, because their classes live in modules
+# this file should not have to import.
+filterwarnings = [
+  "error::DeprecationWarning",
+  "error::PendingDeprecationWarning",
+  "error:.*deprecat:UserWarning",
+]
 # A known failure must say when it stops being one (AGENTS.md, Done means).
 xfail_strict = true
