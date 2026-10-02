@@ -1,0 +1,32 @@
+# Keeps the pinned actions current (DECISIONS.md §39).
+#
+# Every action in workflows/ci.yml is pinned to a commit with its release in a
+# comment beside it -- `@<sha> # v4.4.0` -- and Dependabot moves the two
+# together: a pull request with the new commit and the new tag, which CI tests
+# like any branch. Merging it stays the owner's act, and on this repository a
+# merge to master is a deploy.
+#
+# Not pip, because Dependabot cannot keep these locks (read in dependabot-core,
+# 2026-10-02). It re-runs a lock's command only for a `.txt` compiled from an
+# `.in`, and there are none here. Anything else it can see, it edits in place,
+# one package and its hashes at a time: requirements-dev.txt's pins would move
+# without the lock CI installs from, which nothing points it to, and a lock it
+# did touch would no longer be what the command at its top produces.
+# `make lock UPGRADE=--upgrade` is how a Python dependency moves.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # A week before a release is proposed. A hijacked action release is
+    # usually found and pulled within days -- tj-actions/changed-files in 2025
+    # was -- and a week behind is no loss to anything here.
+    cooldown:
+      default-days: 7
+    # One pull request for the lot: upload- and download-artifact have to
+    # agree with each other, and one green run says the set works together.
+    groups:
+      actions:
+        patterns: ["*"]
