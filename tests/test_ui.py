@@ -292,20 +292,27 @@ class TestRendersAtAll:
         actually was, which is how a description of midnight ended up
         presented as the current conditions. At most one column is now, and it
         is the one whose hour matches the city's clock."""
+        now = page.evaluate("t('now')")       # read back, not restated
         labels = page.locator(".hour .hh").all_inner_texts()
-        assert labels.count("сейчас") <= 1, "two columns claim to be now"
+        assert labels.count(now) <= 1, "two columns claim to be now"
         marked = page.locator(".hour.now")
         if marked.count():
             city_hour = page.evaluate("cityHour()")
             shown = marked.first.locator(".hh").inner_text()
-            assert shown == "сейчас"
+            assert shown == now
             times = page.locator(".hour .hh").all_inner_texts()
-            idx = times.index("сейчас")
+            idx = times.index(now)
             raw = page.evaluate(
                 f"(() => {{const d = JSON.parse(localStorage.getItem('yw.payload'));"
                 f"  const s = d.sources[document.querySelector('.src.sel').dataset.src];"
                 f"  return s.hourly[{idx}].time;}})()")
             assert page.evaluate(f"hourOf({raw!r})") == city_hour
+
+    def test_the_now_column_is_named_like_a_column(self, page):
+        """«Сейчас», capitalised, in both languages: it stands where «08:00»
+        does, and in lower case it read as a word that had lost its sentence."""
+        assert page.evaluate("STR.now.map(w => w[0] === w[0].toUpperCase())") \
+            == [True, True]
 
     def test_hourly_is_a_curve_not_a_row_of_numbers(self, page):
         assert page.locator(".hcurve polyline").count() == 1

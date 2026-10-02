@@ -52,7 +52,9 @@ const STR = {
   otherLang: ['English', 'Русский'],
   today: ['Сегодня', 'Today'],
   tomorrow: ['Завтра', 'Tomorrow'],
-  now: ['сейчас', 'now'],
+  // Capitalised: it stands where a time does, as a column's name, and in
+  // lower case beside «08:00» it read as a word that had lost its sentence.
+  now: ['Сейчас', 'Now'],
   updatedAt: ['обновлено в %1', 'updated at %1'],
   minAgo: ['%1 мин назад · %2', '%1 min ago · %2'],
   hAgo: ['%1 ч назад · %2', '%1 h ago · %2'],
