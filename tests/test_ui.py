@@ -744,8 +744,8 @@ class TestThePushedScreen:
         page.wait_for_timeout(4000)
         text = page.locator("#dbg").inner_text()
         assert not errors, f"the diagnostic threw: {errors}"
-        for section in ("сборка", "холостой ход", "открытие:", "закрытие:",
-                        "верх экрана", "слоёв неба", "маска .fx",
+        for section in ("сборка", "display-mode", "холостой ход", "открытие:",
+                        "закрытие:", "верх экрана", "слоёв неба", "маска .fx",
                         "кто сверху", "круг", "зазор справа"):
             assert section in text, (
                 f"the diagnostic printed no {section!r} line -- it stopped "
@@ -1431,6 +1431,208 @@ class TestSky:
             "getComputedStyle(document.documentElement).backgroundColor")
         assert bg not in ("rgba(0, 0, 0, 0)", "transparent"), \
             "the notch and the overscroll bounce will render black"
+
+
+def _srgb(text: str) -> tuple[float, float, float] | None:
+    """A computed colour as 0-255 channels, from either spelling Chromium uses:
+    `rgb()` for a plain colour, `color(srgb r g b)` for a `color-mix()`."""
+    m = re.search(r"color\(srgb\s+([\d.e+-]+)\s+([\d.e+-]+)\s+([\d.e+-]+)", text)
+    if m:
+        return tuple(float(v) * 255 for v in m.groups())
+    rgba = _rgba(text)
+    return tuple(rgba[:3]) if rgba else None
+
+
+def _near(a, b, tol: float = 1.5) -> bool:
+    return a is not None and b is not None and all(
+        abs(x - y) <= tol for x, y in zip(a, b, strict=True))
+
+
+# Chromium cannot be told it is a home-screen app: `display-mode` has no
+# emulation, and the DevTools call that emulates media features accepts it and
+# changes nothing. So the rules the installed app gets are found in the
+# stylesheet and made unconditional -- after which the browser computes exactly
+# what the phone computes, from the same text. `navigator.standalone` comes
+# along so `debug.js` takes the installed branch as well.
+_AS_INSTALLED = """() => { let n = 0;
+  for (const sheet of document.styleSheets)
+    for (const r of sheet.cssRules)
+      if (r.media && /display-mode:\\s*standalone/.test(r.media.mediaText)) {
+        r.media.mediaText = 'all'; n++; }
+  return n; }"""
+
+
+@pytest.fixture
+def installed(browser, server):
+    ctx = browser.new_context(viewport={"width": 393, "height": 852},
+                              color_scheme="dark", locale="ru-RU")
+    ctx.add_init_script(_as_ios(True))
+    pg = _pin(ctx.new_page())
+    pg.goto(server, wait_until="networkidle")
+    pg.wait_for_selector(".hero .t", timeout=10_000)
+    assert pg.evaluate(_AS_INSTALLED) >= 1, \
+        "the stylesheet has no rules for the installed app any more"
+    yield pg
+    ctx.close()
+
+
+_CANVAS_AND_TOP = """() => { const h = getComputedStyle(document.documentElement);
+  const d = document.createElement('div');
+  d.style.color = h.getPropertyValue('--sky1').trim();
+  document.body.appendChild(d);
+  const top = getComputedStyle(d).color; d.remove();
+  return {canvas: h.backgroundColor, top,
+          scrim: parseFloat(getComputedStyle(document.getElementById('scrim')).opacity)}; }"""
+
+
+class TestTheInstalledAppsStatusBar:
+    """Under the clock of the home-screen app, which is the one place on this
+    phone where the canvas colour is seen (DECISIONS.md §41).
+
+    Reported with two screenshots from the app switcher: the installed app
+    wore "a dark gradient on top", Safari's card did not. iOS 26 draws a blur
+    under a standalone app's status bar and WebKit tints it with the web view's
+    background colour -- the root's `background-color`, which was `--sky3`, the
+    near-black foot of the sky. Read off the screenshot, the band was (27,39,64)
+    where Safari shows the same sky as (48,71,105): `--sky3` at 56% on all three
+    channels at once.
+
+    Nothing in Chromium draws that blur, so what these hold is the colour iOS
+    is given to draw it with, in every state the app can be in.
+    """
+
+    @pytest.mark.parametrize("sky", ["clear-day", "cloudy-day", "overcast",
+                                     "rain", "snow", "clear-night"])
+    def test_under_the_clock_the_canvas_is_the_top_of_the_sky(self, installed, sky):
+        """Over every sky, for §26's reason: the night skies are the ones where
+        the top and the foot are nearly the same colour, so a canvas set to the
+        wrong end looks right at exactly the hour most screenshots get taken."""
+        installed.add_style_tag(content="html{transition:none!important}")
+        installed.evaluate(f"document.documentElement.dataset.sky = '{sky}'; 0")
+        got = installed.evaluate(_CANVAS_AND_TOP)
+        assert _near(_srgb(got["canvas"]), _srgb(got["top"])), (
+            f"with a {sky} sky the installed app's canvas is {got['canvas']} "
+            f"and the top of the sky is {got['top']}: iOS tints the blur under "
+            f"the status bar with the canvas, so that is a band across the clock")
+
+    def test_the_canvas_dims_with_the_sheet_and_comes_back(self, installed):
+        """A sheet puts the scrim over the sky, so the sky under the clock is
+        darker -- and a canvas left at the undimmed colour would tint the blur
+        *lighter* than what is behind it: a pale band, on every open sheet,
+        which is the original bug in reverse. Checked at both detents and after
+        closing, once each transition has finished -- and once in the middle of
+        the first, because what eases is the scrim's *number*, on the scrim's
+        curve, so the two agree on every frame and not just at the ends."""
+        # Sampled inside the page, a frame at a time from the moment it opens,
+        # so a slow runner changes how many frames there are and not whether
+        # any of them falls in the middle.
+        frames = installed.evaluate("""async () => {
+          push('place');
+          const out = [], t0 = performance.now();
+          while (performance.now() - t0 < 600) {
+            await new Promise((r) => requestAnimationFrame(r));
+            out.push([getComputedStyle(document.documentElement).backgroundColor,
+                      parseFloat(getComputedStyle(document.getElementById('scrim')).opacity)]);
+          }
+          return out; }""")
+        top = _srgb(installed.evaluate(_CANVAS_AND_TOP)["top"])
+        assert any(0.02 < s < 0.37 for _, s in frames), \
+            f"no frame caught the scrim in motion: {[s for _, s in frames]}"
+        for canvas, s in frames:
+            want = tuple(c * (1 - s) for c in top)
+            assert _near(_srgb(canvas), want, tol=2), (
+                f"with the scrim at {s:.3f} the canvas is {canvas} and the sky "
+                f"behind the scrim is {want}: the two are easing apart")
+        installed.wait_for_timeout(300)
+        for where in ("mid", "large"):
+            if where == "large":
+                installed.evaluate("goDetent('large')")
+                installed.wait_for_timeout(800)
+            got = installed.evaluate(_CANVAS_AND_TOP)
+            assert got["scrim"] > 0.3, f"the scrim is at {got['scrim']} at {where}"
+            want = tuple(c * (1 - got["scrim"]) for c in _srgb(got["top"]))
+            assert _near(_srgb(got["canvas"]), want), (
+                f"at the {where} detent the canvas is {got['canvas']}; the sky "
+                f"behind the scrim is {want}")
+        installed.keyboard.press("Escape")
+        installed.wait_for_timeout(800)
+        got = installed.evaluate(_CANVAS_AND_TOP)
+        assert _near(_srgb(got["canvas"]), _srgb(got["top"])), \
+            f"after closing the canvas stayed at {got['canvas']}"
+
+    def test_a_drag_moves_the_canvas_with_the_finger(self, installed):
+        """The scrim stops easing while a finger is on the sheet, so it tracks
+        the finger exactly; the canvas has to stop with it, or the colour under
+        the clock trails the drag by the length of a transition. Read straight
+        after the move -- a canvas still easing is visibly not there yet."""
+        installed.evaluate("push('place')")
+        installed.wait_for_timeout(800)
+        installed.evaluate("dragging(true); setSheet(sheetH() * 0.2); 0")
+        got = installed.evaluate(_CANVAS_AND_TOP)
+        installed.evaluate("dragging(false); 0")
+        want = tuple(c * (1 - got["scrim"]) for c in _srgb(got["top"]))
+        assert abs(got["scrim"] - 0.62 * 0.8) < 0.01, got["scrim"]
+        assert _near(_srgb(got["canvas"]), want), (
+            f"mid-drag the canvas is {got['canvas']} while the sky behind the "
+            f"scrim is {want}: it is easing instead of following the finger")
+
+    def test_the_installed_app_does_not_bounce(self, installed):
+        """With the canvas the top of the sky, a bounce past the bottom would
+        pull the light colour up under the dark foot of it. `body` said
+        `overscroll-behavior-y: none` from the first commit and never stopped a
+        thing:
+        WebKit reads the property off the root element only. So it is asserted
+        where the engine looks for it."""
+        assert installed.evaluate(
+            "getComputedStyle(document.documentElement).overscrollBehaviorY") == "none"
+
+    def test_writing_the_scrim_restyles_only_the_root(self, installed):
+        """`--scrim` is written on every frame of a drag. As an ordinary custom
+        property it would be inherited by every element in the document, and
+        changing it on the root would restyle all of them, sixty times a second,
+        under a finger. Registered as not inherited, it stops at <html>."""
+        installed.evaluate(
+            "document.documentElement.style.setProperty('--scrim', '0.5'); 0")
+        below = installed.evaluate(
+            "getComputedStyle(document.body).getPropertyValue('--scrim').trim()")
+        assert below in ("0", ""), f"<body> inherited --scrim as {below!r}"
+
+    def test_safari_keeps_the_foot_of_the_sky_and_its_bounce(self, page):
+        """None of this is Safari's. Its status bar is a colour of its own, read
+        from `.edge-top`, which hides the blur (§14); its toolbar's strip and
+        the bounce below the page still want the foot of the sky; and it has
+        pull-to-refresh, which a forecast is a natural thing to pull. Asserted
+        so the bounce rule is not tidied onto <html> for everyone."""
+        page.evaluate("document.documentElement.style.setProperty('--scrim', '0.5'); 0")
+        page.add_style_tag(content="html{transition:none!important}")
+        got = page.evaluate("""() => { const h = getComputedStyle(document.documentElement);
+          const d = document.createElement('div');
+          d.style.color = h.getPropertyValue('--sky3').trim();
+          document.body.appendChild(d);
+          const foot = getComputedStyle(d).color; d.remove();
+          return {canvas: h.backgroundColor, foot, bounce: h.overscrollBehaviorY}; }""")
+        assert got["canvas"] == got["foot"], got
+        assert got["bounce"] == "auto", (
+            "the page no longer bounces in Safari, which also took away "
+            "pull-to-refresh -- the installed app's rule leaked out of it")
+
+    def test_the_diagnostic_agrees_on_the_installed_app(self, installed):
+        """`debug.js` is what will referee this on the phone, so its installed
+        branch has to work before it is needed: no throw, and a tick on every
+        line that checks the canvas, here where the answer is known. The three
+        lines are the ones a screenshot of the battery has to show."""
+        errors = []
+        installed.on("pageerror", lambda e: errors.append(str(e)))
+        installed.evaluate("""() => { const s = document.createElement('script');
+          s.src = 'debug.js'; document.head.appendChild(s); }""")
+        installed.wait_for_selector("#dbg", timeout=15_000)
+        installed.wait_for_timeout(4000)
+        text = installed.locator("#dbg").inner_text()
+        assert not errors, f"the diagnostic threw: {errors}"
+        for label in ("канва = верх неба", "отскок (html)", "тон под часами"):
+            line = next((ln for ln in text.splitlines() if label in ln), None)
+            assert line is not None, f"the diagnostic printed no {label!r} line"
+            assert line.startswith("✓"), f"the diagnostic says: {line}"
 
 
 @pytest.fixture

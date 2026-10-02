@@ -56,6 +56,7 @@ decision recorded without its reversal condition becomes dogma.
 | 38 | [`/api/health` is retired, and the forecast is the diagnostic](#38-apihealth-is-retired-and-the-forecast-is-the-diagnostic) | It told strangers what the server tells itself, and nothing outside this repository read it; it answers 410 now. |
 | 39 | [Dependencies earn their place, and the locks say what ships](#39-dependencies-earn-their-place-and-the-locks-say-what-ships) | New ones for the tests; both locks hashed and written by `make lock`; Dependabot for the actions; httpx2 in place of httpx for the upstreams, as a change of its own. |
 | 40 | [The sky is the same in both appearances; light mode is the surfaces](#40-the-sky-is-the-same-in-both-appearances-light-mode-is-the-surfaces) | A pale sky put the hero at 1.4–3.1:1; one sky, white on it, and light cards and sheets. |
+| 41 | [The installed app's canvas is the top of the sky](#41-the-installed-apps-canvas-is-the-top-of-the-sky) | iOS tints the blur under a home-screen app's clock with the canvas colour; there it is `--sky1`, dimmed with the scrim, and the page does not bounce. |
 
 ---
 
@@ -2231,6 +2232,114 @@ that is navy, which matches the page and not a light sheet opened over it.
 be light where you read -- a pale sky is the honest version of that, and it
 needs every element on it re-measured on every sky. The test above is the one
 that will say so.
+
+---
+
+## 41. The installed app's canvas is the top of the sky
+
+*Reported 2026-10-02 with two cards from the app switcher: "there is strange
+artifact on top, like dark gradient, only in pwa mode". The Safari card was
+clean.*
+
+### What it is
+
+iOS 26 draws a **scroll-edge effect** under the status bar of a home-screen web
+app: a soft blur, strongest under the clock and gone some 35pt below it, which
+is there so the clock stays legible over whatever scrolls beneath it. It is
+system chrome, painted over the web view, and no CSS turns it off.
+
+Its colour is ours, though. WebKit leaves the soft effect's colour to the
+scroll view's background (`_updateTopScrollPocketCaptureColor` in
+`WKWebView.mm`: the pocket "should match the scroll view background color
+anyways"), and the scroll view's background is `underPageBackgroundColor` --
+the root element's `background-color`. Here that was `--sky3`, `#0a1020`, the
+near-black foot of the sky, faded over its lightest part.
+
+The screenshot says so on all three channels at once. Under the clock the
+installed app was a flat **(27,39,64)**; Safari shows the same sky there as
+**(48,71,105)**. Converted to the screenshot's colour space, the band is the
+sky with `--sky3` laid over it at 56.1%, 57.0% and 55.6% -- one strength,
+within 1.5 points. Black would need 43%, 45% and 40%, and the manifest's
+`theme_color` 62%, 64% and 69%: neither is one colour at one strength.
+
+### Why Safari is clean, and why the usual fix does nothing here
+
+Safari covers the strip under its status bar with a colour of its own, read
+from a fixed element at the top of the page (`.edge-top`, §14), and WebKit
+hides the blur whenever that colour is showing (`_shouldHideTopScrollPocket`).
+But it only shows it over an *obscured inset* -- a region the browser's own
+chrome covers -- and a `black-translucent` home-screen app has none: the page
+runs to the top of the glass and the status bar is just drawn on it. The
+phone says as much: `debug.js` measures a 59pt safe area under the clock, and
+WebKit subtracts any obscured inset from the safe area it reports. So
+`.edge-top` was already being found, and could change nothing.
+
+That is the fix most often proposed this autumn -- a fixed, full-width, opaque
+strip within 4pt of the top -- and one write-up reports it working. The device
+reports from projects that shipped a fixed or sticky top layer say otherwise,
+and agree with the source: the blur stayed (Twilight #148, herdr-web-ui #164,
+wynteam #664). The other common proposal, `status-bar-style: default` or
+`black`, moves the page *below* an opaque bar. It would take the sky out from
+under the clock, which is the design, and it needs a reinstall to test,
+because iOS reads that tag when the icon is added (§26, sixth attempt). None
+of the reports found has a device confirming it either. It stays in reserve.
+
+### The fix
+
+In the installed app -- `@media (display-mode: standalone)`, so nothing changes
+in Safari -- the canvas is `--sky1`, the top of the sky. The blur is still
+drawn; it is now the colour of what it is drawn over, and a blur of a smooth
+gradient is invisible.
+
+Three things follow from making the canvas light at one end:
+
+- **It follows the scrim.** With a sheet up, the sky under the clock is
+  darkened, and an undimmed canvas would tint the blur *lighter* than what is
+  behind it -- the same band, inverted, on every open sheet. `setSheet` writes
+  the scrim's opacity to `--scrim` beside the scrim itself, and the stylesheet
+  mixes it in. What eases is the **number**, on the scrim's curve, so the two
+  agree on every frame: a transition on the colour would run in Oklab, which
+  is not how black at an opacity darkens what is under it. A drag stops it
+  easing, as it stops the scrim.
+- **`--scrim` is registered and not inherited.** A drag writes it on every
+  frame, and an inherited custom property changed on the root restyles every
+  element in the document.
+- **The installed app does not bounce.** A bounce past the bottom would pull
+  the light canvas up under the dark foot of the sky. `body` carried
+  `overscroll-behavior-y: none` from the first commit, meant for exactly this,
+  and it never did anything: WebKit takes `overscroll-behavior` from the root element and
+  nowhere else (`LocalFrameView::verticalOverscrollBehavior`). The inert rule
+  is gone; the installed app sets it on `<html>`. Safari still bounces, on
+  purpose -- it keeps pull-to-refresh, which is a natural thing to do to a
+  forecast, and its canvas is still the foot of the sky.
+
+### What checks it
+
+Chromium cannot be put in `display-mode: standalone` -- the DevTools call that
+emulates media features accepts it and does nothing -- so the browser tests
+find the stylesheet's standalone rules and make them unconditional, and then
+compute what the phone computes from the same text: the canvas against
+`--sky1` on every palette, against the dimmed sky at both detents and on every
+frame of the transition between them, mid-drag, after closing; the bounce;
+that `<body>` does not inherit `--scrim`; and that Safari kept its canvas and
+its bounce. `tools/phone.py` applies the same rules, since the phone runs the
+installed app.
+
+None of that draws the blur. On the phone, the build hash runs `debug.js`, which
+now prints `канва = верх неба`, `отскок (html)` and, with a sheet up,
+`тон под часами` -- the colour iOS is being handed, against the colour it
+should be, in the state the screenshot came from.
+
+The cold-load budget did not move. The stylesheet's prose about the canvas was
+condensed to pay for it; the stories it told are §26 and this.
+
+**What would reverse it.** The band still on the phone while `debug.js` ticks
+all three lines: then the tint is not the canvas after all, and the next step
+is `status-bar-style: default` with a reinstall. Or WebKit starting to hide the
+effect in home-screen apps the way it does in Safari, at which point the
+canvas could go back to the foot of the sky. Or iOS drawing the same effect
+along the *bottom* of a home-screen app, where a canvas the colour of the top
+of the sky would be wrong.
 
 ---
 

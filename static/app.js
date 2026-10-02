@@ -874,7 +874,10 @@ function setSheet(y) {
   // .62 at the large detent is about as dark as iOS goes; the fade over the
   // bottom of the viewport comes in with the sheet so it never sits over a
   // fully lit forecast.
-  $('scrim').style.opacity = (0.62 * shown).toFixed(3);
+  const dim = (0.62 * shown).toFixed(3);
+  $('scrim').style.opacity = dim;
+  // The installed app's canvas darkens with it (§41).
+  document.documentElement.style.setProperty('--scrim', dim);
   // Not `shown`. The fade has a job to do at *every* detent -- it is what stops
   // a card meeting the bottom of the view at a hard edge -- so it has to be
   // fully on by the time the sheet has arrived anywhere, not proportional to
@@ -898,6 +901,8 @@ function goDetent(name) {
 
 function dragging(on) {
   for (const id of ['screen', 'scrim']) $(id).classList.toggle('dragging', on);
+  // <html> too, for the installed app's canvas (§41).
+  document.documentElement.classList.toggle('dragging', on);
 }
 
 function onDragStart(e) {

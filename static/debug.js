@@ -55,6 +55,37 @@
     return el ? getComputedStyle(el)[prop || 'backgroundColor'] : '-';
   };
 
+  /* A colour as three 0-255 numbers, however it was spelt. A `color-mix()`
+     computes to `color(srgb r g b)` and everything else to `rgb()`, so one
+     colour in the two spellings is two different strings -- compare these. */
+  function chans(s) {
+    const m = /color\(srgb\s+([\d.e+-]+)\s+([\d.e+-]+)\s+([\d.e+-]+)/.exec(s || '');
+    if (m) return [m[1], m[2], m[3]].map((v) => parseFloat(v) * 255);
+    const r = /rgba?\(([^)]*)\)/.exec(s || '');
+    const n = r ? r[1].split(/[\s,/]+/).filter(Boolean).slice(0, 3).map(Number) : [];
+    return n.length === 3 && n.every(isFinite) ? n : null;
+  }
+  const near = (a, b) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= 1.5);
+  const fmt = (c) => (c ? '(' + c.map(Math.round).join(',') + ')' : '-');
+  /* What a colour value computes to: given to a box and read back, the same
+     trick as `lenOf`. */
+  function colourOf(css) {
+    const p = document.createElement('div');
+    p.style.color = css;
+    document.documentElement.appendChild(p);
+    const c = getComputedStyle(p).color;
+    p.remove();
+    return c;
+  }
+  const skyTop = () => chans(colourOf(getComputedStyle(document.documentElement)
+    .getPropertyValue('--sky1').trim()));
+  /* Either signal, deliberately. The stylesheet keys off `display-mode`, iOS
+     also says `navigator.standalone` -- and a phone on which those two
+     disagree is a phone where the canvas rule silently did not apply, which
+     the lines that use this are there to catch. */
+  const installed = () => navigator.standalone === true
+    || matchMedia('(display-mode: standalone)').matches;
+
   /* ---- who paints the top of the screen -------------------------------
    * Written after two failed attempts at a band across the top of the phone
    * that no render here could reproduce. The rule in AGENTS.md is that a
@@ -74,6 +105,18 @@
     const inset = lenOf('env(safe-area-inset-top)');
     say(INFO, 'safe-area сверху', inset + 'pt');
     say(INFO, 'innerHeight / screen', window.innerHeight + ' / ' + screen.height);
+
+    // This runs with the sheet up, so under the clock is the sky *behind the
+    // scrim*, and the canvas iOS tints the blur with has to be that, not the
+    // undimmed top of the sky (DECISIONS.md §41).
+    if (installed()) {
+      const s = parseFloat(getComputedStyle($('scrim')).opacity) || 0;
+      const top = skyTop();
+      const want = top && top.map((c) => c * (1 - s));
+      const got = chans(rgb(':root'));
+      say(near(got, want) ? OK : BAD, 'тон под часами',
+        fmt(got) + '  /  ' + fmt(want) + '  (шторка ' + r1(s * 100) + '%)');
+    }
 
     for (const sel of ['.sky', '.sky .fx', '.edge-top', '.wrap']) {
       const b = box(sel);
@@ -179,6 +222,8 @@
     const vv = window.visualViewport;
     say(INFO, 'сборка', window.YW_BUILD || '-');
     say(INFO, 'standalone', navigator.standalone === true);
+    say(INFO, 'display-mode', matchMedia('(display-mode: standalone)').matches
+      ? 'standalone' : 'browser');
     say(INFO, 'экран', screen.width + '×' + screen.height
       + '  dpr ' + window.devicePixelRatio);
     say(INFO, 'inner', window.innerWidth + '×' + window.innerHeight);
@@ -198,7 +243,21 @@
     const hidden = screen.height - window.innerHeight <= 0;
     say(canvas === sheet || hidden ? OK : BAD, 'канва = лист', canvas + '  /  ' + sheet
       + (canvas !== sheet && hidden ? '  (канвы не видно)' : ''));
-    say(rgb('.edge-bot') === canvas ? OK : BAD, 'edge-bot = канва', rgb('.edge-bot'));
+    /* Which end of the sky the canvas must match depends on where it shows
+     * (DECISIONS.md §41). In Safari that is the bottom: the strip behind the
+     * toolbar, and the bounce. In the installed app it is the top, because iOS
+     * tints the blur under the clock with it -- anything but `--sky1` there is
+     * a band across the status bar, and with the canvas light at one end the
+     * page must not bounce at the other. */
+    if (installed()) {
+      const top = skyTop();
+      say(near(chans(canvas), top) ? OK : BAD, 'канва = верх неба',
+        fmt(chans(canvas)) + '  /  ' + fmt(top));
+      const ob = getComputedStyle(document.documentElement).overscrollBehaviorY;
+      say(ob === 'none' ? OK : BAD, 'отскок (html)', ob);
+    } else {
+      say(rgb('.edge-bot') === canvas ? OK : BAD, 'edge-bot = канва', rgb('.edge-bot'));
+    }
   }
 
   function chrome() {

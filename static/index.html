@@ -128,31 +128,18 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
 
-/* The canvas background. This is what iOS paints into the notch, the Dynamic
-   Island cut-out, the home-indicator strip, the rubber-band overscroll -- and,
-   on recent iOS, what Safari spreads into the strips behind its own status bar
-   and toolbar. Leave it unset and all of them are black.
+/* The canvas: what iOS paints into the notch, the home-indicator strip, the
+   overscroll bounce and, in Safari, the strips behind its own bars. Unset,
+   all of them are black.
 
-   It used to be the flat `--sky1`, and that was wrong in a way that only shows
-   up on a phone: one flat colour cannot match a gradient at both ends. The top
-   of the sky is a mid blue and the bottom is nearly black, so a canvas painted
-   `--sky1` matched the notch and turned the strip behind the bottom toolbar
-   into a pale band floating under a dark page.
-
-   So the canvas carries the *same gradient*, fixed to the viewport, and is
-   therefore right at both ends at once. `.sky` still paints it too: if a
-   browser mishandles `background-attachment:fixed` -- iOS has form here -- the
-   page itself is unaffected and only the strips outside it drift.
-
-   **The `background-color` is the gradient's last stop, not `--sky2`.** The
-   gradient is `100% 100%, no-repeat`: it covers the viewport and stops, so
-   this flat colour is what shows anywhere the gradient does not reach -- the
-   rubber band, and, for as long as the viewport was smaller than the display,
-   the bottom of the glass. `--sky2` is the gradient's colour at its *62%*
-   stop, not its end, so it painted a slice of the middle of the sky wherever
-   it showed. Invisible at night, when `--sky2` and the foot of the sky are
-   both `#0a1020`, which is when every screenshot in that investigation was
-   taken. DECISIONS.md §26; there is a test over every palette. */
+   It carries the sky's own gradient, fixed to the viewport, because one flat
+   colour cannot match a gradient at both ends: a `--sky1` canvas made a pale
+   band behind Safari's toolbar. `.sky` paints it too, in case
+   `background-attachment: fixed` misbehaves -- iOS has form. The
+   `background-color` shows wherever the gradient does not reach, so it is the
+   gradient's *last* stop: `--sky2`, its 62% stop, once laid a slice of mid-sky
+   along the bottom of the glass, unseen at night when the two agree. §26, and
+   a test over every palette. */
 html{
   background-color:var(--sky3);
   background-image:var(--skygrad);
@@ -160,6 +147,20 @@ html{
   background-repeat:no-repeat;
   background-size:100% 100%;
   transition:background-color 1.2s ease;
+}
+/* In the installed app the canvas is the top of the sky (§41): iOS tints the
+   blur under its clock with it, and `--sky3` there was the "dark gradient on
+   top". It darkens with the scrim (`--scrim`: eased as a number, as a colour
+   eases in Oklab; not inherited, as a drag writes it every frame) and the
+   page does not bounce onto it -- on <html>, as WebKit ignores <body>'s. */
+@property --scrim{syntax:'<number>';inherits:false;initial-value:0}
+@media (display-mode: standalone){
+  html{
+    background-color:color-mix(in srgb,var(--sky1),#000 calc(var(--scrim,0) * 100%));
+    transition:--scrim var(--push-ms) var(--push-ease);
+    overscroll-behavior-y:none;
+  }
+  html.dragging{transition:none}
 }
 
 body{
@@ -174,8 +175,6 @@ body{
           max(28px,env(safe-area-inset-bottom))
           max(14px,env(safe-area-inset-left));
   -webkit-font-smoothing:antialiased;
-  /* Stops the bounce from detaching the fixed sky at the edges. */
-  overscroll-behavior-y:none;
 }
 /* ---- materialising out of the launch screen -----------------------------
  * The background is already continuous -- the startup image is the same

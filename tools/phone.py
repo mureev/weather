@@ -106,6 +106,26 @@ INSETS = f"""
   .screen {{ top: {INSET_TOP + 10}px !important; }}
 """
 
+# The phone runs the *installed* app, and the stylesheet has rules for that
+# alone (`@media (display-mode: standalone)`, DECISIONS.md §41). Chromium cannot
+# be put in that mode, so the rules are made unconditional instead -- the same
+# move as `tests/test_ui.py`'s `installed` fixture, and for the same reason as
+# `INSETS`: a shot missing them is quietly wrong in the direction of the bug.
+AS_INSTALLED = """() => { let n = 0;
+  for (const sheet of document.styleSheets)
+    for (const r of sheet.cssRules)
+      if (r.media && /display-mode:\\s*standalone/.test(r.media.mediaText)) {
+        r.media.mediaText = 'all'; n++; }
+  return n; }"""
+
+
+def _rgb(css: str) -> tuple[int, int, int]:
+    """`rgb(r, g, b)` or, for a `color-mix()`, `color(srgb r g b)`."""
+    m = re.search(r"color\(srgb\s+([\d.e+-]+)\s+([\d.e+-]+)\s+([\d.e+-]+)", css)
+    if m:
+        return tuple(round(float(v) * 255) for v in m.groups())
+    return tuple(int(float(n)) for n in re.findall(r"[\d.]+", css)[:3])
+
 
 def _chromium_path() -> str | None:
     """The same discovery as `tests/test_ui.py`: `$CHROMIUM_PATH` when it is
@@ -143,6 +163,9 @@ async def main(port=8097, mode="ok"):
             await pg.goto(f"http://127.0.0.1:{port}/weather/",
                           wait_until="networkidle")
             await pg.add_style_tag(content=INSETS)
+            if not await pg.evaluate(AS_INSTALLED):
+                raise SystemExit("index.html has no rules for the installed app "
+                                 "any more; AS_INSTALLED is out of date")
             await pg.wait_for_timeout(900)
 
             # The **canvas** colour, and getting this wrong is how this file
@@ -157,9 +180,8 @@ async def main(port=8097, mode="ok"):
             # `.edge-bot` and the canvas were the same colour every night and
             # different every day, so the shot was right half the time and
             # confidently wrong the other half. Ask the element that paints it.
-            strip = await pg.evaluate(
-                "getComputedStyle(document.documentElement).backgroundColor")
-            strip = tuple(int(n) for n in strip[4:-1].split(",")[:3])
+            strip = _rgb(await pg.evaluate(
+                "getComputedStyle(document.documentElement).backgroundColor"))
 
             await shoot(pg, "forecast-top", strip)
             await pg.evaluate("window.scrollTo(0, 1e6)")

@@ -235,6 +235,8 @@ One line each; the story is behind the reference — a § of `DECISIONS.md`,
 - **A periodic animation has a divisibility constraint**; express it in the code. §30
 - **A pinned clock is an instant, not a time of day.** §28
 - **When a source drops a data blob, only one symptom looks broken.** §27
+- **iOS tints the blur under an installed app's clock with `html`'s background colour.** §41
+- **`overscroll-behavior` on `<body>` does nothing in WebKit**; it is read off `<html>`. §41
 
 ---
 
