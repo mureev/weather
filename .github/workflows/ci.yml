@@ -211,7 +211,7 @@ jobs:
           docker push --all-tags ghcr.io/mureev/weather
 
   # Not part of the gate: `release` does not wait for it and a push never runs
-  # it. It reads the live site's /api/health, so a red tick here can mean "the
+  # it. It reads the live site's forecast, so a red tick here can mean "the
   # box is rebooting" as easily as "Yandex redesigned". It runs on the schedule
   # because the suite tests committed fixtures and is therefore structurally
   # incapable of noticing that the real pages have moved.
