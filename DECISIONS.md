@@ -57,6 +57,7 @@ decision recorded without its reversal condition becomes dogma.
 | 39 | [Dependencies earn their place, and the locks say what ships](#39-dependencies-earn-their-place-and-the-locks-say-what-ships) | New ones for the tests; both locks hashed and written by `make lock`; Dependabot for the actions; httpx2 in place of httpx for the upstreams, as a change of its own. |
 | 40 | [The sky is the same in both appearances; light mode is the surfaces](#40-the-sky-is-the-same-in-both-appearances-light-mode-is-the-surfaces) | A pale sky put the hero at 1.4–3.1:1; one sky, white on it, and light cards and sheets. |
 | 41 | [The installed app's canvas is the top of the sky](#41-the-installed-apps-canvas-is-the-top-of-the-sky) | iOS tints the blur under a home-screen app's clock with the canvas colour; there it is `--sky1`, dimmed with the scrim, and the page does not bounce. |
+| 42 | [What ships is audited, built on a pinned base, and started locked down](#42-what-ships-is-audited-built-on-a-pinned-base-and-started-locked-down) | `release` waits for pip-audit on the lock; the base image moves by digest, through Dependabot; CI starts the image read-only, with no capabilities, the way the server should. |
 
 ---
 
@@ -1709,7 +1710,9 @@ browser does.
   time -- runs on the server within minutes, which is why each of those is
   pinned rather than trusted (amended 2026-10-02: actions by commit SHA,
   runtime dependencies by hash in `requirements.lock`, and `release` publishes
-  the image `image` built and started rather than building a second one).
+  the image `image` built and started rather than building a second one;
+  and the base image by digest, the one input still resolved at build time,
+  §42).
 - **Rollback stopped being a procedure.** A failed health check undoes itself.
   A bad build that passes the check is undone the ordinary way — `git revert`
   and push — or, while `master` cannot be trusted, by pinning a known-good
@@ -2099,7 +2102,9 @@ pull request will be a big one. Not pip, because it cannot keep these locks
 `.txt` compiled from an `.in`, and edits anything else in place, a package and
 its hashes at a time. `requirements-dev.txt`'s pins would move without the
 lock CI installs from, and a lock it touched would stop being what the command
-at its top produces.
+at its top produces. (Amended 2026-10-02: Dependabot moves the base image's
+digest too, and since nothing here asked whether a pinned Python package had
+been found vulnerable since, `pip-audit` does, in the gate -- §42.)
 
 **Deprecations fail the suite.** The blanket ignore is gone. Python's own
 deprecation categories are errors now, and so is any UserWarning whose message
@@ -2341,6 +2346,102 @@ effect in home-screen apps the way it does in Safari, at which point the
 canvas could go back to the foot of the sky. Or iOS drawing the same effect
 along the *bottom* of a home-screen app, where a canvas the colour of the top
 of the sky would be wrong.
+
+---
+
+## 42. What ships is audited, built on a pinned base, and started locked down
+
+*Decided 2026-10-02 by the owner, on a review of what a public instance still
+left open the day after the repository and the site went public.*
+
+By then the gate already held most of what a public instance needs: actions by
+commit, dependencies by hash, one image built, started and promoted rather
+than rebuilt (§33, §39), and budgets for strangers (§37, §38). A review of
+what was left found three places where it trusted something it could have
+checked.
+
+**Known vulnerabilities.** Dependabot moves the actions and deliberately not
+the Python locks (§39). GitHub's dependency graph, which Dependabot's security
+alerts are built on, reads `requirements.txt` -- lower bounds, which say
+nothing about what is installed -- and not `requirements.lock`, which says
+everything. So the one question nobody was asking was whether a version pinned
+last month has been found vulnerable since. `pip-audit` asks it: every pin in
+`requirements.lock`, by hash, against PyPI's advisory database. It is a job of
+its own, `audit`, which `release` waits for, so a known vulnerability is never
+published, and it runs on the Monday schedule, so a quiet repository still
+hears. The command is written once, as `make audit`, and the job runs that.
+
+- *In the gate, not beside it.* A report is a tick nobody reads on a Monday,
+  and what is worth preventing is publishing an image with a known hole,
+  which only a gate prevents. The price is that an advisory published on
+  Wednesday stops Thursday's unrelated push until the dependency moves. That
+  is the right order of work anyway -- the server is running the vulnerable
+  version in the meantime -- and `make lock UPGRADE='--upgrade-package <name>'`
+  is one command.
+- *The runtime lock only.* The test tools never reach the server; an advisory
+  against pytest or pillow would stop deploys over code that never runs where
+  strangers are. Both locks were clean the day this went in.
+- *`--strict`.* A package it could not look up is a package it did not check,
+  and a skipped check is not a passing one -- the rule the suite holds itself
+  to.
+- *An exception,* when one is needed, is an `--ignore-vuln <id>` in the
+  Makefile's recipe, with its reason above it and the date it can come out:
+  one place, reviewed in a diff like a lock.
+- *Seen to fail before it was trusted to pass.* Clean on the day's lock, and
+  exit 1 on a deliberately old `urllib3` (1.24.1), with a dozen advisories
+  against it. A gate that cannot fail is not a gate.
+- *The cost.* Two dozen packages in the dev lock, pip among them, and none in
+  the image; 1.3 s of lookups with a cold cache.
+
+**The base image, by digest.** `FROM python:3.12-slim` was whatever Docker
+Hub answered at build time, which meant two things. Two builds of one commit
+could differ, a gap in §33's rule that whatever can change what `release`
+publishes is pinned. And the Debian under the app moved only when somebody
+pushed: the scheduled run rebuilds the image but never publishes it, so a quiet
+month shipped a month-old base, short every security update in between. Now
+both stages name `python:3.12-slim@sha256:...` -- the index digest, so the
+Mac's arm64 `make run` and the server's amd64 pull get the same release -- and
+Dependabot proposes the new digest every Monday, through the same gate as any
+other change. It ignores minor and major versions: 3.13 is a decision to take
+with CI's `PYTHON_VERSION` and the locks' `--python-version`, not a pull
+request. And it has no cooldown, unlike the actions: a tag's digests are not
+versions, the registry publishes only the newest, and a cooldown longer than
+the gap between two pushes of the tag would never let one through.
+`tests/test_docs.py` holds both stages to one pinned base. The first digest
+was read from two places that do not share a pipeline, Docker Hub's API and
+docker-library's repo-info, and they agreed.
+
+**Started locked down.** The `image` job now starts the container with a
+read-only filesystem, a tmpfs at `/tmp`, every Linux capability dropped and
+`no-new-privileges`, and then waits for the image's own `HEALTHCHECK` to
+report healthy, polled every two seconds instead of every sixty, the command
+untouched. Nothing in the image changed. What changed is what the gate
+proves: that the image runs under the flags the server should use -- on the
+server another app already ran that way and this one did not -- and that the
+`HEALTHCHECK` the server's deploy waits for passes, which nothing in CI had
+ever run. The app writes nothing at runtime and binds a port above 1024, so
+none of the flags should matter. The gate is where "should" turns into
+"does", before the infrastructure repository is asked to depend on it.
+
+**Smaller.** Every checkout sets `persist-credentials: false`, so the job's
+token is not left in `.git/config` for each later step to read; nothing here
+pushes. That was zizmor's one finding on the workflow, and it reports none now.
+
+**Considered, and not done.** An image scanner: the weekly digest fixes what
+it would find in the base, and a scanner is supply chain of its own -- in
+March 2026 Trivy's GitHub Action had 75 of its 76 tags rewritten to point at a
+credential stealer. Signed build provenance: worth publishing only once the
+server's updater verifies it before deploying, so that change starts in the
+infrastructure repository.
+
+**What would reverse it.** For the audit: advisories that are mostly noise for
+this app, in code paths it never calls, arriving often enough that the
+exceptions outgrow the rule -- then it moves beside the gate as a report. And
+Dependabot learning to keep these locks (§39's condition) would make it a
+second opinion rather than the only one, not redundant. For the digest: Docker
+Hub tags that could not move, which they can. For the lockdown: the app
+needing to write -- a disk cache, say -- which is a tmpfs or a volume in both
+places, never a reason to drop the flags.
 
 ---
 
