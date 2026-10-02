@@ -787,6 +787,36 @@ class TestTheDayEndpoint:
         r = client_.get("/weather/api/day?city=moscow&date=2001-01-01")
         assert r.status_code == 204 and not built
 
+    def test_a_refused_day_is_not_asked_for_again_for_ten_minutes(self, client_,
+                                                                   monkeypatch):
+        """Registry cities never draw on the strangers' budget (§37), and this
+        endpoint multiplies each of them by ten dates. With a minute's memory
+        of a refusal, an outage could be retried sixty times a minute through
+        here alone -- six cities, ten days -- against a host already refusing
+        this server. Ten minutes makes it six, and the screen loses nothing:
+        the day is drawn from the main payload either way (§25)."""
+        asked: list[int] = []
+
+        async def refused(*a, **k):
+            asked.append(1)
+            raise RuntimeError("refused")
+
+        monkeypatch.setattr(service.yandex_day, "load", refused)
+        want = self.when(4)
+        url = f"/weather/api/day?city=kazan&date={want}"
+        key = f"kazan|{want}"
+        service._days.drop(key)
+        try:
+            assert client_.get(url).status_code == 204
+            service._days_missing._peek(key).stored_at -= 9 * 60
+            assert client_.get(url).status_code == 204
+            assert len(asked) == 1, "a refused day was asked for again within ten minutes"
+            service._days_missing._peek(key).stored_at -= 2 * 60
+            client_.get(url)
+            assert len(asked) == 2, "a refused day was never asked for again"
+        finally:
+            service._days_missing.drop(key)
+
     def test_a_malformed_date_is_refused(self, client_):
         assert client_.get("/weather/api/day?date=tuesday").status_code == 400
 

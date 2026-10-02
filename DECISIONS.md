@@ -1950,6 +1950,9 @@ already knows how to draw -- the stale payload, or the DOWN envelope with the
 reason «слишком часто» -- and never a bare 429, which the client would store
 as if it were a forecast. A minute's memory of "everything was down" and of
 "no page for that day" stops an outage being retried at request rate.
+(Amended 2026-10-02: ten minutes for "no page for that day". The day endpoint
+never drew on the bucket, so six cities times ten dates could still ask Yandex
+sixty times a minute while it refused; now six. §42.)
 
 The owner's own GPS fixes and searches share the bucket with everyone else's,
 which is the one cost: a stranger spending it all makes his location button
@@ -2374,7 +2377,8 @@ dozen packages in the dev lock; the base image pinned by digest, which turned
 patching into a pull request most Mondays and added nothing `release` did not
 already guarantee; and `persist-credentials: false`, guarding a read-only
 token. Dependabot proposes the actions monthly. The same review gave the sky
-its room (§18) and dropped the README's test count.
+its room (§18), dropped the README's test count, and has a refused day page
+remembered for ten minutes (§37).
 
 **What would reverse it.** A second maintainer, or deploys nobody reviews,
 would make the gate worth its chores again. If the server never adopts the

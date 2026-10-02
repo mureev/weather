@@ -74,7 +74,10 @@ _locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictio
 # outage repeated the whole fan-out -- thirteen upstream requests for a registry
 # city -- against hosts that were already refusing.
 _down: TTLCache[Weather] = TTLCache(60, 60, settings.cache_max_entries)
-_days_missing: TTLCache[bool] = TTLCache(60, 60, settings.cache_max_entries * 4)
+# Ten minutes for a day page. Registry cities never draw on the strangers'
+# budget, and /api/day multiplies each by ten dates, so a minute's memory let
+# an outage be retried sixty times a minute through it alone (§37, §42).
+_days_missing: TTLCache[bool] = TTLCache(600, 600, settings.cache_max_entries * 4)
 
 
 class Budget:
