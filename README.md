@@ -55,9 +55,12 @@ you need it:
    reasoning is not. That is not a platitude here — this project's predecessor
    lost its entire codebase and was rebuilt in an afternoon from surviving
    documentation, and the *only* thing that mattered was the why.
-4. **`/api/health` is the diagnostic.** Per source: available, why not,
-   provenance tier per field, pairwise divergence, and the build SHA. It answers
-   "what is wrong" without guessing.
+4. **The forecast is its own diagnostic.** Every `/api/weather` payload
+   carries, per source: available, why not, the provenance tier of every field
+   and the fallback profile; and between them, the pairwise divergence.
+   `/api/version` names the build, and `make status` reads both. It answers
+   "what is wrong" without guessing. (`/api/health`, which used to, is
+   retired: `DECISIONS.md` §38.)
 
 ---
 
@@ -106,8 +109,8 @@ Not three flavours of CSS selector. Three things that fail *independently*:
 Every field records which rung answered. If yesterday everything came from tier
 1 and today it all comes from tier 3, the numbers may still be perfectly
 correct, and the ground has moved, and the parser is one edit from confidently
-reading the wrong cell. `health.sources.<x>.fallback_profile` says so on a calm
-day rather than on the day you needed the forecast.
+reading the wrong cell. `sources.<x>.fallback_profile`, in every payload, says
+so on a calm day rather than on the day you needed the forecast.
 
 **Yandex** is a Next.js App Router app; its RSC flight stream carries a `fact`
 object whose keys mirror the official API. Each day card also carries a
@@ -412,9 +415,9 @@ when `/sw.js` is served. It was bumped by hand eight times in one afternoon;
 the ninth is the one you forget, and the symptom — a redesign invisible to every
 installed device but perfect in a fresh browser — is horrible to diagnose.
 
-**The build SHA** is baked into the image and shown in `/api/version`,
-`/api/health` and, quietly, in the footer; `make status` asks for it. "Is my
-change actually deployed?" should not require squinting.
+**The build SHA** is baked into the image and shown in `/api/version` and,
+quietly, in the footer; `make status` asks for it. "Is my change actually
+deployed?" should not require squinting.
 
 ---
 

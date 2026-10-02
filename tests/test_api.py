@@ -354,8 +354,8 @@ class TestDegradation:
     def test_one_unreadable_hour_label_does_not_500_the_app(
             self, request, monkeypatch):
         """«24:00» parses as an hour; the night-icon pass ran `dt.time(24, 0)`
-        on every serve, over the cached payload, and took every source and
-        /api/health down with it."""
+        on every serve, over the cached payload, and took every source down
+        with it (and /api/health, while there was one)."""
         raw = (request.path.parent / "fixtures" / "current.html").read_text(
             encoding="utf-8", errors="replace")
         odd = raw.replace("07:00: +9°", "24:00: +9°", 1)
@@ -376,7 +376,8 @@ class TestDegradation:
         service.invalidate()
         c = TestClient(app, raise_server_exceptions=False)
         assert c.get("/weather/api/weather").status_code == 200
-        assert c.get("/weather/api/health").status_code == 200
+        # And again, from the cache: the pass runs on every serve, not once.
+        assert c.get("/weather/api/weather").status_code == 200
 
     def test_a_bug_in_one_sources_assembly_costs_one_tab(self, client_,
                                                           monkeypatch):
@@ -481,10 +482,22 @@ class TestSurfaces:
         assert d["default"] == "yoshkar-ola"
         assert any(c["name"] == "Йошкар-Ола" for c in d["cities"])
 
-    def test_health_is_opinionated(self, client_):
+    def test_health_is_retired_and_says_where_to_look(self, client_, monkeypatch):
+        """Gone, not missing (DECISIONS.md §38). A 404 there is also what a
+        wrong BASE_PATH or a proxy that never reached the app would answer;
+        only the app can say 410, so whatever still asks learns that the site
+        is up and where the answer moved. Saying so costs no weather."""
+        from app import main
+
+        async def no_weather(*_a, **_k):
+            raise AssertionError("the retired /api/health went to the sources")
+
+        monkeypatch.setattr(main, "get_weather", no_weather)
         r = client_.get("/weather/api/health")
-        assert r.status_code == 200
-        assert r.json()["status"] in ("ok", "degraded")
+        assert r.status_code == 410
+        assert r.json() == {"retired": "2026-10-02",
+                            "build": "/weather/api/version",
+                            "sources": "/weather/api/weather"}
 
     def test_manifest_scope_follows_base_path(self, client_):
         m = client_.get("/weather/manifest.webmanifest").json()

@@ -122,8 +122,8 @@ class TestTierTwoRemoved:
 
 
 class TestBothRungsRemoved:
-    """Down to content-shaped DOM alone. This is the state the health endpoint
-    calls `fallback_profile`, and it is meant to be survivable but noisy."""
+    """Down to content-shaped DOM alone. This is the state the payload calls
+    `fallback_profile`, and it is meant to be survivable but noisy."""
 
     @pytest.fixture(scope="class")
     @classmethod

@@ -32,9 +32,9 @@ reverse proxy.
 It does not check that the numbers are right today. The suite reads committed
 fixtures, so a site that redesigned overnight is invisible to it; that is the
 weekly `canary` job's question, and the canary is not part of the gate. Nor
-does a deploy wait for `/api/health` to say `ok`. That endpoint is allowed to
-report a source down, and Yandex having a bad morning is no reason to roll back
-a good build.
+does a deploy wait for the sources to be well: the server's check asks for the
+page and for `/api/version`, never for a source's state, because Yandex having
+a bad morning is no reason to roll back a good build.
 
 ## What is running
 
@@ -49,7 +49,8 @@ curl -s https://mureev.com/weather/api/weather    # the forecast; per source: av
 `build` is the commit. If it is not the one you pushed, the deploy is still on
 its way or was rolled back. The forecast says whether the build that *is*
 running is well: its `health.status`, and each source's `available` and
-`reason`.
+`reason`. `/api/health`, which used to say it, is retired and answers 410
+with a pointer to these two (`DECISIONS.md` §38).
 
 ## Rolling back
 

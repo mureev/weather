@@ -15,7 +15,7 @@ The distinction that matters most is which failures are worth another route:
                               a timeout -- which is how a broken parser hides.
 
 Get that backwards and the app still "works", right up until the day the
-parser breaks and the health endpoint blames the network.
+parser breaks and the disabled tab blames the network.
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ class TestDirectMeansDirect:
     def test_the_direct_route_bypasses_the_upstream_proxy(self, monkeypatch, place):
         """`None` in the route list meant direct, and `client(proxy=None)`
         meant UPSTREAM_PROXY -- so with one set, every "direct" attempt went
-        through it again and /api/health reported it as direct."""
+        through it again and the diagnostics reported it as direct."""
         reconfigure(monkeypatch, UPSTREAM_PROXY="http://203.0.113.9:3128",
                     GISMETEO_PROXY="")
         built: list[dict] = []
@@ -316,10 +316,10 @@ class TestTheBudgetIsWallClock:
 
 
 class TestMasking:
-    def test_proxy_credentials_never_reach_a_log_or_a_health_endpoint(self):
+    def test_proxy_credentials_never_reach_a_log_or_a_diagnostic(self):
         """Free proxy lists hand out user:pass@host often enough that this
-        would eventually copy a password into /api/health, and health output
-        gets pasted into chat windows."""
+        would eventually copy a password into a log or `detail`, and both get
+        pasted into chat windows."""
         masked = R._mask("http://bob:hunter2@10.0.0.1:8080")
         assert "hunter2" not in masked and "bob" not in masked
         assert "10.0.0.1:8080" in masked

@@ -128,9 +128,10 @@ class Settings:
     cold_fetches_per_hour: int = field(
         default_factory=lambda: _i("COLD_FETCHES_PER_HOUR", 180))
 
-    # How far apart two sources must land before the gap is worth recording in
-    # /api/health. Informational: with three readings on screen, divergence no
-    # longer rejects a source or overrides the user's selection.
+    # How far apart two sources must land before the gap earns a line of its
+    # own in `health.detail`; the deltas are always in `health.divergence_c`.
+    # Informational: with three readings on screen, divergence no longer
+    # rejects a source or overrides the user's selection.
     divergence_warn_c: float = field(default_factory=lambda: _f("DIVERGENCE_WARN_C", 6.0))
 
     default_city: str = field(default_factory=lambda: _s("DEFAULT_CITY", "yoshkar-ola"))

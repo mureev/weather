@@ -197,9 +197,9 @@ Extraction is a **three-tier ladder**, and each tier fails independently:
 | 3 `SHAPE` | content-classified DOM | the CSS class names change |
 
 Fix the highest tier that can be fixed, and check
-`health.sources.<source>.fallback_profile` afterwards: all-tier-3 means the
-ground moved and the parser is one edit from confidently reading the wrong
-cell.
+`sources.<source>.fallback_profile` in the `/api/weather` payload afterwards
+(`make canary` reads it): all-tier-3 means the ground moved and the parser is
+one edit from confidently reading the wrong cell.
 
 **Classify a cell by what it contains, never by its position or its class
 name.** `ru_text.classify` is the pattern. Position-based parsing is what makes

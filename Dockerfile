@@ -54,9 +54,9 @@ USER yw
 EXPOSE 8080
 
 # /healthz says only that the process is up -- which is all a liveness probe
-# should ever claim. /api/health is the opinionated one, and it deliberately
-# returns 503 when the data is bad, so wiring it here would restart the
-# container every time Yandex has a wobble.
+# should ever claim. The forecast answers 503 when no source does, so wiring
+# that here would restart the container whenever the weather sites have a bad
+# hour, which no restart can fix.
 HEALTHCHECK --interval=60s --timeout=5s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request,sys; \
 sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=4).status==200 else 1)"

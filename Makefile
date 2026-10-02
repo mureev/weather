@@ -37,8 +37,8 @@ GM_URL     ?= https://meteofor.lv/ru/weather-yoshkar-ola-11975
 GM_PREFIX  ?= mf
 UA         ?= Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
 
-# Stamped into the image and reported by /api/version and /api/health, so "is
-# my change actually running?" has an answer. A git SHA when there is one -- it
+# Stamped into the image and reported by /api/version, so "is my change
+# actually running?" has an answer. A git SHA when there is one -- it
 # identifies the *code* -- and otherwise the build time, which at least
 # identifies the build. CI stamps the images it publishes the same way; these
 # stamp the one `make run` builds.

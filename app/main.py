@@ -39,7 +39,7 @@ from .service import (
     invalidate,
 )
 from .sources import geocode
-from .version import BUILD, BUILT_AT, SHELL, info
+from .version import BUILD, SHELL, info
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), 20),
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -202,34 +202,27 @@ async def search(q: str = Query(min_length=2, max_length=64)):
 
 
 @api.get("/api/health")
-async def health():
-    """Deliberately opinionated. A health check that returns 200 because the
-    process is alive tells you nothing worth knowing."""
-    w = await get_weather(cities.default())
-    ok = w.health.status in (Status.OK, Status.DEGRADED)
-    return JSONResponse(
-        {"status": w.health.status.value,
-         "build": BUILD, "built_at": BUILT_AT, "shell": SHELL,
-         "selected": w.selected,
-         "age_s": w.health.age_s,
-         # Pairwise deltas. Informational -- with three sources on screen this
-         # no longer decides anything, but it is the first number worth
-         # looking at when a reading smells wrong.
-         "divergence_c": w.health.divergence_c,
-         "warnings": w.health.warnings,
-         "detail": w.health.detail,
-         "sources": {
-             k: {"available": sv.available, "reason": sv.reason,
-                 "temp_c": sv.current.temp_c if sv.current else None,
-                 "provenance": sv.provenance,
-                 "fallback_profile": sv.fallback_profile,
-                 "dropped": sv.dropped_fields,
-                 "warnings": sv.warnings,
-                 "detail": sv.detail,
-                 "days": len(sv.daily), "hours": len(sv.hourly)}
-             for k, sv in w.sources.items()}},
-        status_code=200 if ok else 503,
-    )
+async def health_retired():
+    """Retired 2026-10-02 (DECISIONS.md §38), and answering 410 on purpose
+    rather than falling through to the static mount's 404.
+
+    It told anyone who asked what the server tells itself -- each source's
+    error text, and the route that reached Gismeteo, which names a proxy by
+    host and port whenever one is configured -- and nothing outside this
+    repository read it: the server's deploy check asks for the page and
+    `/api/version`, the image's HEALTHCHECK asks `/healthz`. What it said
+    that anyone may know is in every `/api/weather` payload.
+
+    A 404 here is also what a wrong BASE_PATH or a proxy that never reached
+    the app would answer, so anything still asking -- an old checkout's `make
+    status`, a monitor set up by hand -- would take the retirement for an
+    outage. Only the app can answer 410: "this is up, ask over there". It
+    does no work to say so, and touches neither the cache nor an upstream.
+    """
+    return JSONResponse({"retired": "2026-10-02",
+                         "build": f"{BASE}/api/version",
+                         "sources": f"{BASE}/api/weather"},
+                        status_code=410)
 
 
 # --- debug (token-gated) ---------------------------------------------------
@@ -437,8 +430,9 @@ async def root_redirect():
 @app.get("/healthz")
 async def liveness():
     """For the container runtime. Says only that the process is up, which is
-    all a liveness probe should ever claim -- /api/health is the opinionated
-    one."""
+    all a liveness probe should ever claim: one that asked the sources would
+    restart the container whenever the weather sites have a bad hour, which no
+    restart can fix."""
     return {"ok": True}
 
 

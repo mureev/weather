@@ -3,9 +3,10 @@
 It began as the referee. With two sources it was fetched to *disagree*: a wide
 gap rejected the scrape and put Open-Meteo on screen in its place. That ended
 when it became a tab of its own (`DECISIONS.md` §4). The three readings now sit
-side by side, the gaps between them are recorded in `/api/health`, and nothing
-here overrules anything. What made it a good referee still makes it a good
-third opinion: it shares no code, no model and no vendor with the other two.
+side by side, the gaps between them are recorded in the payload's
+`health.divergence_c`, and nothing here overrules anything. What made it a
+good referee still makes it a good third opinion: it shares no code, no model
+and no vendor with the other two.
 
 It is also the deepest source by the hour -- ten days of hourly values, which is
 why this tab's day screen can draw a curve for any day you open -- and the only

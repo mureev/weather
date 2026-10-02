@@ -15,7 +15,7 @@ It is the wrong call now. With three readings side by side you can see the
 disagreement directly, and an app that silently swaps your explicitly-chosen
 source for a different one is doing the thing this codebase avoids everywhere
 else: making a decision quietly on your behalf. So the divergence is still
-computed, and still recorded in `health.divergence_c` for `/api/health`, and it
+computed, and still recorded in `health.divergence_c` in every payload, and it
 no longer overrides anything.
 
 **Per-source validation is untouched**, because it answers a different

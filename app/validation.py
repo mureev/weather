@@ -317,7 +317,8 @@ def check_coherence(cur: Current | None, hours: list[Hour], days: list[Day],
     It warns rather than drops, deliberately. Two fields disagreeing is
     evidence about the *parser*, not about the sky, and this codebase does not
     silently overrule an upstream -- see `DECISIONS.md` §4. The warning lands
-    in `/api/health`, which is where a human decides.
+    in the source's `warnings`, which the app shows under «Что не так», and a
+    human decides there.
     """
     if cur is None:
         return

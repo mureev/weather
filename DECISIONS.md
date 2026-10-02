@@ -53,6 +53,7 @@ decision recorded without its reversal condition becomes dogma.
 | 35 | [The install offer is a banner in the forecast, with one button](#35-the-install-offer-is-a-banner-in-the-forecast-with-one-button) | Shown only where an install can happen, below the hourly card; the button does the one thing it can, and the × means never. |
 | 36 | [English is a reading of the sources, not a translation of them](#36-english-is-a-reading-of-the-sources-not-a-translation-of-them) | Chosen on the device, never sent upstream; a condition is named from its icon, and prose of no known shape is left out. |
 | 37 | [A public instance gets a budget for strangers](#37-a-public-instance-gets-a-budget-for-strangers) | Places outside the registry and search misses draw on one bucket; registry cities never do. |
+| 38 | [`/api/health` is retired, and the forecast is the diagnostic](#38-apihealth-is-retired-and-the-forecast-is-the-diagnostic) | It told strangers what the server tells itself, and nothing outside this repository read it; it answers 410 now. |
 
 ---
 
@@ -542,7 +543,9 @@ agreed on the day the fixture was recorded.
 instant; the current condition against the same column's icon family; the
 current temperature against today's own published min/max. It warns rather than
 drops, because a disagreement is evidence about our parser and not about the
-sky (§4), and the warning lands in `/api/health`.
+sky (§4), and the warning lands in `/api/health` (amended 2026-10-02: in that
+source's `warnings`, which ride in every payload and show under «Что не так»;
+`/api/health` is retired, §38).
 
 **A guard on the fixture itself.** A test now fails if the captured page's
 leftmost column *is* the observed hour — because such a fixture cannot tell a
@@ -1702,7 +1705,9 @@ browser does.
   `:sha-` tag in the infrastructure repository.
 - **What is live is answerable without access.** `/api/version` names the build
   and `/api/health` says how it is doing; `make status` asks both, from
-  anywhere, with no key.
+  anywhere, with no key (amended 2026-10-02: `/api/health` is retired, §38;
+  the forecast's own `health` block and each source's state say how it is
+  doing, and that is what `make status` reads).
 
 **What it does not buy.** The gate checks that the code passes its tests and
 that the app starts and answers. It does not check that the numbers are right:
@@ -1710,7 +1715,9 @@ the suite reads committed fixtures and cannot see a site that redesigned
 overnight. That is `make canary`'s question, asked weekly, and the canary is
 deliberately outside the gate. Nor does a deploy wait for `/api/health` to say
 `ok`, because that endpoint is allowed to report a source down, and Yandex
-having a bad morning is no reason to roll back a good build.
+having a bad morning is no reason to roll back a good build. (Amended
+2026-10-02: the server's check asks for the page and `/api/version`, and
+`/api/health` is retired, §38.)
 
 **What would reverse it.** A CI verdict that stops meaning what it says. Once a
 green tick ships, a tick that can be green over a red suite is not a gate but a
@@ -1935,6 +1942,64 @@ the cities he actually uses never are.
 proxy in front of it that rate-limits per client -- at which point the bucket
 can be raised until it never fires. Not removed: it is also what keeps a
 search box from being a free proxy to the geocoder.
+
+---
+
+## 38. `/api/health` is retired, and the forecast is the diagnostic
+
+*Decided 2026-10-02 by the owner, on a review of what the public instance
+tells strangers.*
+
+`/api/health` answered anyone with the server's verdict and, beside it, the
+server's notes to itself: each source's error text as the fetcher wrote it --
+upstream URLs, exception messages -- and the route that last reached Gismeteo,
+which names a proxy by host and port whenever one is configured.
+`routing._mask` strips a proxy's credentials, not its address. Production sets
+no proxy, so what it has published so far is upstream URLs and internals
+rather than an address; but a public endpoint that would start publishing the
+box the server routes through on the evening somebody configures one is a trap
+waiting for that evening.
+
+And nothing needed it. The server's deploy check, configured in the owner's
+infrastructure repository, asks for the page and for `/api/version`; the
+image's `HEALTHCHECK` asks `/healthz` (DEPLOY.md). Only this repository read
+`/api/health`: `make status`, the weekly canary, the docs and the tests.
+
+So it answers **410 Gone**, with a short JSON body naming `/api/version` for
+the build and `/api/weather` for each source's state.
+
+- **410, not 404.** A 404 at that path is also what a wrong `BASE_PATH`, a
+  path the static mount swallowed, or a proxy that never reached the app
+  would answer, so anything still asking -- an old checkout's `make status`, a
+  monitor set up by hand -- would take the retirement for an outage. Only the
+  app can say 410, and it says "this is up, and the answer moved". The debug
+  routes answer 404 so as not to advertise whether a token is configured;
+  there is nothing like that to hide here, in a public repository that says
+  the endpoint existed. Saying it costs nothing: no cache, no upstream.
+- **The forecast is the diagnostic.** Everything `/api/health` said that
+  anyone may know was already in every `/api/weather` payload, under the names
+  the app itself uses: `health.status`, `warnings`, `age_s` and
+  `divergence_c`, and per source `available`, `reason`, `provenance`,
+  `fallback_profile` and `dropped_fields`. `make status` takes the build from
+  `/api/version` and the rest from there, and the canary reads the same
+  payload for the default city.
+- **No `/api/health` for the debug token, either.** A second route reshaping
+  the same envelope under names of its own is the same thing written down
+  twice, and this one had already drifted: it called the dropped fields
+  `dropped`, the canary asked it for `dropped_fields`, and so a dropped field
+  could never fail the canary. Reading the payload, it can.
+- **A stale answer is still a failure.** `/api/health` answered 503 for a
+  stale payload as well as for none. `/api/weather` serves the stale one with
+  200, because the phone should still show it, so `make status` and the
+  canary read `health.status` rather than the HTTP code and fail on it all
+  the same: a stale payload's provenance describes the last fetch that worked,
+  not today's pages.
+
+**What would reverse it.** A question the payload cannot answer without work
+of its own -- a probe of every Gismeteo route from the server, say -- would
+earn a route, behind the debug token like the other diagnostics rather than
+in public. The 410 itself can go, and the path fall through to a plain 404,
+once the access log shows nothing has asked for it in a few months.
 
 ---
 

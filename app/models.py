@@ -198,8 +198,8 @@ class Health:
     # Shown to the user, in Russian, short enough to read on a phone.
     warnings: list[str] = field(default_factory=list)
     # For whoever is debugging: URLs tried, exceptions, validator verdicts,
-    # and how far apart the sources landed. Surfaced by /api/health, never
-    # rendered in the app.
+    # which route reached Gismeteo, and how far apart the sources landed.
+    # Never rendered in the app.
     detail: list[str] = field(default_factory=list)
     # Pairwise temperature deltas, e.g. {"yandex/openmeteo": 0.6}. Recorded
     # because it is the single most useful number when debugging a suspected

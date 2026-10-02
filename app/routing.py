@@ -44,11 +44,12 @@ _sticky: dict[str, Route] = {}
 
 
 def _mask(proxy: str | None) -> str:
-    """A proxy for logs and /api/health, with any credentials removed.
+    """A proxy for logs and `detail`, with any credentials removed.
 
     Free proxy lists hand out `http://user:pass@host:port` often enough that
-    printing the raw string would eventually copy a password into a health
-    endpoint, and health endpoints get pasted into chat windows.
+    printing the raw string would eventually copy a password into `detail`,
+    and diagnostics get pasted into chat windows. The host and port stay:
+    they are what a reader debugging a route needs.
     """
     if not proxy:
         return "direct"
@@ -163,6 +164,6 @@ async def fetch_gismeteo(place: Place, today: dt.date | None = None):
 
 def sticky_route() -> Route | None:
     """Which route last worked, or None if none has yet. Read-only: for
-    `/api/health`, which wants to say how the forecast actually got here."""
+    `health.detail`, which says how the forecast actually got here."""
     return _sticky.get("route")
 
