@@ -2,6 +2,8 @@
 # path; nothing is here "in case".
 #
 # Lower bounds for humans; `requirements.lock` is what is installed and shipped.
+# `make lock` rewrites it, by the command at its top, keeping every pin that
+# still satisfies this file. The test tools are `requirements-dev.txt`.
 fastapi>=0.115          # routing, DI, the security-header plumbing
 uvicorn>=0.30           # ASGI server
 httptools>=0.6          # C HTTP parser for uvicorn -- measurable, 2 MB

@@ -18,8 +18,9 @@ ENV PATH="/venv/bin:$PATH"
 
 # Exactly the versions CI tested, hash-checked, and nothing they did not pull
 # in. `requirements.txt` says what the app needs; `requirements.lock` is what
-# it gets. Regenerate the lock with the command at its top and read its diff
-# like code: that is where a new transitive dependency shows itself.
+# it gets. `make lock` regenerates it, by the command written at its top; read
+# its diff like code: that is where a new transitive dependency shows itself.
+# The test tools have a lock of their own and never come in here.
 COPY requirements.lock .
 RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 

@@ -346,14 +346,19 @@ connection. It cannot hand back a forged forecast.
 
 ## Working on it
 
-Python 3.11 or newer. The app itself needs only `requirements.txt`; the suite
-and the tools need four more packages and a browser:
+Python 3.11 or newer. Install from the two hash-locks, as CI does: what the
+image ships, plus the test tools `requirements-dev.txt` pins.
+Then a browser:
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt pytest ruff playwright pillow
+pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock
 python -m playwright install chromium   # the browser suite and tools.phone
 ```
+
+`requirements*.txt` say what is needed and why; the `.lock` files are what is
+installed, and `make lock` writes them (it needs [uv](https://docs.astral.sh/uv/)).
+A version changes only in a diff to a lock.
 
 Without Chromium the browser tests skip themselves: fine on a laptop, and the
 reason CI refuses to accept a skip. To use a browser that is already installed,

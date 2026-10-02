@@ -19,6 +19,7 @@
 #   make canary        has an upstream changed under us? (live, not fixtures)
 #   make routes        which way in to Gismeteo works from here
 #   make selftest      per-source fetch/parse/identity breakdown (DEBUG_TOKEN)
+#   make lock          rewrite both hash-locks from requirements*.txt (needs uv)
 #
 # Override anything on the command line:
 #     make status SITE=http://localhost:8080/weather
@@ -53,7 +54,7 @@ BUILDARGS   = --build-arg APP_BUILD=$(BUILD) --build-arg APP_BUILT_AT=$(BUILT_AT
 
 .PHONY: help test test-fast test-if-possible lint fmt check run status mock shots \
         fixtures fixtures-ya fixtures-gm fixtures-day selftest probe routes \
-        canary clean
+        canary lock clean
 
 help:
 	@grep -E '^#   make' $(MAKEFILE_LIST) | sed 's/^#   /  /'
@@ -283,6 +284,26 @@ routes:
 	docker run --rm -i -v "$(CURDIR)/tools/route_probe.py:/probe.py:ro" \
 	  -e GISMETEO_HOSTS -e GISMETEO_PROXY -e UPSTREAM_PROXY \
 	  $(IMAGE) python /probe.py $(ARGS)
+
+# --- dependencies -----------------------------------------------------------
+
+# Both locks, each by the command written at its own top -- the recipe below
+# repeats those two lines exactly, and tests/test_docs.py holds them to it, so
+# the header is enough to reproduce a lock for somebody who never opens this
+# file. The app's lock first: the dev lock is resolved against it.
+#
+# uv keeps every pin that still satisfies requirements*.txt, so on an unchanged
+# input this rewrites both files byte for byte, and a release arrives only when
+# asked for. uv leaves the upgrade flags out of the header it writes:
+#     make lock                                  what requirements*.txt changed
+#     make lock UPGRADE=--upgrade                everything, to its newest release
+#     make lock UPGRADE='--upgrade-package lxml'
+#
+# Then read the diff like code. A new transitive dependency shows itself there
+# and nowhere else, and the image installs whatever this wrote.
+lock:
+	uv pip compile requirements.txt --generate-hashes --python-version 3.12 --universal -o requirements.lock -q $(UPGRADE)
+	uv pip compile requirements-dev.txt --generate-hashes --python-version 3.12 --universal -o requirements-dev.lock -q $(UPGRADE)
 
 clean:
 	rm -rf .pytest_cache screenshots

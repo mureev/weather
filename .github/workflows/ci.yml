@@ -56,11 +56,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      # The lock, as the image installs it, and the tools at fixed versions:
-      # an unpinned ruff or pytest turns master red on its own release day.
-      - run: |
-          pip install --require-hashes --no-deps -r requirements.lock
-          pip install pytest==9.1.1 ruff==0.16.10
+          cache-dependency-path: requirements*.lock
+      # What the image installs, and the tools as requirements-dev.txt pins
+      # them, each from its hash-lock and nothing resolved here. Together on
+      # purpose: a package both need has to be one version in both, and pip
+      # refuses the pair if `make lock` was not what wrote them.
+      - run: pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock
       - name: lint
         run: ruff check .
       - name: unit + parser + routing tests
@@ -93,11 +94,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      # pillow too: the status-bar seam tests compare pixels, and without it
-      # they skip -- five tests that had never once run here.
-      - run: |
-          pip install --require-hashes --no-deps -r requirements.lock
-          pip install pytest==9.1.1 playwright==1.63.0 pillow==12.3.0
+          cache-dependency-path: requirements*.lock
+      # The same two locks as `test`. They carry pillow, which matters here:
+      # the status-bar seam tests compare pixels, and without it they skip --
+      # five tests that had never once run here.
+      - run: pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock
       - run: python -m playwright install --with-deps chromium
       - name: browser tests
         # One run, read twice. These tests skip themselves when Chromium or

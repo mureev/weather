@@ -1,0 +1,26 @@
+# The suite and the tools -- never the image, which installs requirements.lock
+# alone. One list, read by CI, by `README.md`'s setup and by `make lock`.
+#
+# Exact pins, because a test tool that floats turns master red on its own
+# release day, and here a red master is a deploy that does not happen.
+#
+# And locked with hashes, everything these pull in included, as
+# `requirements-dev.lock`, which `make lock` writes. The jobs that install these
+# decide whether `release` publishes, so a tool that could make the gate lie
+# belongs to the deploy as much as the app's own dependencies do.
+
+# Resolved against what ships: a package the app and the tools both need is the
+# app's locked version in both locks. CI installs the two together, and pip
+# refuses outright if they ever disagree.
+-c requirements.lock
+
+pytest==9.1.1        # the suite
+ruff==0.16.10        # lint, the first step of the gate
+playwright==1.63.0   # the browser suite, tools/phone.py and tools/shoot.py
+pillow==12.3.0       # pixel comparisons: the status-bar seam tests, tools/phone.py
+
+# Starlette's TestClient, which tests/test_api.py drives the app through. From
+# Starlette 1.7 it prefers httpx2 -- Pydantic's maintained continuation of
+# HTTPX -- and warns on every run that falls back to httpx. Only the tests talk
+# through it; the app's own upstream fetches use requirements.txt's client.
+httpx2==2.13.1
