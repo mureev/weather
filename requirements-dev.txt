@@ -32,3 +32,11 @@ httpx2==2.13.1
 # HTTP client changes, so they are the ones that say whether it still works.
 hypercorn==0.18.0
 trustme==1.2.1
+
+# The `audit` job and `make audit`: every package in requirements.lock against
+# PyPI's advisory database, which is the question Dependabot cannot ask here --
+# it does not keep these locks, and GitHub's dependency graph reads only the
+# lower bounds in requirements.txt (DECISIONS.md §42). PyPA's own tool. It pulls
+# in two dozen packages, pip itself among them -- every one hashed in the dev
+# lock, and none of them in the image.
+pip-audit==2.10.1

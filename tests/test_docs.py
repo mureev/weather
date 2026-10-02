@@ -168,6 +168,32 @@ class TestTheLocksSayHowTheyWereMade:
         assert not loose, f"ci.yml installs outside the locks: {loose}"
 
 
+class TestTheGateCoversWhatShips:
+    """Promises about the image `release` publishes, each kept in a file a
+    reviewer skims rather than reads (DECISIONS.md §42)."""
+
+    def test_release_waits_for_an_audit_of_what_ships(self):
+        """A job `release` does not wait for is a report, not a gate, and the
+        Actions tab cannot tell them apart: a green tick either way, beside a
+        deploy it may have had no say in. And the job runs `make audit`, so the
+        command -- with any exception it ever has to carry -- is written once,
+        and a laptop asks exactly what the gate asks."""
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        needs = re.search(r"^  release:\n(?:    .*\n)*?    needs: \[([^\]]*)\]", ci, re.M)
+        assert needs, "release lists nothing it needs -- has ci.yml changed shape?"
+        assert "audit" in [n.strip() for n in needs.group(1).split(",")], \
+            "release publishes without waiting for the audit"
+        job = re.search(r"^  audit:\n((?:(?:    .*)?\n)+)", ci, re.M)
+        assert job, "ci.yml has no `audit` job"
+        assert "run: make audit" in job.group(1), "the audit job does not run `make audit`"
+
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        recipe = re.search(r"^audit:\n((?:\t.*\n)+)", makefile, re.M)
+        assert recipe, "the Makefile has no `audit` target"
+        for part in ("pip-audit ", "--strict", "-r requirements.lock"):
+            assert part in recipe.group(1), f"`make audit` no longer says {part.strip()!r}"
+
+
 class TestEverySettingIsDiscoverable:
     """`.env.example` is the only place anyone will look for "what can I
     configure". A setting that exists in `config.py` and nowhere else is a

@@ -5,10 +5,11 @@ in this repository can reach the server.
 
 ## What a push does
 
-1. **CI** (`.github/workflows/ci.yml`) runs three jobs: lint and the unit
-   suite, the browser suite in a real Chromium, and an image build for
-   `linux/amd64`.
-2. **`release`** runs only when all three pass on a push to `master`. It
+1. **CI** (`.github/workflows/ci.yml`) runs four jobs: lint and the unit
+   suite, the browser suite in a real Chromium, an image build for
+   `linux/amd64`, and an audit of `requirements.lock` against PyPI's
+   advisory database.
+2. **`release`** runs only when all four pass on a push to `master`. It
    publishes the image the `image` job built, stamped and started -- the same
    bytes, not a rebuild -- to GHCR as `ghcr.io/mureev/weather:master` and
    `ghcr.io/mureev/weather:sha-<short>`.
@@ -19,21 +20,22 @@ in this repository can reach the server.
    the owner's infrastructure repository, not here.
 
 So a change is live within minutes, or not at all. Other branches and pull
-requests get the same three jobs and publish nothing.
+requests get the same four jobs and publish nothing.
 
 ## What the gate checks, and what it does not
 
 It checks that the code does what its tests say: every parser against real
 captured pages, the invariants, the front end in a browser, the byte budgets.
 Then it checks that the image builds, starts, and reports this commit as its
-build. On the server, a new image is kept only once it answers through the
-reverse proxy: the page's body must contain exactly `<title>Погода</title>`,
-`/api/version` must answer, and the container must report healthy, which is
-the image's own `HEALTHCHECK` asking `/healthz`. That check lives in the
-infrastructure repository, where nothing here can see it, so
+build; and that nothing it installs has a published advisory against it
+(`DECISIONS.md` §42). On the server, a new image is kept only once it answers
+through the reverse proxy: the page's body must contain exactly
+`<title>Погода</title>`, `/api/version` must answer, and the container must
+report healthy, which is the image's own `HEALTHCHECK` asking `/healthz`. That
+check lives in the infrastructure repository, where nothing here can see it, so
 `tests/test_api.py` pins all three answers (`TestWhatTheServerAsks`). Above all
-the title: translate it, decorate it or merely reformat it, and every deploy
-is rolled back while the old image quietly goes on serving.
+the title: translate it, decorate it or merely reformat it, and every deploy is
+rolled back while the old image quietly goes on serving.
 
 It does not check that the numbers are right today. The suite reads committed
 fixtures, so a site that redesigned overnight is invisible to it; that is the
