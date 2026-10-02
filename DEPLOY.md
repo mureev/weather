@@ -43,12 +43,13 @@ Ask the site, like anyone else:
 ```bash
 make status                                       # both of these, summarised
 curl -s https://mureev.com/weather/api/version    # build, built_at, shell hash
-curl -s https://mureev.com/weather/api/health     # per source: available, why not, tier
+curl -s https://mureev.com/weather/api/weather    # the forecast; per source: available, why not, tier
 ```
 
 `build` is the commit. If it is not the one you pushed, the deploy is still on
-its way or was rolled back; `/api/health` says whether the build that *is*
-running is well.
+its way or was rolled back. The forecast says whether the build that *is*
+running is well: its `health.status`, and each source's `available` and
+`reason`.
 
 ## Rolling back
 

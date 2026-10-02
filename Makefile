@@ -97,9 +97,11 @@ shots:
 # --- look at it -------------------------------------------------------------
 
 # What is live, asked the way anyone may ask: the build the site says it is
-# running, then its own verdict per source. Read-only and credential-free, so
-# it is safe against anything at any time, and it exits non-zero unless
-# /api/health answers 200 -- which it does not when every source is down.
+# running (/api/version), then its own verdict per source, read off the
+# forecast every phone gets (/api/weather, the default city). Read-only and
+# credential-free, so it is safe against anything at any time, and it exits
+# non-zero unless that verdict is `ok` or `degraded` -- not when every source
+# is down, whether the answer is a 503 or the last good payload served stale.
 # Right after a push, a build that has not changed yet is a deploy still on its
 # way (DEPLOY.md), not a failed one.
 #     make status
@@ -107,9 +109,10 @@ shots:
 status:
 	@tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
 	curl -fsS '$(SITE)/api/version' > "$$tmp" && jq -c . "$$tmp" || exit 1; \
-	code=$$(curl -sS -o "$$tmp" -w '%{http_code}' '$(SITE)/api/health') || exit 1; \
-	jq '{status, selected, age_s, divergence_c, sources: (.sources | map_values({available, reason, temp_c}))}' "$$tmp"; \
-	test "$$code" = 200 || { echo "  /api/health answered $$code"; exit 1; }
+	code=$$(curl -sS -o "$$tmp" -w '%{http_code}' '$(SITE)/api/weather') || exit 1; \
+	jq '{status: .health.status, selected, age_s: .health.age_s, divergence_c: .health.divergence_c, sources: (.sources | map_values({available, reason, temp_c: .current.temp_c}))}' "$$tmp"; \
+	jq -e '.health.status == "ok" or .health.status == "degraded"' "$$tmp" > /dev/null 2>&1 \
+	  || { echo "  /api/weather answered $$code, status $$(jq -r '.health.status' "$$tmp" 2>/dev/null || echo '?')"; exit 1; }
 
 # --- maintenance ------------------------------------------------------------
 
@@ -254,9 +257,10 @@ fixtures-day:
 	@echo "\n  Recorded. make check says whether yandex_day still reads it.\n"
 
 # The test suite runs against committed fixtures and therefore cannot notice
-# that the real pages have moved. This reads the live /api/health and fails if
-# any source has slipped to a lower extraction tier -- the early warning, on a
-# calm day, rather than on the morning the forecast mattered. Stdlib only.
+# that the real pages have moved. This reads the live forecast (/api/weather)
+# and fails if any source has slipped to a lower extraction tier or dropped a
+# field -- the early warning, on a calm day, rather than on the morning the
+# forecast mattered. Stdlib only.
 #     make canary
 #     make canary SITE=http://localhost:8080/weather
 #     make canary CANARY_ARGS='--allow-missing gismeteo'

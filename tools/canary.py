@@ -19,11 +19,19 @@ confidently reading the wrong cell. That is the state worth hearing about on a
 calm Tuesday rather than on the morning you actually wanted the forecast --
 which is the entire argument for recording provenance in the first place.
 
+What it reads is the forecast itself: `/api/weather` for the default city, the
+payload every phone gets, which carries each source's provenance. It used to
+read `/api/health`, which reshaped that same envelope under names of its own --
+and asked it for `dropped_fields`, which that endpoint called `dropped`, so a
+dropped field could never fail this. Read from what the app actually serves,
+the names cannot drift apart. The build comes from `/api/version`, for the log.
+
 Exit codes, so a scheduler can act on it:
 
     0  everything as expected
     1  something degraded -- read the output, then `make fixtures`
-    2  could not reach the site at all (a different problem; not a parser one)
+    2  nothing to measure: the site is unreachable, or no source is answering
+       right now (a different problem; not a parser one)
 
 Deliberately dependency-free: stdlib only, so it runs from a cron line, a CI
 job, or a laptop with nothing installed.
@@ -52,31 +60,58 @@ def fetch(url: str, timeout: float) -> dict:
         return json.loads(r.read().decode("utf-8"))
 
 
-def main() -> int:
+def build_of(site: str, timeout: float) -> str:
+    """Which build answered. For the log only: no verdict depends on it, so a
+    failure here is a question mark rather than an exit code."""
+    try:
+        return str(fetch(site + "/api/version", timeout).get("build") or "?")
+    except Exception:
+        return "?"
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--site", default="https://mureev.com/weather")
     ap.add_argument("--timeout", type=float, default=30.0)
     ap.add_argument("--allow-missing", default="",
                     help="comma-separated sources that may be unavailable "
                          "without failing, e.g. gismeteo on a blocked box")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
-    url = args.site.rstrip("/") + "/api/health"
+    site = args.site.rstrip("/")
+    url = site + "/api/weather"
     try:
-        health = fetch(url, args.timeout)
+        payload = fetch(url, args.timeout)
+    except urllib.error.HTTPError as e:
+        # The app's own 503 says no source answered and nothing was cached; a
+        # 502 or 504 is the proxy in front failing to reach it at all.
+        print(f"  {url} answered {e.code} {e.reason}")
+        return 2
     except (urllib.error.URLError, TimeoutError, ValueError) as e:
         print(f"  cannot reach {url}: {e}")
+        return 2
+
+    health = payload.get("health") or {}
+    if health.get("status") not in ("ok", "degraded"):
+        # Stale: every source failed just now, and this is the last good
+        # payload held over. It is served with 200, because a phone should
+        # still see it -- but its provenance describes the last fetch that
+        # worked, not today's pages, so reading it here would be a false
+        # "nothing has moved". /api/health answered 503 for it, so this is
+        # the exit code it had then.
+        print(f"  {url}: status {health.get('status')}, "
+              f"{health.get('age_s')}s old -- no source is answering now")
         return 2
 
     tolerated = {s.strip() for s in args.allow_missing.split(",") if s.strip()}
     problems: list[str] = []
 
     print(f"\n  {url}")
-    print(f"  status: {health.get('status')}   build: {health.get('build')}"
+    print(f"  status: {health.get('status')}   build: {build_of(site, args.timeout)}"
           f"   age: {health.get('age_s')}s\n")
 
     for key, expected in EXPECTED_TIER.items():
-        src = (health.get("sources") or {}).get(key) or {}
+        src = (payload.get("sources") or {}).get(key) or {}
         if not src.get("available"):
             line = f"  {key:<10} UNAVAILABLE  {src.get('reason') or '?'}"
             print(line)

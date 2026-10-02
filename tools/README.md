@@ -7,7 +7,7 @@ because a specific question came up once and will come up again.
 | file | the question it answers |
 |---|---|
 | `route_probe.py` | **Start here for a dead Gismeteo tab.** Walks every (host, egress) route the app would try, in the same order, with the same parser, and prints what each one actually returns — status, city, temperature, provenance tier. Pass candidate proxies as arguments to test them before committing one. `make routes` |
-| `canary.py` | **The one that runs unattended.** The suite tests committed fixtures and so cannot notice that the live pages have moved; this reads the live `/api/health` and fails when any source slips to a lower extraction tier. Exit 1 = something drifted, 2 = the site is unreachable. Stdlib only. `make canary` |
+| `canary.py` | **The one that runs unattended.** The suite tests committed fixtures and so cannot notice that the live pages have moved; this reads the live forecast — `/api/weather`, the payload every phone gets — and fails when any source slips to a lower extraction tier or drops a field. Exit 1 = something drifted, 2 = nothing to measure (the site is unreachable, or no source is answering). Stdlib only. `make canary` |
 | `gm-probe.sh` | A source returns 403 to us and 200 to curl — is it the headers, the HTTP version, the TLS fingerprint, or the IP? Bisects all four. No dependencies. |
 | `probe403.py` | The same matrix from inside the built image, using the app's own headers. `make probe` |
 | `flight_probe.py` | Dumps Yandex's RSC flight stream and pulls out any JSON value by key. This is how the `fact` object was found in the first place. |

@@ -10,6 +10,7 @@ import dataclasses
 import datetime as dt
 import gzip
 import re
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -528,6 +529,70 @@ class TestSurfaces:
         r = client_.get("/", follow_redirects=False)
         assert r.status_code in (307, 308)
         assert r.headers["location"] == "/weather/"
+
+
+class TestTheCanaryReadsWhatTheAppServes:
+    """`tools/canary.py` is the one thing that reads the live site on a
+    schedule, and a key it asks for that the payload does not carry is a check
+    that never runs and never says so. That happened: it asked `/api/health`
+    for `dropped_fields`, which that endpoint called `dropped`. So these feed
+    it the payload the real app builds, never a dict typed to match the
+    canary's own expectations."""
+
+    @pytest.fixture
+    def canary(self, client_, monkeypatch):
+        from tools import canary
+
+        def fetch(url, timeout):
+            r = client_.get(url.removeprefix("http://testserver"))
+            if r.status_code >= 400:
+                raise urllib.error.HTTPError(url, r.status_code, r.reason_phrase,
+                                             r.headers, None)
+            return r.json()
+
+        monkeypatch.setattr(canary, "fetch", fetch)
+        return lambda *args: canary.main(["--site", "http://testserver/weather",
+                                          *args])
+
+    def test_a_calm_day_passes_and_a_missing_source_does_not(self, canary):
+        # Gismeteo is stubbed out here, as it is refused on some boxes.
+        assert canary("--allow-missing", "gismeteo") == 0
+        assert canary() == 1
+
+    def test_a_dropped_field_fails_it(self, canary, monkeypatch):
+        """Dropped by the validator, not typed into a payload: a humidity of
+        743 fails its range contract on the way through the real assembly."""
+        calm = openmeteo.fetch
+
+        async def soaked(c, place):
+            raw = await calm(c, place)
+            raw["current"]["relative_humidity_2m"] = 743
+            return raw
+
+        monkeypatch.setattr(openmeteo, "fetch", soaked)
+        assert canary("--allow-missing", "gismeteo") == 1
+
+    def test_a_stale_payload_is_not_read_as_todays(self, canary, client_,
+                                                   monkeypatch):
+        """With every source failing, the app serves its last good payload --
+        with 200, because a phone should still see it, and with the provenance
+        of the fetch that worked. Read as today's, a morning on which nothing
+        answers would pass. It is exit 2, as the 503 from /api/health was."""
+        assert client_.get("/weather/api/weather").status_code == 200
+
+        async def gone(*_a, **_k):
+            raise RuntimeError("gone")
+
+        async def no_om(_c, _p):
+            return None
+
+        monkeypatch.setattr(yandex_html, "fetch_html", gone)
+        monkeypatch.setattr(openmeteo, "fetch", no_om)
+        # Ten minutes later, as far as the cache is concerned.
+        monkeypatch.setattr(service._cache, "get_fresh", lambda _k: None)
+        r = client_.get("/weather/api/weather")
+        assert (r.status_code, r.json()["health"]["status"]) == (200, "stale")
+        assert canary("--allow-missing", "gismeteo") == 2
 
 
 class TestSecurityHeaders:

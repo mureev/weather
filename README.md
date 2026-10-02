@@ -31,7 +31,7 @@ a measurement recorded in `DECISIONS.md` §18, not a test.
 
 ```bash
 make            # the everyday commands
-make check      # lint + 629 tests, no network required
+make check      # lint + 632 tests, no network required
 make run        # localhost:8080 against live upstreams
 git push        # to master: tested, published, live in minutes
 make status     # what is live: its build, then its own health verdict
@@ -44,7 +44,7 @@ make status     # what is live: its build, then its own health verdict
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 629 tests, no
+1. **`make check` must pass before you believe anything.** 632 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -400,8 +400,8 @@ day. Gismeteo's equivalent, `/3-days/`, comes with `make fixtures-gm`.
 `make routes` answers for the machine it runs on, and that is the catch: a
 route verified — or a fixture recorded — on a machine that is not blocked
 proves nothing about the machine that is, and your laptop is not blocked. The
-server's own answer is in `/api/health`, per source, with the reason when there
-is one; `make status` prints it.
+server's own answer is in the forecast it serves, `/api/weather`, per source,
+with the reason when there is one; `make status` prints it.
 
 `tools/README.md` explains what each diagnostic answers.
 
@@ -444,7 +444,7 @@ app/
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
 docs/                the two screenshots at the top of this page
-tests/               629 tests: parsers, degradation, invariants, docs, API, browser
+tests/               632 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 ```
 
