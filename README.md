@@ -31,7 +31,7 @@ a measurement recorded in `DECISIONS.md` §18, not a test.
 
 ```bash
 make            # the everyday commands
-make check      # lint + 668 tests, no network required
+make check      # lint + 666 tests, no network required
 make run        # localhost:8080 against live upstreams
 git push        # to master: tested, published, live in minutes
 make status     # what is live: its build, then its own health verdict
@@ -44,7 +44,7 @@ make status     # what is live: its build, then its own health verdict
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 668 tests, no
+1. **`make check` must pass before you believe anything.** 666 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -358,9 +358,7 @@ python -m playwright install chromium   # the browser suite and tools.phone
 
 `requirements*.txt` say what is needed and why; the `.lock` files are what is
 installed, and `make lock` writes them (it needs [uv](https://docs.astral.sh/uv/)).
-A version changes only in a diff to a lock. `make audit` asks PyPI's advisory
-database about every pin in `requirements.lock`; CI asks the same on every push
-and every Monday, and `release` waits for the answer (`DECISIONS.md` §42).
+A version changes only in a diff to a lock.
 
 Without Chromium the browser tests skip themselves: fine on a laptop, and the
 reason CI refuses to accept a skip. To use a browser that is already installed,
@@ -456,7 +454,7 @@ app/
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
 docs/                the two screenshots at the top of this page
-tests/               668 tests: parsers, degradation, invariants, docs, API, transport, browser
+tests/               666 tests: parsers, degradation, invariants, docs, API, transport, browser
 tools/               diagnostics (see tools/README.md)
 ```
 

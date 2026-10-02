@@ -1,7 +1,6 @@
-# Keeps the pinned actions current (DECISIONS.md §39), and the base image
-# (§42).
+# Keeps the pinned actions current, once a month (DECISIONS.md §39, §42).
 #
-# Every action in workflows/ci.yml is pinned to a commit with its release in a
+# Every action in the workflows is pinned to a commit with its release in a
 # comment beside it -- `@<sha> # v4.4.0` -- and Dependabot moves the two
 # together: a pull request with the new commit and the new tag, which CI tests
 # like any branch. Merging it stays the owner's act, and on this repository a
@@ -13,15 +12,15 @@
 # one package and its hashes at a time: requirements-dev.txt's pins would move
 # without the lock CI installs from, which nothing points it to, and a lock it
 # did touch would no longer be what the command at its top produces.
-# `make lock UPGRADE=--upgrade` is how a Python dependency moves, and CI's
-# `audit` job is what says one has to (§42).
+# `make lock UPGRADE=--upgrade` is how a Python dependency moves, and
+# workflows/audit.yml is what says one has to.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    # Monthly, at a hobby's pace: every merge is a deploy.
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
     # A week before a release is proposed. A hijacked action release is
     # usually found and pulled within days -- tj-actions/changed-files in 2025
     # was -- and a week behind is no loss to anything here.
@@ -32,27 +31,3 @@ updates:
     groups:
       actions:
         patterns: ["*"]
-
-  # The Dockerfile's base, `python:3.12-slim@sha256:...`. When Docker Hub moves
-  # that tag -- a Debian security update, a Python patch release -- this
-  # proposes the new digest, for both stages at once, and CI builds, starts and
-  # tests it like any other change.
-  #
-  # Never a new Python. 3.13 is a decision, made together with CI's
-  # PYTHON_VERSION and the locks' --python-version, not a Monday pull request.
-  #
-  # No cooldown, unlike the actions. A tag's digests are not versions: the
-  # registry publishes only the newest, so a cooldown longer than the gap
-  # between two pushes of the tag would never let one through, and whether
-  # Dependabot applies one to a digest at all is not documented (read
-  # 2026-10-02). The hijacked release a cooldown waits out is also less of a
-  # risk here: Docker builds its official images itself, from the
-  # docker-library repositories.
-  - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-    ignore:
-      - dependency-name: python
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]

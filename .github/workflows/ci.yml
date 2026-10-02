@@ -30,12 +30,6 @@ concurrency:
 # moved to other code by whoever controls the action's repository (it has
 # happened, to tj-actions/changed-files in 2025), and the job holding
 # `packages: write` publishes what the server deploys within minutes.
-#
-# And no checkout keeps its token. By default `actions/checkout` writes the
-# job's GITHUB_TOKEN into `.git/config` for the rest of the job, where every
-# later step -- each action, each installed package -- can read it. Nothing
-# here pushes, so nothing needs it there: `persist-credentials: false` on every
-# checkout (zizmor's `artipacked`, its one finding here, 2026-10-02).
 permissions:
   contents: read
 
@@ -54,11 +48,9 @@ defaults:
 
 # Every job has a timeout, at several times the run it was measured at (the
 # first run on master, 2026-10-01: lint + unit 19 s, browser 2 min 16 s, image
-# 33 s, publish 30 s; the canary is one request with a 30 s timeout; the audit,
-# added 2026-10-02, is `test`'s install and then 1.3 s of PyPI lookups, cold).
-# Without one, GitHub waits six hours -- and a browser test that hangs on
-# master, where runs queue rather than cancel, would hold every push behind it
-# for that long.
+# 33 s, publish 30 s; the canary is one request with a 30 s timeout). Without
+# one, GitHub waits six hours -- and a browser test that hangs on master, where
+# runs queue rather than cancel, would hold every push behind it for that long.
 jobs:
   test:
     name: lint + unit
@@ -66,8 +58,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -107,8 +97,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -139,8 +127,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - id: built
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
@@ -175,14 +161,9 @@ jobs:
       # commit, or the stamp is broken and `make status` would lie after every
       # deploy.
       #
-      # Started locked down, the way the server should run it (DECISIONS.md
-      # §42): a read-only filesystem with a scratch /tmp, no Linux
-      # capabilities, and no privilege to be gained through a setuid binary.
-      # The app writes nothing and binds a port above 1024, so none of that
-      # should matter -- and this is where that gets proved, before the server
-      # depends on it. Then the image's own HEALTHCHECK, which the server's
-      # deploy waits for and nothing here had ever run: polled every two
-      # seconds instead of every sixty, the command itself untouched.
+      # Started locked down, the way the server should run it, and then held
+      # to its own HEALTHCHECK, which the server's deploy waits for -- polled
+      # every 2 s instead of 60, the command untouched (DECISIONS.md §42).
       - name: the image starts and answers
         run: |
           docker run -d --name app -p 127.0.0.1:8080:8080 \
@@ -216,41 +197,6 @@ jobs:
           path: /tmp/weather.tar
           retention-days: 1
 
-  # What ships, against what is known to be wrong with it (DECISIONS.md §42).
-  # Dependabot moves the actions but cannot keep the Python locks
-  # (dependabot.yml says why), so before this nothing said that a version
-  # pinned in requirements.lock had been found vulnerable since it was pinned:
-  # not on the push that shipped it, and not on a Monday when nothing was
-  # pushed. In the gate, on purpose -- `release` waits for it, so a known
-  # vulnerability is never published, and the scheduled run is the one that
-  # reaches you while the repository is quiet.
-  #
-  # When it fails: `make lock UPGRADE='--upgrade-package <name>'` and push.
-  # When there is no fixed release yet: an `--ignore-vuln <id>` in the
-  # Makefile's `audit` recipe, with its reason above it. The command lives
-  # there and only there, so the job and a laptop ask the same question.
-  #
-  # The runtime lock only: the test tools never reach the server, and stopping
-  # a deploy over an advisory against pytest would be stopping it for nothing.
-  # The one job in the gate that asks the network anything, and what it asks
-  # is PyPI, not an upstream.
-  audit:
-    name: known vulnerabilities
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: requirements*.lock
-      - run: pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock
-      - name: nothing in requirements.lock has a published advisory
-        run: make audit
-
   # Delivery (2026-10-01). When every job above passes on a push to master,
   # publish the image as :master and :sha-<short>. That is the whole of this
   # repo's part: a tool on the server, configured in the owner's infrastructure
@@ -259,7 +205,7 @@ jobs:
   # fails. Nothing here holds a credential for the server, and nothing needs one.
   release:
     name: publish image
-    needs: [test, ui, image, audit]
+    needs: [test, ui, image]
     # A fork's master is not this repository's production, and its token
     # could not publish here anyway.
     if: github.repository == 'mureev/weather' && github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -300,8 +246,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}

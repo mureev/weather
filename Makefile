@@ -20,7 +20,6 @@
 #   make routes        which way in to Gismeteo works from here
 #   make selftest      per-source fetch/parse/identity breakdown (DEBUG_TOKEN)
 #   make lock          rewrite both hash-locks from requirements*.txt (needs uv)
-#   make audit         what ships, against PyPI's advisory database (CI's gate too)
 #
 # Override anything on the command line:
 #     make status SITE=http://localhost:8080/weather
@@ -55,7 +54,7 @@ BUILDARGS   = --build-arg APP_BUILD=$(BUILD) --build-arg APP_BUILT_AT=$(BUILT_AT
 
 .PHONY: help test test-fast test-if-possible lint fmt check run status mock shots \
         fixtures fixtures-ya fixtures-gm fixtures-day selftest probe routes \
-        canary lock audit clean
+        canary lock clean
 
 help:
 	@grep -E '^#   make' $(MAKEFILE_LIST) | sed 's/^#   /  /'
@@ -305,20 +304,6 @@ routes:
 lock:
 	uv pip compile requirements.txt --generate-hashes --python-version 3.12 --universal -o requirements.lock -q $(UPGRADE)
 	uv pip compile requirements-dev.txt --generate-hashes --python-version 3.12 --universal -o requirements-dev.lock -q $(UPGRADE)
-
-# Every package in requirements.lock against PyPI's advisory database. CI's
-# `audit` job runs exactly this, and `release` waits for it, so a known
-# vulnerability in what ships stops the deploy (DECISIONS.md §42). Needs the
-# dev lock installed, and the network: it asks PyPI about each pin.
-#
-# When it fails, `make lock UPGRADE='--upgrade-package <name>'` usually ends
-# it. When no fixed release exists yet, the exception goes here and nowhere
-# else -- `--ignore-vuln <id>` on the command, its reason in a comment above,
-# and the date it can come out -- so that the job and a laptop agree.
-#
-# `--strict`: a package it could not look up is one it did not check.
-audit:
-	pip-audit --strict --disable-pip --require-hashes -r requirements.lock --progress-spinner off
 
 clean:
 	rm -rf .pytest_cache screenshots
