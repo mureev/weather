@@ -655,6 +655,7 @@ function render(d) {
   // learns its coordinates, and would transliterate «Париж» as Parizh.
   $('city').textContent = EN && state.place && state.place.adhoc && state.place.name_en
     || placeName(d.place);
+  fitCity();
   $('pin').style.visibility = (state.place && state.place.gps) ? '' : 'hidden';
   renderHealth(d, view);
 
@@ -666,11 +667,25 @@ function render(d) {
   else if (current) openScreen(current.name, current.arg);
 }
 
+/** A long name shrinks to fit rather than losing its end, the way a UILabel
+ *  does with `adjustsFontSizeToFitWidth`. «Петропавловск-Камчатский» at the
+ *  full size was «Петропавловск-Кам…», which names no place at all. Down to
+ *  two thirds; a name longer than that keeps the ellipsis. */
+function fitCity() {
+  const h = $('city');
+  h.style.fontSize = '';
+  const over = h.scrollWidth / h.clientWidth;
+  if (over > 1) {
+    const full = parseFloat(getComputedStyle(h).fontSize);
+    h.style.fontSize = Math.max(full * 2 / 3, Math.floor(full / over)) + 'px';
+  }
+}
+
 function renderError(d) {
   // No reason here: «Что не так» below carries it, and the card repeated it.
   $('content').innerHTML = `<div class="card err">
     <p>${t('noWeather')}</p></div>`;
-  if (d && d.place) $('city').textContent = placeName(d.place);
+  if (d && d.place) { $('city').textContent = placeName(d.place); fitCity(); }
   if (d) renderHealth(d, null);
 }
 
@@ -1520,7 +1535,7 @@ function boot() {
   // Rotating the phone changes the sheet's height, and every detent is a
   // fraction of it. Without this the sheet keeps yesterday's offset and sits
   // at no detent at all.
-  window.addEventListener('resize', () => { if (current) goDetent(detent); });
+  window.addEventListener('resize', () => { fitCity(); if (current) goDetent(detent); });
   $('btn-refresh').addEventListener('click', () => load(state.place));
 
   // One delegated listener on the screen shell, which never gets replaced --

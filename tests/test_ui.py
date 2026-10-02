@@ -314,6 +314,25 @@ class TestRendersAtAll:
         assert page.evaluate("STR.now.map(w => w[0] === w[0].toUpperCase())") \
             == [True, True]
 
+    def test_a_long_place_name_shrinks_to_fit_rather_than_losing_its_end(
+            self, page):
+        """«Петропавловск-Камчатский» at the full 30px was «Петропавловск-
+        Кам…». It now shrinks, down to two thirds, and a short name -- and the
+        height of the bar, which the hero hangs from -- does not move."""
+        def look():
+            return page.evaluate("""(() => { const h = document.getElementById('city');
+              return {fs: parseFloat(getComputedStyle(h).fontSize),
+                      cut: h.scrollWidth - h.clientWidth,
+                      top: document.querySelector('.hero').getBoundingClientRect().top}; })()""")
+        short = look()
+        page.evaluate("state.data.place.name = 'Петропавловск-Камчатский';"
+                      " render(state.data); 0")
+        long = look()
+        assert short["fs"] == 30 and short["cut"] <= 0
+        assert 20 <= long["fs"] < 30, f"the long name is {long['fs']}px"
+        assert long["cut"] <= 0, "the long name is still cut off"
+        assert long["top"] == short["top"], "the hero moved with the font"
+
     def test_hourly_is_a_curve_not_a_row_of_numbers(self, page):
         assert page.locator(".hcurve polyline").count() == 1
         pts = page.locator(".hcurve polyline").get_attribute("points")

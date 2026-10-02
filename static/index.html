@@ -419,7 +419,10 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 .top{display:flex;justify-content:center;padding:14px 0 0;color:#fff}
 .placebtn{display:flex;align-items:center;gap:8px;min-width:0;padding:4px 6px;
           max-width:100%}
+/* The line box is stated, so a long name shrunk to fit (`fitCity`) does not
+   pull the hero up by the difference: 43.5 is what 30px at 1.45 always was. */
 .placebtn h1{font-size:30px;font-weight:590;margin:0;letter-spacing:-.02em;
+             line-height:43.5px;
              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .placebtn svg{width:16px;height:16px;flex:none;stroke:rgba(255,255,255,.72);fill:none;
               stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;
