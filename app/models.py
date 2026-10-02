@@ -184,6 +184,9 @@ class SourceView:
     provenance: dict[str, int] = field(default_factory=dict)
     dropped_fields: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # The full text behind `reason`: URLs tried, exceptions, the validator's
+    # verdicts, the Gismeteo route. For the debug token only -- see
+    # `Weather.to_dict`.
     detail: list[str] = field(default_factory=list)
 
     @property
@@ -199,7 +202,8 @@ class Health:
     warnings: list[str] = field(default_factory=list)
     # For whoever is debugging: URLs tried, exceptions, validator verdicts,
     # which route reached Gismeteo, and how far apart the sources landed.
-    # Never rendered in the app.
+    # Sent only with the debug token (`Weather.to_dict`), and never rendered
+    # in the app.
     detail: list[str] = field(default_factory=list)
     # Pairwise temperature deltas, e.g. {"yandex/openmeteo": 0.6}. Recorded
     # because it is the single most useful number when debugging a suspected
@@ -231,11 +235,26 @@ class Weather:
     # Yoshkar-Ola, where June is light at eleven and December is dark at four.
     night: bool = False
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, detail: bool = False) -> dict[str, Any]:
+        """The envelope as it goes on the wire.
+
+        `health.detail` and every source's `detail` stay behind unless asked
+        for, and off is the default so that a new caller has to ask. They are
+        the server's notes to itself -- an exception's text, the URL it was
+        fetching, the route that reached Gismeteo, which names a proxy by host
+        and port when one is in use -- and this goes to every phone and to
+        anyone else who asks. Nothing in `static/` reads them: the app shows
+        `warnings` and each tab's short `reason`. `/api/weather` asks for them
+        when the request carries the debug token (`DECISIONS.md` §38).
+        """
         d = prune(asdict(self))
         d["health"]["status"] = self.health.status.value
+        if not detail:
+            d["health"].pop("detail", None)
         for key, sv in self.sources.items():
             d["sources"][key]["fallback_profile"] = sv.fallback_profile
+            if not detail:
+                d["sources"][key].pop("detail", None)
         return d
 
 

@@ -1983,11 +1983,23 @@ the build and `/api/weather` for each source's state.
   `fallback_profile` and `dropped_fields`. `make status` takes the build from
   `/api/version` and the rest from there, and the canary reads the same
   payload for the default city.
-- **No `/api/health` for the debug token, either.** A second route reshaping
-  the same envelope under names of its own is the same thing written down
-  twice, and this one had already drifted: it called the dropped fields
-  `dropped`, the canary asked it for `dropped_fields`, and so a dropped field
-  could never fail the canary. Reading the payload, it can.
+- **The notes stay, for the debug token.** The same `detail` lists rode in
+  every `/api/weather` payload, to every phone, so retiring the endpoint alone
+  would have closed nothing. They are left off the wire now unless the
+  request carries `X-Debug-Token` -- the rule `force` and `/api/debug/*`
+  already follow -- and that answer is `no-store`, so no cache in between
+  keeps a copy for the next visitor. Nothing in `static/` read them: the app
+  shows `warnings` and each tab's short `reason`, and those stay. Production
+  configures no token. There every fetch failure is still in the container's
+  log, as it always was, and setting a token on the server brings back the
+  rest: the validator's verdicts, and which route reached Gismeteo.
+- **No `/api/health` for the debug token, either.** With the token,
+  `/api/weather` and `/api/version` between them say everything `/api/health`
+  did. A second route reshaping the same envelope under names of its own is
+  the same thing written down twice, and this one had already drifted: it
+  called the dropped fields `dropped`, the canary asked it for
+  `dropped_fields`, and so a dropped field could never fail the canary.
+  Reading the payload, it can.
 - **A stale answer is still a failure.** `/api/health` answered 503 for a
   stale payload as well as for none. `/api/weather` serves the stale one with
   200, because the phone should still show it, so `make status` and the

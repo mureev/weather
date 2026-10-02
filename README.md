@@ -31,7 +31,7 @@ a measurement recorded in `DECISIONS.md` §18, not a test.
 
 ```bash
 make            # the everyday commands
-make check      # lint + 632 tests, no network required
+make check      # lint + 635 tests, no network required
 make run        # localhost:8080 against live upstreams
 git push        # to master: tested, published, live in minutes
 make status     # what is live: its build, then its own health verdict
@@ -44,7 +44,7 @@ make status     # what is live: its build, then its own health verdict
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 632 tests, no
+1. **`make check` must pass before you believe anything.** 635 tests, no
    network. The parser tests run against real captured HTML, not invented
    markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
@@ -59,7 +59,9 @@ you need it:
    carries, per source: available, why not, the provenance tier of every field
    and the fallback profile; and between them, the pairwise divergence.
    `/api/version` names the build, and `make status` reads both. It answers
-   "what is wrong" without guessing. (`/api/health`, which used to, is
+   "what is wrong" without guessing. The full text behind a failure — URLs
+   tried, exceptions, which route reached Gismeteo — comes along only for the
+   debug token. (`/api/health`, which used to say all of it to anyone, is
    retired: `DECISIONS.md` §38.)
 
 ---
@@ -447,7 +449,7 @@ app/
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
 docs/                the two screenshots at the top of this page
-tests/               632 tests: parsers, degradation, invariants, docs, API, browser
+tests/               635 tests: parsers, degradation, invariants, docs, API, browser
 tools/               diagnostics (see tools/README.md)
 ```
 

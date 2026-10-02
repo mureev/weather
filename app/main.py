@@ -138,12 +138,17 @@ async def weather(request: Request,
     debug routes take. Without it, `force` is accepted and ignored and the
     answer comes from the cache like any other -- which is also what the app's
     own refresh button gets, since it carries no token.
+
+    The token also brings the server's notes along: `health.detail` and each
+    source's `detail`, which everyone else is spared (`Weather.to_dict`,
+    DECISIONS.md §38). That answer is `no-store`, so no cache between here
+    and the caller keeps a copy to hand the next visitor.
     """
-    w = await get_weather(_resolve(city, lat, lon),
-                          force=force and _has_token(request))
+    token = _has_token(request)
+    w = await get_weather(_resolve(city, lat, lon), force=force and token)
     status = 200 if w.health.status is not Status.DOWN else 503
-    return JSONResponse(w.to_dict(), status_code=status,
-                        headers={"Cache-Control": "no-cache"})
+    return JSONResponse(w.to_dict(detail=token), status_code=status,
+                        headers={"Cache-Control": "no-store" if token else "no-cache"})
 
 
 @api.get("/api/day")

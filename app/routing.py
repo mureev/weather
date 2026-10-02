@@ -49,7 +49,8 @@ def _mask(proxy: str | None) -> str:
     Free proxy lists hand out `http://user:pass@host:port` often enough that
     printing the raw string would eventually copy a password into `detail`,
     and diagnostics get pasted into chat windows. The host and port stay:
-    they are what a reader debugging a route needs.
+    they are what a reader debugging a route needs, which is why `detail`
+    goes only to the debug token (`DECISIONS.md` §38).
     """
     if not proxy:
         return "direct"

@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import service, sun
+from app import routing, service, sun
 from app.main import app
 from app.sources import gismeteo, openmeteo, yandex_html
 from tests.test_extract import NOW_C, RECORDED
@@ -249,6 +249,63 @@ class TestForceTakesTheToken:
         assert len(asked) == before
 
 
+class TestTheServersNotesAreForTheToken:
+    """`detail` -- the URLs tried, the exceptions, the validator's verdicts and
+    the route that reached Gismeteo, proxy and all -- rode in every payload to
+    every phone, and to anyone who asked /api/health. Nothing in `static/`
+    reads it. It goes to whoever holds the debug token now (DECISIONS.md §38),
+    and everything the app, `make status` and the canary do read stays."""
+
+    def test_a_stranger_gets_the_verdict_and_none_of_the_notes(self, client_):
+        r = client_.get("/weather/api/weather")
+        d = r.json()
+        assert "detail" not in d["health"]
+        assert [k for k, sv in d["sources"].items() if "detail" in sv] == []
+        assert d["health"]["status"] in ("ok", "degraded")
+        assert {"warnings", "age_s", "divergence_c"} <= set(d["health"])
+        for sv in d["sources"].values():
+            assert {"available", "provenance", "fallback_profile",
+                    "dropped_fields", "warnings"} <= set(sv)
+        assert d["sources"]["gismeteo"]["reason"]   # stubbed out, and says so
+        assert r.headers["cache-control"] == "no-cache"
+
+    def test_the_token_gets_the_notes_and_no_cache_keeps_them(self, client_,
+                                                              monkeypatch):
+        r = client_.get("/weather/api/weather", headers=with_debug_token(monkeypatch))
+        d = r.json()
+        assert "detail" in d["health"]
+        assert all("detail" in sv for sv in d["sources"].values())
+        assert d["sources"]["gismeteo"]["detail"]
+        # A shared cache that kept this would hand it to the next stranger.
+        assert r.headers["cache-control"] == "no-store"
+
+    def test_a_proxy_never_reaches_a_stranger(self, client_, monkeypatch):
+        """The finding this answers, end to end. Gismeteo reached through a
+        proxy puts the proxy in `health.detail`, and every payload carried it
+        to whoever asked. `_mask` always took the password out; the address
+        stayed, because it is what a maintainer needs to see."""
+        proxy = "http://scout:tiger@203.0.113.9:3128"
+        monkeypatch.setitem(routing._sticky, "route",
+                            ("https://meteofor.lv/ru", proxy))
+
+        async def through_the_proxy(place, today=None):
+            # Gismeteo's parser is not what is under test: any reading will do.
+            got, _url = await yandex_html.load(None, place, today=today)
+            return got, None
+
+        monkeypatch.setattr(service, "fetch_gismeteo", through_the_proxy)
+        stranger = client_.get("/weather/api/weather")
+        assert stranger.json()["sources"]["gismeteo"]["available"] is True
+        assert "203.0.113.9" not in stranger.text
+
+        own = client_.get("/weather/api/weather",
+                          headers=with_debug_token(monkeypatch))
+        assert [x for x in own.json()["health"]["detail"]
+                if x.startswith("gismeteo via")] == \
+            ["gismeteo via https://meteofor.lv/ru via http://203.0.113.9:3128"]
+        assert "tiger" not in own.text
+
+
 class TestDegradation:
     def test_yandex_down_selects_the_next_available_source(
             self, request, monkeypatch):
@@ -385,7 +442,9 @@ class TestDegradation:
             raise ValueError("year 55841 is out of range")
 
         monkeypatch.setattr(service, "align_to_now", broken)
-        d = client_.get("/weather/api/weather").json()
+        # With the token, because the exception's text is in `detail`.
+        d = client_.get("/weather/api/weather",
+                        headers=with_debug_token(monkeypatch)).json()
         assert d["sources"]["yandex"]["available"] is False
         assert d["sources"]["yandex"]["reason"] == "не прочиталось"
         assert any("55841" in x for x in d["sources"]["yandex"]["detail"])
