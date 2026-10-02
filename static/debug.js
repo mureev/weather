@@ -190,9 +190,14 @@
     say(INFO, 'svh/lvh', lenOf('100svh') + ' / ' + lenOf('100lvh'));
     say(INFO, 'ниже вьюпорта', (screen.height - window.innerHeight) + 'pt');
     // The canvas paints everything below the viewport; if it disagrees with
-    // the sheet there is a permanent band along the bottom of the display.
+    // the sheet there is a permanent band along the bottom of the display --
+    // when there is anything below the viewport at all. In light mode the two
+    // differ on purpose (DECISIONS.md §40): a light sheet, and a navy sky
+    // whose canvas nothing shows while the viewport is the whole display.
     const canvas = rgb(':root'), sheet = rgb('#screen');
-    say(canvas === sheet ? OK : BAD, 'канва = лист', canvas + '  /  ' + sheet);
+    const hidden = screen.height - window.innerHeight <= 0;
+    say(canvas === sheet || hidden ? OK : BAD, 'канва = лист', canvas + '  /  ' + sheet
+      + (canvas !== sheet && hidden ? '  (канвы не видно)' : ''));
     say(rgb('.edge-bot') === canvas ? OK : BAD, 'edge-bot = канва', rgb('.edge-bot'));
   }
 

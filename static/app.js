@@ -479,15 +479,19 @@ function hourlyBlock(hours, nowcast, opts) {
            gradient over a zero-height box makes the element vanish entirely --
            so a flat forecast would render no line at all. This also makes the
            colour absolute: the same temperature is the same colour at both
-           ends of the curve. -->
+           ends of the curve.
+           The colours are the stylesheet's, by var() rather than restated:
+           they were copies of --hot, --cold and --accent, so the light
+           scheme's deeper blue reached the bars and never the curve. -->
       <linearGradient id="tgrad" gradientUnits="userSpaceOnUse"
                       x1="0" y1="${TOP}" x2="0" y2="${BOT}">
-        <stop offset="0" stop-color="#ff9f5a"/><stop offset="1" stop-color="#5ec8ff"/>
+        <stop offset="0" style="stop-color:var(--hot)"/>
+        <stop offset="1" style="stop-color:var(--cold)"/>
       </linearGradient>
       <linearGradient id="tfill" gradientUnits="userSpaceOnUse"
                       x1="0" y1="${TOP}" x2="0" y2="${H}">
-        <stop offset="0" stop-color="#71a9ff" stop-opacity=".22"/>
-        <stop offset="1" stop-color="#71a9ff" stop-opacity="0"/>
+        <stop offset="0" style="stop-color:var(--accent)" stop-opacity=".22"/>
+        <stop offset="1" style="stop-color:var(--accent)" stop-opacity="0"/>
       </linearGradient>
     </defs>
     <polygon points="${area}" fill="url(#tfill)"/>

@@ -1020,13 +1020,11 @@ class TestTheLaunchIsOneContinuousColour:
     """
 
     @staticmethod
-    def _critical_colour(html: str, scheme: str = "dark") -> str:
+    def _critical_colour(html: str) -> str:
         import re
         head = html.split("</style>", 1)[0]
         assert "html{background:" in head, \
             "the critical style block is gone -- the first paint is white again"
-        if scheme == "light":
-            head = head.split("prefers-color-scheme:light", 1)[1]
         return re.search(r"html\{background:(#[0-9a-f]{6})", head).group(1)
 
     def test_the_critical_block_comes_before_the_stylesheet(self, client_):
@@ -1048,12 +1046,27 @@ class TestTheLaunchIsOneContinuousColour:
         dark = re.search(r":root\{--sky1:(#[0-9a-f]{6})", html).group(1)
         assert self._critical_colour(html) == dark
 
-    def test_light_mode_gets_its_own_first_paint(self, client_):
-        """A dark first paint under a light sky is the same flash, inverted."""
+    def test_light_mode_launches_on_the_same_colour(self, client_):
+        """One sky for both appearances (DECISIONS.md §40), so one first paint.
+
+        Light mode used to have a sky of its own and a first paint to match --
+        which the manifest could not: it carries one `background_color`, so a
+        light-mode launch went from a navy splash to a paler sky, the one step
+        §19 recorded as unfixable. It is fixed by there being nothing to
+        match. This fails if a light-scheme rule starts moving the sky again,
+        anywhere in the stylesheet, because then the step comes back."""
+        import re
         html = client_.get("/weather/index.html").text
-        light = self._critical_colour(html, "light")
-        assert light != self._critical_colour(html)
-        assert f"--sky1:{light}" in html
+        head = html.split("</style>", 1)[0]
+        assert "prefers-color-scheme" not in head, \
+            "the critical block has a light-mode colour again"
+        for m in re.finditer(r"@media \(prefers-color-scheme: ?light\)\{", html):
+            depth, i = 1, m.end()
+            while depth:
+                depth += {"{": 1, "}": -1}.get(html[i], 0)
+                i += 1
+            assert "--sky" not in html[m.end():i], \
+                "a light-scheme rule moves the sky; the launch steps again"
 
     def test_the_theme_colour_agrees_too(self, client_):
         html = client_.get("/weather/index.html").text

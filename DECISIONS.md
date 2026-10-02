@@ -55,6 +55,7 @@ decision recorded without its reversal condition becomes dogma.
 | 37 | [A public instance gets a budget for strangers](#37-a-public-instance-gets-a-budget-for-strangers) | Places outside the registry and search misses draw on one bucket; registry cities never do. |
 | 38 | [`/api/health` is retired, and the forecast is the diagnostic](#38-apihealth-is-retired-and-the-forecast-is-the-diagnostic) | It told strangers what the server tells itself, and nothing outside this repository read it; it answers 410 now. |
 | 39 | [Dependencies earn their place, and the locks say what ships](#39-dependencies-earn-their-place-and-the-locks-say-what-ships) | New ones for the tests only; both locks hashed and written by `make lock`; Dependabot for the actions; httpx2 for the upstreams, as a change of its own. |
+| 40 | [The sky is the same in both appearances; light mode is the surfaces](#40-the-sky-is-the-same-in-both-appearances-light-mode-is-the-surfaces) | A pale sky put the hero at 1.4–3.1:1; one sky, white on it, and light cards and sheets. |
 
 ---
 
@@ -307,6 +308,10 @@ custom properties do not inherit *upward*, so `html{background:var(--sky1)}`
 could not see them, and iOS painted the notch, the home-indicator strip and the
 overscroll bounce black.
 
+Since §40 this covers the text on the sky too: the place, the hero, the source
+strip and the footer are white at a fixed alpha in both appearances, because
+the palette changes with the appearance and the sky does not.
+
 ---
 
 ## 12. A retry is for refusals, never for parse failures
@@ -411,7 +416,8 @@ pixels of the edge, `position: fixed` — `sticky` may not count, and a
 
 Two strips, `.edge-top` and `.edge-bot`: fixed, full width, 10px tall, no
 border, each a **solid colour** equal to the sky gradient at exactly that point
-— `--sky1` at the top, `--bg` at the bottom. They are invisible on the page,
+— `--sky1` at the top, `--sky3` at the bottom (`--bg` until §40, when the
+sheets' surface and the foot of the sky stopped being one variable). They are invisible on the page,
 because each is painted the colour of the thing directly behind it: measured,
 the adjacent pixels differ by at most 3/255 in both schemes and at any scroll
 position. They exist purely to be read.
@@ -778,7 +784,8 @@ to read before it knew what colour the page was, and until it did it painted
 its default. Three transitions where there should be none.
 
 **The fix is three lines at the very top of `<head>`** — a stylesheet
-containing nothing but `html{background:…}` and its light-mode counterpart.
+containing nothing but `html{background:…}` (and, until §40, its light-mode
+counterpart).
 There is nothing to parse, so it governs the first paint; the full sky replaces
 it a few milliseconds later by source order. The manifest colour was changed to
 match.
@@ -797,10 +804,11 @@ plausible wrong values, applied to the loading state. A test asserts the
 skeleton contains no digits, and the loading state is announced for screen
 readers since the shapes are `aria-hidden`.
 
-**Known imperfection.** A manifest carries one `background_color`, and iOS uses
-it whatever the appearance setting. Light mode therefore still steps once,
-from a dark splash to a lighter sky. Fixing it needs per-scheme manifest
-colours, which iOS does not honour.
+**Known imperfection, since fixed.** A manifest carries one `background_color`,
+and iOS uses it whatever the appearance setting, so light mode stepped once,
+from a dark splash to a lighter sky; per-scheme manifest colours, which iOS
+does not honour, were the only fix in sight. §40 removed the step instead:
+the sky is the same in both appearances, so one colour is right for both.
 
 **What would change it.** Making the first paint the *last* sky rather than the
 default — the app would open on the exact gradient it closed with. That needs
@@ -849,11 +857,11 @@ CSS at the top of `<head>` and a manifest colour to match — removed the white
 flash, which was a real, visible defect. The elaborate follow-up addressed a
 difference nobody could perceive.
 
-There is one case where it was not cosmetic: a manifest carries a single
-`background_color`, so in light mode a dark splash precedes a light app, and
-startup images can vary by scheme. If this app is ever used in light mode
-regularly, that is the reason to bring it back — `git show 97e2817` has all of
-it.
+There was one case where it was not cosmetic: a manifest carries a single
+`background_color`, so in light mode a dark splash preceded a light app, and
+startup images can vary by scheme. That case is gone — since §40 light mode
+opens on the same navy sky as dark — so the reason to bring it back went with
+it. `git show 97e2817` still has all of it.
 
 ### The lesson, which is the reason this entry exists
 
@@ -869,8 +877,9 @@ walks the sheet's ancestors for `transform`, `filter`, `perspective` and
 `position: fixed` children, which broke the place sheet for 220 ms and is worth
 guarding permanently.
 
-**What would change it.** Regular light-mode use, or Apple offering any control
-over the launch screen.
+**What would change it.** Apple offering any control over the launch screen.
+(Regular light-mode use was the other, until §40 gave light mode the same
+first frame as dark.)
 
 ---
 
@@ -2148,6 +2157,73 @@ without a provider, or the package pulling in more; wanting traces at all
 would be a privacy decision before it is a dependency one. The client: httpx2
 stalling the way httpx did, or drifting from the HTTPX API this code is
 written against.
+
+---
+
+## 40. The sky is the same in both appearances; light mode is the surfaces
+
+*Decided 2026-10-02, after the owner read the measurement: "Light-mode contrast
+on the sky could be better — yes, pls do!"*
+
+Light mode had a sky of its own. It had to start deep -- iOS draws the status
+bar's glyphs white over it under `black-translucent` -- so it held a saturated
+blue for the top third and opened out to near-white by 62%. The hero's lower
+lines and the source strip sit between those two points, and on the pixels, on
+every one of the seven skies, the white text there read at **1.4 to 3.1:1**:
+the selected tab's temperature, light blue on a grey that had once been blue,
+was 1.4. Nothing had failed. The test that guarded it asked whether the text
+*colours* were light, and they were; it never asked what was behind them.
+
+**Two ways out, and the one taken.** The light sky could have held its deep
+part under everything that sits on it -- but the strip's position depends on
+the hero's height and the viewport's, and a gradient fixed to the viewport
+cannot know either: an iPhone SE puts the strip in the pale part again. Or the
+sky could stop changing with the appearance, which is what Apple Weather does:
+the sky is a picture of the weather, and the weather does not depend on a
+setting in the phone. Light mode then means what it means everywhere else on
+iOS -- the cards and the sheets are light, the way widgets on a dark wallpaper
+are. That is the one built, and it removed more than it added: the light
+palette of seven skies, the dark raindrops drawn for a pale sky, and the list
+of on-sky elements that needed white text in one scheme only, which is how
+the day screen once shipped a near-black title on a blue bar.
+
+**What it took:**
+
+- `--sky3`, the foot of the sky, split from `--bg`. They were one variable
+  because in the dark scheme they are one colour, and §26 needs the sheet and
+  the canvas below it to agree. In light mode `--bg` is the sheets' surface
+  and `--sky3` stays navy; with the viewport the whole display there is no
+  canvas to see below a sheet (`debug.js` checks the two only when there is).
+- Nothing on the sky takes a palette colour (§11): the place, the hero, the
+  strip and the footer are white at fixed alphas, chosen on the brightest sky
+  -- `cloudy-day` under its haze -- with a margin over 4.5:1. That fixed the
+  dark scheme too: its hero lines were `--dim` and `--faint`, 3.3 to 4.3:1 on
+  the two day skies.
+- Light cards are opaque. White at 86% over navy is grey (#dcdde2), and the
+  white cells of the facts grid read as tiles on it.
+- The light palette's quiet greys moved to AA on the surfaces they are drawn
+  on, and `--cold`, the chance of rain under each hour, went from a sky blue
+  that was 1.8:1 on white to a deep one. The curve reads its colours from the
+  stylesheet now, instead of copies, so it follows.
+- The weather icons were drawn for a navy sky; on a white card the clouds were
+  1.5:1. A hairline drop-shadow in light mode gives each an edge without a
+  second set of eighteen symbols.
+- One first paint for both appearances, which fixed the step §19 recorded as
+  unfixable: the manifest's single colour is now right in light mode too.
+
+A browser test measures it the way it was found: on each of the seven skies,
+in both schemes, the text on the sky, the quietest text on the cards over it
+and the footer are made transparent and every pixel behind them is scored.
+Before this change it failed in both schemes.
+
+**The one cost.** In Safari (not the installed app), iOS 26 tints the strip
+behind its toolbar from `.edge-bot` once, at first render (§14). In light mode
+that is navy, which matches the page and not a light sheet opened over it.
+
+**What would reverse it.** Wanting light mode to *feel* light rather than to
+be light where you read -- a pale sky is the honest version of that, and it
+needs every element on it re-measured on every sky. The test above is the one
+that will say so.
 
 ---
 

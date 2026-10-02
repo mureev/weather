@@ -1212,7 +1212,7 @@ class TestSky:
         sampler is documented to require, because the thing being protected is
         not "an element exists" -- it is that the element still qualifies.
         """
-        for cls, var in (("edge-top", "--sky1"), ("edge-bot", "--bg")):
+        for cls, var in (("edge-top", "--sky1"), ("edge-bot", "--sky3")):
             box = page.locator(f".{cls}").bounding_box()
             css = page.locator(f".{cls}").evaluate(
                 "e => { const s = getComputedStyle(e);"
@@ -1252,7 +1252,7 @@ class TestSky:
         display wore a strip of the *middle* of the sky.
 
         Invisible at night, because `clear-night` and `cloudy-night` both set
-        `--sky2: #0a1020` and so does `--bg`. Every measurement taken while
+        `--sky2: #0a1020` and so does `--sky3`. Every measurement taken while
         chasing this was taken in the evening. The first daylight screenshot
         showed the strip at (25,35,59) under content faded to (11,16,32).
 
@@ -1272,7 +1272,7 @@ class TestSky:
             f"(() => {{ document.documentElement.dataset.sky = '{sky}';"
             "  const h = getComputedStyle(document.documentElement);"
             "  const d = document.createElement('div');"
-            "  d.style.color = h.getPropertyValue('--bg').trim();"
+            "  d.style.color = h.getPropertyValue('--sky3').trim();"
             "  document.body.appendChild(d);"
             "  const bg = getComputedStyle(d).color; d.remove();"
             "  return {canvas: h.backgroundColor, bg,"
@@ -1282,7 +1282,7 @@ class TestSky:
             f"ends on {got['bg']} — so the strip below the viewport is a slice "
             f"of the middle of the sky stuck to the bottom of the display")
         assert got["grad"].rstrip(")").endswith(got["bg"] + " 100%"), (
-            "the canvas gradient no longer ends on --bg; the assertion above "
+            "the canvas gradient no longer ends on --sky3; the assertion above "
             "is now comparing against the wrong end of it")
 
     def test_the_screens_fade_ends_on_the_colour_the_strip_is_painted(self, page):
@@ -1419,18 +1419,24 @@ def light_page(browser, server):
 
 
 class TestItIsLegibleInDaylight:
-    """Light mode's sky stays deep at the top and it has to: iOS forces white
-    status-bar glyphs under `black-translucent`, so a pale sky there would be
-    white text on near-white. Which means every element sitting *on the sky*
-    rather than on a card needs light text in light mode -- the exact inverse
-    of the rest of the page.
+    """Light mode is the surfaces, and the sky stays the sky (DECISIONS.md §40).
 
-    Found by looking: the day screen shipped with a near-black title on a
-    saturated blue navbar. Nothing failed, and the dark-mode screenshot -- the
-    only one anybody takes -- was perfect.
+    It used to have a light sky of its own, deep at the top -- iOS draws white
+    status-bar glyphs over it under `black-translucent` -- and near-white by
+    the middle of the screen, which is exactly where the conditions and the
+    source strip sit. Measured on the pixels, the white text there read at
+    1.4 to 3.1:1 on every one of the seven skies, and nothing had failed:
+    the test that guarded it asked whether the *colours* were light, never
+    whether they read against what was behind them.
+
+    So the sky is one picture in both appearances and light mode changes the
+    cards and the sheets. Two halves of that are tested here: the sky really
+    is the same, and everything on it -- and on the cards over it -- reads at
+    WCAG AA on the pixels, on every sky, in both schemes.
     """
 
-    SKY_BORNE = ("#city", ".hero .t", ".hero .cond")
+    SKY_BORNE = ("#city", ".hero .t", ".hero .cond", ".hero .feels",
+                 ".src.sel", "#stamp")
     # On the sheet, which is flat `--bg` -- near-white in this scheme. This
     # list used to be SKY_BORNE, from when the day was a full-screen push
     # painted with the sky, and the test kept asserting "light" after the
@@ -1438,6 +1444,19 @@ class TestItIsLegibleInDaylight:
     # legible or illegible on its own; only against what is behind it.
     ON_SHEET = ("#screen-title", ".dayhero .r", ".dayhero .c",
                 ".screen .src:not(.sel)", ".screen .src.sel b")
+
+    def test_the_sky_is_the_same_in_both_appearances(self, page, light_page):
+        """The premise of everything below. A light-scheme rule that moves a
+        sky colour brings back the pale middle, and with it every reading on
+        the sky -- so this compares the resolved gradient on every palette."""
+        look = """(sky) => { document.documentElement.dataset.sky = sky;
+          const h = getComputedStyle(document.documentElement);
+          return ['--sky1', '--sky2', '--sky3'].map(v => h.getPropertyValue(v).trim())
+            .concat(getComputedStyle(document.querySelector('.sky')).backgroundImage); }"""
+        for sky in ("clear-day", "clear-night", "cloudy-day", "cloudy-night",
+                    "overcast", "rain", "snow"):
+            dark, light = page.evaluate(look, sky), light_page.evaluate(look, sky)
+            assert dark == light, f"{sky}: dark {dark} but light {light}"
 
     def test_text_on_the_sheet_contrasts_with_the_sheet(self, light_page):
         light_page.locator(".day[data-day]").nth(2).click()
@@ -1450,18 +1469,21 @@ class TestItIsLegibleInDaylight:
                 f"{sel} is {colour} on the sheet's {bg}: {got:.2f}:1")
 
     def test_the_top_of_the_sky_really_is_dark(self, light_page):
-        """The premise of the rule below. If the sky ever opens out at the top,
-        this test should fail before the ones under it start lying."""
+        """iOS draws the status bar's glyphs white over this, whatever the
+        appearance. If the sky ever opens out at the top, this should fail
+        before the ones under it start lying."""
         sky1 = light_page.evaluate(
             "getComputedStyle(document.documentElement)"
             ".getPropertyValue('--sky1').trim()")
         assert _luma(sky1) < 140, f"--sky1 is {sky1}; light text will not read"
 
     def test_text_on_the_sky_is_light(self, light_page):
+        """Nothing on the sky takes a colour from the palette, which in this
+        scheme is ink for white cards."""
         for sel, colour in _colours(light_page, self.SKY_BORNE).items():
             assert _luma(colour) > 170, (
-                f"{sel} renders {colour} in light mode, on a deep blue sky -- "
-                f"add it to the light-scheme rule in index.html")
+                f"{sel} renders {colour} in light mode, on a navy sky -- it "
+                f"has picked up a palette colour; give it white at an alpha")
 
     def test_text_on_a_card_stays_dark(self, light_page):
         """The other half. Blanket-whitening everything would make the metric
@@ -1470,6 +1492,101 @@ class TestItIsLegibleInDaylight:
         light_page.wait_for_selector(".screen.open")
         colour = _colours(light_page, [".card h2"])[".card h2"]
         assert _luma(colour) < 170, f"card text is {colour} on a white card"
+
+    # What sits on the sky, what sits at its foot, and the quietest text on
+    # the cards over it -- the cards are glass, so the sky reaches them too.
+    ON_SKY: ClassVar[list[str]] = [
+        "#city", ".hero .t", ".hero .cond", ".hero .sub .hi", ".hero .sub .lo",
+        ".hero .feels", ".src:not(.sel)", ".src:not(.sel) b", ".src.sel",
+        ".src.sel b", "#content h2", ".hour .hh", ".hour .hp"]
+    ON_CARD: ClassVar[list[str]] = [
+        "#content h2", ".day .d small", ".day .lo", ".fact .k", ".fact .v small"]
+    AT_FOOT: ClassVar[list[str]] = ["#stamp", "#btn-refresh", "#btn-lang"]
+    # The textures are moving specks a pixel wide; the flat haze and the
+    # sun's glow are kept, at full strength, since reduced motion stops them
+    # at their brightest.
+    BARE = ("#content *,.top *,.foot,.foot *{color:transparent!important;"
+            "-webkit-text-fill-color:transparent!important}"
+            ".sky .p,.sky .b,.sky .stars{display:none!important}")
+
+    @staticmethod
+    def _worst(pg, sels, Image):
+        """Each selector's first element in view, against every pixel behind
+        its text: the text is made transparent, the view shot once, and the
+        colour scored against each distinct pixel in its box."""
+        found = pg.evaluate("""(sels) => sels.map(s => {
+            const e = [...document.querySelectorAll(s)].find(n => {
+              const r = n.getBoundingClientRect();
+              return r.width > 2 && r.top >= 0 && r.bottom <= innerHeight; });
+            if (!e) return null;
+            const r = e.getBoundingClientRect(), c = getComputedStyle(e);
+            let op = 1;
+            for (let n = e; n; n = n.parentElement) op *= +getComputedStyle(n).opacity;
+            return {sel: s, box: [r.left, r.top, r.right, r.bottom], color: c.color,
+                    op, large: parseFloat(c.fontSize) >= 24}; })""", sels)
+        missing = [s for s, f in zip(sels, found, strict=True) if not f]
+        assert not missing, f"not in view: {missing}"
+        bare = pg.add_style_tag(content=TestItIsLegibleInDaylight.BARE)
+        shot = Image.open(io.BytesIO(pg.screenshot())).convert("RGB")
+        bare.evaluate("e => e.remove()")
+        out = {}
+        for f in found:
+            x0, y0, x1, y1 = (int(v) for v in f["box"])
+            rgba = _rgba(f["color"])
+            fg = f"rgba({rgba[0]},{rgba[1]},{rgba[2]},"
+            fg += f"{(rgba[3] if len(rgba) > 3 else 1) * f['op']})"
+            px = shot.crop((x0 + 1, y0 + 1, x1 - 1, y1 - 1)).getcolors(1 << 20)
+            out[f["sel"]] = (min(_contrast(fg, f"rgb{c}") for _, c in px),
+                             3.0 if f["large"] else 4.5)
+        return out
+
+    @pytest.mark.parametrize("scheme", ["dark", "light"])
+    def test_everything_on_the_sky_reads_at_aa_on_every_sky(
+            self, browser, server, scheme):
+        """4.5:1, or 3:1 for the hero's 96px temperature, on the pixels.
+
+        Over a gradient there is no one background to compute against, so
+        this asks the render, the way the banner's test does: on each of the
+        seven skies the text is made transparent and every pixel behind it is
+        scored. Three places, because the sky is fixed to the viewport and the
+        page moves over it -- the hero at rest, a card scrolled up to where
+        the sky is brightest, and the footer at its foot."""
+        Image = pytest.importorskip("PIL.Image", reason="pillow not installed")
+        ctx = browser.new_context(viewport={"width": 393, "height": 852},
+                                  color_scheme=scheme, locale="ru-RU",
+                                  reduced_motion="reduce")
+        pg = _pin(ctx.new_page())
+        pg.goto(server, wait_until="networkidle")
+        pg.wait_for_selector(".hero .t", timeout=10_000)
+        pg.add_style_tag(content="html,.sky{transition:none!important}")
+        # Gismeteo's tab: its recording is the one the clock is pinned to, so
+        # its hero carries today's high and low (AGENTS.md, "Where this was
+        # left"). Yandex's begins tomorrow at this instant and has no range.
+        # And a feels-like that differs, since that line is drawn only then:
+        # the question is the colour of the line, not the weather.
+        pg.evaluate("chooseSource('gismeteo');"
+                    " const c = state.data.sources.gismeteo.current;"
+                    " c.feels_like_c = c.temp_c - 3; render(state.data); 0")
+        low = {}
+        for sky, icon in (("clear-day", "clear"), ("cloudy-day", "partly"),
+                          ("overcast", "overcast"), ("rain", "rain"),
+                          ("snow", "snow"), ("clear-night", "clear-night"),
+                          ("cloudy-night", "partly-night")):
+            pg.evaluate("([k, n]) => { skyNow = null; fxNow = null; setSky(k, n); }",
+                        [icon, "night" in sky])
+            for where, sels in (("top", self.ON_SKY), ("card", self.ON_CARD),
+                                ("foot", self.AT_FOOT)):
+                pg.evaluate({"top": "window.scrollTo(0, 0)",
+                             "card": "window.scrollTo(0, document.querySelectorAll"
+                                     "('.card')[1].getBoundingClientRect().top"
+                                     " + scrollY - 70)",
+                             "foot": "window.scrollTo(0, 1e6)"}[where])
+                pg.wait_for_timeout(60)
+                for sel, (got, need) in self._worst(pg, sels, Image).items():
+                    if got < need:
+                        low[(sky, where, sel)] = round(got, 2)
+        ctx.close()
+        assert not low, f"{scheme}: below WCAG AA on the pixels: {low}"
 
 
 class TestNothingScrollsThatShouldNotScroll:

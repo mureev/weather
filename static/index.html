@@ -11,14 +11,18 @@
      until it does it paints its own default, which is white. That is the flash
      between the splash disappearing and the app appearing.
 
-     Three lines, so there is nothing to parse. The colour must equal `--sky1`'s
+     One rule, so there is nothing to parse. The colour must equal `--sky1`'s
      default further down *and* the manifest's `background_color`, so that the
      launch screen, the first paint and the loaded app are one continuous
      colour and the transition between them is invisible. Written in three
      places because each is read by a different consumer at a different moment;
-     a test asserts all three agree. -->
-<style>html{background:#0d1630}
-@media (prefers-color-scheme:light){html{background:#3f6ba6}}</style>
+     a test asserts all three agree.
+
+     **One rule for both appearances, and that is the point of it.** The sky is
+     the same in light mode (DECISIONS.md §40), so the manifest's single colour
+     is right for both -- light mode used to launch on this navy and then step
+     to a paler sky, which no manifest could fix. -->
+<style>html{background:#0d1630}</style>
 
 <!-- ==========================================================================
      NO preconnect. NO dns-prefetch. NO preload. NO third-party anything.
@@ -61,9 +65,17 @@
    =========================================================================== */
 
 :root{
-  --bg:#0a1020; --bg2:#141d33; --card:#161f38; --card2:#1b2542;
-  --line:#26314f; --fg:#eef3ff; --dim:#8f9dbe; --faint:#7a86a9;
+  /* `--sky3` is the foot of the sky, and in the dark scheme the sheets are the
+     same colour so that a sheet and the canvas below it cannot disagree (§26).
+     In light mode `--bg` becomes a light surface and `--sky3` does not move:
+     the sky is the weather, not the appearance setting (§40). */
+  --sky3:#0a1020; --bg:var(--sky3);
+  --bg2:#141d33; --card:#161f38; --card2:#1b2542;
+  --line:#26314f; --fg:#eef3ff; --dim:#8f9dbe; --faint:#8390b3;
   --accent:#71a9ff; --warn:#ffb454; --bad:#ff6b6b;
+  /* A card is glass: the sky shows through a little. Written once because the
+     banner is a card with a picture under its glass. */
+  --glass:color-mix(in srgb,var(--card) 86%,transparent);
   /* The one place the hourly column width is written down. app.js reads it
      back to lay the curve out on the same grid. It lives on :root rather than
      on .hours so it can be read *before* the strip exists -- the markup is
@@ -81,8 +93,7 @@
   --col:560px;
   /* Written once and used twice: on the canvas (html) and on the visible sky
      layer. They have to agree exactly or the seam is visible on a phone. */
-  --skygrad:linear-gradient(180deg,var(--sky1) 0%,
-    var(--sky1) var(--skyhold,0%),var(--sky2) 62%,var(--bg) 100%);
+  --skygrad:linear-gradient(180deg,var(--sky1) 0%,var(--sky2) 62%,var(--sky3) 100%);
   /* How long the sheet takes to arrive, and on what curve. Read back by
      app.js, which has to know when the animation is over to finish tidying
      up -- the same read-it-back rule as --hour-w. */
@@ -96,10 +107,34 @@
      as `--hour-w` and `--push-ms`. */
   --nav-inset:22px;
 }
+/* Light mode is the **surfaces**: the cards, the sheets, the text on them. The
+   sky above them is not in this block, and nothing that sits on it is either
+   -- see the rule list under `.hero` for what that means for colour.
+
+   `--dim` and `--faint` are as light as AA allows on the darkest surface each
+   one is drawn on: `--dim` on the sheet's segmented control (`--bg2`),
+   `--faint` on the sheet itself. `--cold` is the chance of rain under each
+   hour; the dark scheme's sky blue is 1.8:1 on a white card. */
 @media (prefers-color-scheme: light){
   :root{ --bg:#eef2fa; --bg2:#e2e9f7; --card:#fff; --card2:#f4f7fd;
-         --line:#dce3f1; --fg:#0d1526; --dim:#5a6a8c; --faint:#6f7c98;
-         --accent:#2563eb; }
+         --line:#dce3f1; --fg:#0d1526; --dim:#52617f; --faint:#5f6c88;
+         --accent:#2563eb; --cold:#1767b8;
+         /* Opaque. White at 86% over a navy sky is grey -- #dcdde2 -- and so
+            is 94%, enough that the white cells of the facts grid read as
+            tiles laid on it. A light card on a dark sky is a widget on a
+            dark wallpaper, and those are solid. */
+         --glass:var(--card) }
+  /* The sheet's strip is on the sheet, not on the sky: ink on a segmented
+     control. */
+  .screen .srcs{background:var(--bg2);border-color:var(--line)}
+  .screen .src{color:var(--dim)}
+  .screen .src b{color:var(--fg)}
+  .screen .src.sel{background:var(--card);color:var(--fg)}
+  .screen .src.sel b{color:var(--accent)}
+  /* The clouds are drawn for a navy sky, and on white they all but vanish:
+     #c2cee8 is 1.5:1. A hairline of shadow gives each one an edge without
+     redrawing eighteen symbols in a second palette. */
+  .card svg.wi,.dayhero svg{filter:drop-shadow(0 0 .6px #1a2c5499)}
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
@@ -120,17 +155,17 @@ html,body{margin:0;padding:0}
    browser mishandles `background-attachment:fixed` -- iOS has form here -- the
    page itself is unaffected and only the strips outside it drift.
 
-   **The `background-color` is `--bg`, not `--sky2`.** The gradient is
-   `100% 100%, no-repeat`: it covers the viewport and stops, so this flat
-   colour is what shows anywhere the gradient does not reach -- the rubber
-   band, and, for as long as the viewport was smaller than the display, the
-   bottom of the glass. `--sky2` is the gradient's colour at its *62%* stop,
-   not its end, so it painted a slice of the middle of the sky wherever it
-   showed. Invisible at night, when `--sky2` and `--bg` are both `#0a1020`,
-   which is when every screenshot in that investigation was taken.
-   DECISIONS.md §26; there is a test over every palette. */
+   **The `background-color` is the gradient's last stop, not `--sky2`.** The
+   gradient is `100% 100%, no-repeat`: it covers the viewport and stops, so
+   this flat colour is what shows anywhere the gradient does not reach -- the
+   rubber band, and, for as long as the viewport was smaller than the display,
+   the bottom of the glass. `--sky2` is the gradient's colour at its *62%*
+   stop, not its end, so it painted a slice of the middle of the sky wherever
+   it showed. Invisible at night, when `--sky2` and the foot of the sky are
+   both `#0a1020`, which is when every screenshot in that investigation was
+   taken. DECISIONS.md §26; there is a test over every palette. */
 html{
-  background-color:var(--bg);
+  background-color:var(--sky3);
   background-image:var(--skygrad);
   background-attachment:fixed;
   background-repeat:no-repeat;
@@ -184,7 +219,7 @@ body{
   .wrap{animation:none}
 }
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
-.card{background:color-mix(in srgb,var(--card) 86%,transparent);
+.card{background:var(--glass);
       border:1px solid var(--line);border-radius:var(--r);
       padding:16px;margin:10px 0;backdrop-filter:blur(10px)}
 h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);
@@ -226,7 +261,7 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
  */
 .edge{position:fixed;left:0;right:0;height:10px;z-index:0;pointer-events:none}
 .edge-top{top:0;background-color:var(--sky1)}
-.edge-bot{bottom:0;background-color:var(--bg)}
+.edge-bot{bottom:0;background-color:var(--sky3)}
 
 .sky{position:fixed;inset:-2px;z-index:-1;overflow:hidden;
      height:calc(100dvh + 4px);
@@ -240,41 +275,20 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 :root[data-sky="overcast"]    {--sky1:#232c40;--sky2:#111827}
 :root[data-sky="rain"]        {--sky1:#1a2740;--sky2:#0d1524}
 :root[data-sky="snow"]        {--sky1:#26314c;--sky2:#131b2c}
-@media (prefers-color-scheme: light){
-  /* Deeper at the top than you would first choose. iOS forces white status-bar
-     glyphs under `black-translucent`, and white on a pale sky is unreadable --
-     so the gradient starts saturated and opens out below the hero. */
-  :root{--sky1:#3f6ba6;--sky2:#eef2fa;--skyhold:34%}
-  :root[data-sky="clear-day"]   {--sky1:#3d80c8;--sky2:#e8f1fd}
-  :root[data-sky="clear-night"] {--sky1:#2f4778;--sky2:#eaeff9}
-  :root[data-sky="cloudy-day"]  {--sky1:#4d7aab;--sky2:#e9eef7}
-  :root[data-sky="cloudy-night"]{--sky1:#3a4d75;--sky2:#e9edf6}
-  :root[data-sky="overcast"]    {--sky1:#5b6880;--sky2:#e8ebf1}
-  :root[data-sky="rain"]        {--sky1:#48607e;--sky2:#e6ebf3}
-  :root[data-sky="snow"]        {--sky1:#5a6d90;--sky2:#eef2f8}
-  /* Anything that sits *on the sky* rather than on a card. In light mode the
-     sky stays deep at the top -- it has to, because iOS forces white status-bar
-     glyphs under `black-translucent` -- so the page's near-black `--fg` would
-     be text on a saturated blue. Every element in this list is one that has no
-     card behind it; adding a new one without adding it here is how a heading
-     ends up invisible in daylight and nowhere else.
-     **The sheet is not sky.** It is flat `--bg` (§26), near-white here, and
-     its title and day hero were left on this list from the full-screen push:
-     white on #eef2fa, 1.1:1. Its strip gets ink on a segmented control. */
-  body .hero,body .top{color:#fff}
-  body .hero .cond,body .hero .sub .lo{color:rgba(255,255,255,.82)}
-  body .hero .feels{color:rgba(255,255,255,.66)}
-  .screen .srcs{background:var(--bg2);border-color:var(--line)}
-  .screen .src{color:var(--dim)}
-  .screen .src b{color:var(--fg)}
-  .screen .src.sel{background:var(--card);color:var(--fg)}
-  .screen .src.sel b{color:var(--accent)}
-  body .placebtn svg{stroke:rgba(255,255,255,.72)}
-  body .placebtn .pin{fill:rgba(255,255,255,.85)}
-  /* Stars over a sky that opens out to near-white read as dust. Keep them,
-     faintly, only where the sky is still deep. */
-  .sky .stars{opacity:.5}
-}
+/* **One sky for both appearances** (DECISIONS.md §40). It used to have a light
+   version that started deep -- it had to, because iOS draws white status-bar
+   glyphs over it under `black-translucent` -- and opened out to near-white by
+   the middle of the screen, which is exactly where the conditions and the
+   source strip sit: 1.4 to 3.1:1, measured on the pixels, on every one of the
+   seven skies. The sky is a picture of the weather, and the weather does not
+   change with the phone's appearance setting; Apple Weather draws it the same
+   way in both. What light mode changes is the surfaces -- see `--glass`.
+
+   It follows that **nothing on the sky takes a colour from the palette**: the
+   palette changes with the appearance and the sky does not. Everything that
+   sits on it rather than on a card -- the place, the hero, the source strip,
+   the footer -- is white at a fixed alpha (§11), and the alphas are the
+   lowest that keep 4.5:1 on the brightest sky, `cloudy-day` under its haze. */
 /* ---- weather, moving ------------------------------------------------------
  * Every layer here is one `<i>` inside `#sky`, and every one of them animates
  * `transform` or `opacity` and nothing else -- those two are the only
@@ -310,12 +324,10 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 
 /* Everything above lives inside this, and it exists for the mask.
  *
- * The sky opens out to `--bg` at the foot of the screen -- to near-white in
- * daylight -- so rain drawn at full strength all the way down is invisible for
- * the bottom third and, worse, is drawn *behind the cards*, adding motion under
- * text for no gain at all. Fading it out where the gradient pales keeps the
- * weather in the part of the screen that is sky, which is also the only part
- * anyone reads it from.
+ * Rain drawn at full strength all the way down the screen is drawn *behind the
+ * cards*, adding motion under text for no gain at all. Fading it out as the
+ * gradient deepens towards its foot keeps the weather in the part of the
+ * screen that is sky, which is also the only part anyone reads it from.
  *
  * The mask is on this wrapper and not on the layers themselves, and that is not
  * tidiness: a mask lives in its element's own coordinate system, so a mask on a
@@ -410,22 +422,6 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
 @keyframes fall{from{transform:skewX(var(--sk,0deg)) translate3d(0,calc(var(--tile) * -1),0)}
                 to  {transform:skewX(var(--sk,0deg)) translate3d(0,0,0)}}
 @keyframes breathe{from{opacity:var(--o0,.45)}to{opacity:var(--o1,.8)}}
-/* In daylight the sky is pale, and white-on-pale is nothing at all. The drops
-   go dark rather than light -- which is also what rain looks like against a
-   bright sky, so the honest colour and the legible one agree for once. Snow
-   stays white: it is only ever drawn over the deep half of the gradient, where
-   white is what it should be. */
-@media (prefers-color-scheme: light){
-  .sky .rain,.sky .hail{--a:.34;
-    background:radial-gradient(.6px 7px at 50% 30%,rgba(56,84,124,var(--a)),transparent);
-    background-size:var(--gap) var(--tile)}
-  .sky .close{--a:.4;
-    background:radial-gradient(.9px 11px at 50% 30%,rgba(48,74,112,var(--a)),transparent);
-    background-size:var(--gap) var(--tile)}
-  .sky .b{background:repeating-linear-gradient(180deg,
-    rgba(120,140,170,0) 0,rgba(120,140,170,.13) 26px,
-    rgba(120,140,170,0) 52px,rgba(120,140,170,0) var(--tile))}
-}
 @media (prefers-reduced-motion: reduce){
   /* Stopped, not removed: the still frame of every one of these is a
      legitimate picture of the weather, and a reader who asked for less motion
@@ -440,17 +436,17 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
  * still the wrong label: a menu icon promises a menu of things, and there is
  * only one thing in it. The place name IS the button.
  */
-.top{display:flex;justify-content:center;padding:14px 0 0}
+.top{display:flex;justify-content:center;padding:14px 0 0;color:#fff}
 .placebtn{display:flex;align-items:center;gap:8px;min-width:0;padding:4px 6px;
           max-width:100%}
 .placebtn h1{font-size:30px;font-weight:590;margin:0;letter-spacing:-.02em;
              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.placebtn svg{width:16px;height:16px;flex:none;stroke:var(--faint);fill:none;
+.placebtn svg{width:16px;height:16px;flex:none;stroke:rgba(255,255,255,.72);fill:none;
               stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;
               margin-top:4px}
 .placebtn:active{opacity:.6}
 /* Hidden by visibility: its slot balances the chevron, centring the name. */
-.placebtn .pin{width:15px;height:15px;stroke:none;fill:var(--dim);margin-top:3px}
+.placebtn .pin{width:15px;height:15px;stroke:none;fill:rgba(255,255,255,.85);margin-top:3px}
 
 /* ---- the sheet -----------------------------------------------------------
  *
@@ -763,16 +759,16 @@ html.locked{overflow:hidden;overscroll-behavior:none}
   line-height:1.5}
 
 /* ---- hero: no card, on the sky ------------------------------------------ */
-.hero{text-align:center;padding:2px 0 20px}
+.hero{text-align:center;padding:2px 0 20px;color:#fff}
 .hero .ic{width:88px;height:88px;margin:2px auto -8px}
 .hero .ic svg{display:block;width:100%;height:100%}
 .hero .t{font-size:96px;font-weight:180;letter-spacing:-.055em;line-height:1;
          font-variant-numeric:tabular-nums;margin-left:-.06em}
-.hero .cond{font-size:21px;font-weight:480;margin:4px 0 0;color:var(--dim)}
+.hero .cond{font-size:21px;font-weight:480;margin:4px 0 0;color:rgba(255,255,255,.82)}
 .hero .sub{font-size:19px;margin-top:2px;font-variant-numeric:tabular-nums}
 .hero .sub .hi{font-weight:560}
-.hero .sub .lo{color:var(--dim)}
-.hero .feels{font-size:15px;color:var(--faint);margin-top:3px}
+.hero .sub .lo{color:rgba(255,255,255,.72)}
+.hero .feels{font-size:15px;color:rgba(255,255,255,.68);margin-top:3px}
 
 /* ---- source strip --------------------------------------------------------
  * This sits on the sky, and the sky changes colour with the weather. So the
@@ -889,10 +885,12 @@ html.locked{overflow:hidden;overscroll-behavior:none}
    orphaned "Обновить" on its own line. Two explicit rows instead: the badge
    only when there is one, then one line that always fits. */
 .foot{display:flex;flex-direction:column;align-items:center;gap:9px;
-      margin:20px 0 4px;color:var(--faint);font-size:13.5px}
+      margin:20px 0 4px;color:rgba(255,255,255,.62);font-size:13.5px}
 .foot .line{display:flex;align-items:center;gap:9px;white-space:nowrap}
 .foot .sep{opacity:.45}
 .foot .line button{padding:11px 8px;margin:-11px -8px}
+/* On the sky, so not `--accent`: light mode's is a blue for white surfaces. */
+#btn-refresh{color:#9cc6ff}
 #stamp:empty+.sep{display:none}
 .badge{padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:600;
        border:1px solid}
@@ -942,9 +940,9 @@ html.locked{overflow:hidden;overscroll-behavior:none}
   .boot i{animation:none;background:rgba(255,255,255,.13)}
 }
 .err{text-align:center;padding:26px 16px;color:var(--dim)}
-.foot .lang{font-size:13px;color:var(--faint);padding:8px 14px;margin:-6px 0 -8px}
-.build{text-align:center;margin-top:10px;font-size:10.5px;color:var(--faint);
-       opacity:.5;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.foot .lang{font-size:13px;padding:8px 14px;margin:-6px 0 -8px}
+.build{text-align:center;margin-top:10px;font-size:10.5px;color:rgba(255,255,255,.5);
+       font-variant-numeric:tabular-nums;letter-spacing:.04em}
 /* ---- the home-screen banner (DECISIONS.md §35) ---------------------------
  * Yandex Weather's, redrawn in this palette: a phone cropped by the card's
  * bottom edge, the app's own icon on a dawn wallpaper, one call to action.
@@ -952,8 +950,7 @@ html.locked{overflow:hidden;overscroll-behavior:none}
  * smaller rather than the same phone crowding the words. */
 .a2hs{position:relative;overflow:hidden;padding:0;min-height:126px;
   container-type:inline-size;
-  background:radial-gradient(85% 120% at 78% 128%,#b35a2e99,#0000 72%),
-    color-mix(in srgb,var(--card) 86%,transparent)}
+  background:radial-gradient(85% 120% at 78% 128%,#b35a2e99,#0000 72%),var(--glass)}
 .a2hs .ph{position:absolute;left:6.5cqw;top:16px;width:30cqw;aspect-ratio:.49;
   border:1.1cqw solid #05070d;border-radius:5.4cqw;box-shadow:0 0 0 .4cqw #3d4868;
   background:linear-gradient(#f3cdb2,#e39673 13%,#b9475b 27%,#5a2140 40%,#1c1a2c 52%)}
@@ -983,8 +980,7 @@ html.locked{overflow:hidden;overscroll-behavior:none}
 .a2steps li{cursor:auto;font-size:16px;line-height:1.35}
 .a2steps li:active{background:none}
 @media (prefers-color-scheme: light){
-  .a2hs{background:radial-gradient(85% 120% at 78% 128%,#ffa77a8c,#fff0 72%),
-    color-mix(in srgb,var(--card) 86%,transparent)}
+  .a2hs{background:radial-gradient(85% 120% at 78% 128%,#ffa77a8c,#fff0 72%),var(--glass)}
   .a2hs .go{color:#97380f;background:#e0703a24}
   .a2hs .x svg{stroke:var(--faint)}
 }
@@ -1065,7 +1061,7 @@ html.locked{overflow:hidden;overscroll-behavior:none}
     <span class="badge ok" id="badge"></span>
     <div class="line">
       <span id="stamp"></span><span class="sep">·</span>
-      <button id="btn-refresh" style="color:var(--accent)">Обновить</button>
+      <button id="btn-refresh">Обновить</button>
     </div>
     <!-- The other language. Labelled in that language, the way every language
          picker is, because it is addressed to someone who reads it. -->
