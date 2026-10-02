@@ -54,6 +54,7 @@ decision recorded without its reversal condition becomes dogma.
 | 36 | [English is a reading of the sources, not a translation of them](#36-english-is-a-reading-of-the-sources-not-a-translation-of-them) | Chosen on the device, never sent upstream; a condition is named from its icon, and prose of no known shape is left out. |
 | 37 | [A public instance gets a budget for strangers](#37-a-public-instance-gets-a-budget-for-strangers) | Places outside the registry and search misses draw on one bucket; registry cities never do. |
 | 38 | [`/api/health` is retired, and the forecast is the diagnostic](#38-apihealth-is-retired-and-the-forecast-is-the-diagnostic) | It told strangers what the server tells itself, and nothing outside this repository read it; it answers 410 now. |
+| 39 | [Dependencies earn their place, and the locks say what ships](#39-dependencies-earn-their-place-and-the-locks-say-what-ships) | New ones for the tests only; both locks hashed and written by `make lock`; Dependabot for the actions; httpx2 for the upstreams, as a change of its own. |
 
 ---
 
@@ -2029,6 +2030,124 @@ of its own -- a probe of every Gismeteo route from the server, say -- would
 earn a route, behind the debug token like the other diagnostics rather than
 in public. The 410 itself can go, and the path fall through to a plain 404,
 once the access log shows nothing has asked for it in a few months.
+
+---
+
+## 39. Dependencies earn their place, and the locks say what ships
+
+*Decided 2026-10-02, the day the owner said new dependencies are welcome when
+they earn their place, and asked for the earlier choices to be reviewed.*
+
+Until then every dependency waited for the owner's word (`AGENTS.md`), and the
+lock was a day old. This is what came in when that changed, how the locks are
+kept, and the one earlier choice worth revisiting: the HTTP client.
+
+**What came in -- all of it for the tests.** Nothing new ships in the image.
+
+- `httpx2`, for Starlette's TestClient. From Starlette 1.7 it prefers httpx2
+  and warns on every run that falls back to httpx -- a warning
+  `ignore::DeprecationWarning` never hid, because Starlette issues it as a
+  UserWarning.
+- `hypercorn` and `trustme`, for `tests/test_transport.py`: the app's own
+  `http.client()` over a real socket, against a local TLS server that speaks
+  HTTP/2, trusting an authority minted per run. Every other test stubs the
+  network out, so nothing in the suite had ever made a handshake, negotiated
+  HTTP/2, followed a redirect or decoded gzip with the client the app ships --
+  which is exactly the layer a change of HTTP client changes.
+- The tools CI pinned inline -- pytest, ruff, playwright, pillow -- moved,
+  exact, into `requirements-dev.txt`, which CI, the README and `make lock` all
+  read now.
+
+**Hashed, the tools too.** `requirements-dev.lock` holds them and everything
+they pull in. Two reasons, both about the gate. Exact pins on the names still
+left what sits beneath them -- pluggy, greenlet, pyee and the rest -- free to
+change, and any of those can turn master red on its own release day, which
+here is a deploy that does not happen. And the jobs that install them decide
+whether `release` publishes: a tool that could make the gate lie belongs to
+the deploy as much as the app's own dependencies do. The cost is one
+generated file and no extra command. It is resolved against the app's lock
+(the `-c requirements.lock` line in `requirements-dev.txt`), so a package both
+need is one version in both, and CI installs the two together: if they ever
+disagree, pip refuses (tried, with one version changed by hand).
+
+**Kept by `make lock`.** It runs exactly the command written at the top of
+each lock, and `tests/test_docs.py` holds the recipe and the headers to each
+other, so the header alone reproduces a lock. uv keeps every pin that still
+satisfies `requirements*.txt`: on unchanged inputs both files come back byte
+for byte (checked). `UPGRADE=--upgrade`, or `--upgrade-package` with a name,
+takes new releases, and uv leaves those flags out of the header. A version
+changes only in a reviewed diff to a lock.
+
+**Dependabot for the actions, not for pip.** `.github/dependabot.yml` moves
+the SHA-pinned actions and the release named beside each -- exact now,
+`v4.4.0` rather than `v4` -- in one grouped pull request a week, and only for
+releases a week old: a hijacked action release is usually found and pulled
+within days. All seven are a major version or more behind today, so the first
+pull request will be a big one. Not pip, because it cannot keep these locks
+(read in dependabot-core, 2026-10-02): it re-runs a lock's command only for a
+`.txt` compiled from an `.in`, and edits anything else in place, a package and
+its hashes at a time. `requirements-dev.txt`'s pins would move without the
+lock CI installs from, and a lock it touched would stop being what the command
+at its top produces.
+
+**Deprecations fail the suite.** The blanket ignore is gone. Python's own
+deprecation categories are errors now, and so is any UserWarning whose message
+says it is a deprecation -- Starlette, FastAPI and httpx2 all issue theirs
+that way, so that they show by default. The suite is clean on 3.11, 3.12 and
+3.13 (run on each). A deprecation inside a dependency can only arrive with a
+lock change, which is exactly when somebody is reading the diff.
+
+**OpenTelemetry's API: kept.** FastAPI 0.142 requires `opentelemetry-api` and
+imports it. Read and measured: with no provider configured its telemetry does
+nothing -- one check per request, 2.6 µs -- and at startup it adds exporters
+only when an `OTEL_EXPORTER_OTLP_*` endpoint is set, and then refuses to start,
+because no SDK is installed. 692 KiB on disk, about 12 ms of a 430 ms import,
+and one dependency of its own, already here. Pinning `fastapi<0.142` resolves
+to 0.141.1 and holds the framework back, indefinitely, for a package that does
+nothing. What would matter is an exporter, so that is what a test forbids: no
+OpenTelemetry SDK, exporter or instrumentation in `requirements.lock`. With
+one in the image, an environment variable alone could start sending request
+paths -- coordinates included -- off the box.
+
+**httpx or httpx2, for the upstreams.** Moving is right, and it is prepared as
+a change of its own (the branch `httpx2-runtime`), to be deployed by itself:
+the suite cannot fetch from Yandex, and the deploy's check fetches only the
+app's own pages, so a regression there would ship without a sound.
+
+- *Why move.* httpx's last release is 0.28.1, of December 2024. httpx2 forked
+  from it and released fifteen times between May and September 2026, under
+  Pydantic, which already supplies pydantic here. The API this code uses is
+  unchanged but for the module's name, and the default headers differ only in
+  the User-Agent, which the two scrapers set for themselves. Among its fixes,
+  two touch this app: bounded memory while decoding compressed responses, and
+  a cap of five chained content-encodings.
+- *What changes underneath.* Compared function by function with httpx 0.28.1
+  and httpcore 1.0.9: the HTTP/2 connection, the TLS start, the redirect
+  headers and the decoders were all reworked in places. That is what
+  `tests/test_transport.py` runs, on both clients alike.
+- *TLS.* httpx2's default context is `truststore`, the operating system's
+  store, which on Linux it applies afresh to every new connection. In
+  `python:3.12-slim` -- Debian 13, `ca-certificates` and `openssl` installed --
+  that is a re-read of `/usr/lib/ssl/cert.pem` per connection: 19 ms at the
+  median and up to 37 ms, on the event loop, measured on that same layout.
+  The context `http.py` builds once at import costs nothing per connection.
+  So the switch keeps that context and its anchors -- certifi, loaded once, the
+  trust the app has always had -- and takes none of truststore's.
+- *Size.* About half a megabyte more installed (35.1 to 35.6 MB, bytecode
+  included): httpx2 carries WebSocket and SSE support nothing here uses, and
+  truststore comes with it.
+
+**What would reverse it.** Each part has its own condition. The hashed dev
+lock: a tool that publishes nothing hashable for a platform someone works on.
+Dependabot for pip: dependabot-core re-running the command a lock records,
+whatever its file names -- or this repository moving to `uv.lock`, which it
+does maintain. Errors on deprecations: one inside a dependency that no version
+choice fixes, which earns a named `ignore` line with its reason, never the
+blanket back. The OpenTelemetry API: FastAPI's telemetry starting to work
+without a provider, or the package pulling in more; wanting traces at all
+would be a privacy decision before it is a dependency one. The client: httpx2
+stalling the way httpx did, or drifting from the HTTPX API this code is
+written against.
 
 ---
 

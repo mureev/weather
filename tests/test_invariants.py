@@ -627,3 +627,18 @@ class TestThePrivacyPromiseIsStructural:
                       "googletagmanager", "hotjar", "beacon("):
             assert smell not in blob, f"the shell mentions {smell!r}"
 
+    def test_nothing_that_ships_can_export_telemetry(self):
+        """The server's half of the same promise. FastAPI 0.142 brought
+        OpenTelemetry's API with it, and the API stays: without a provider it
+        does nothing, and only an SDK can be one. What must never ship is that
+        SDK, an exporter or an instrumentation package -- with one of those in
+        the image, an environment variable alone would start sending request
+        paths, coordinates included, to whoever it named (DECISIONS.md §39)."""
+        lock = (ROOT / "requirements.lock").read_text(encoding="utf-8")
+        shipped = re.findall(r"^([a-z0-9][a-z0-9._-]*)==", lock, re.M)
+        assert "fastapi" in shipped, "requirements.lock changed shape"
+        bad = [p for p in shipped if p.startswith((
+            "opentelemetry-sdk", "opentelemetry-exporter",
+            "opentelemetry-instrumentation", "opentelemetry-distro"))]
+        assert not bad, f"the image would ship telemetry that can export: {bad}"
+

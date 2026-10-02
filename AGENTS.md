@@ -16,7 +16,11 @@ lost once and rebuilt from documentation in an afternoon.
 The owner directs; the session builds. Within a task you have a free hand, and
 this is where it ends. Ask the owner first before you:
 
-- add a dependency, a build step, or a fetch from any third party;
+- add a build step, or a fetch from any third party. Not a dependency any
+  more: the owner has said new ones are welcome when they earn their place
+  (2026-10-02). What has not changed is the reason. It goes beside the pin in
+  `requirements.txt` or `requirements-dev.txt`, it is argued in `DECISIONS.md`
+  (§39 has the ones so far), and the version arrives through `make lock`;
 - raise a budget — the byte budgets in `tests/test_api.py`, or any other number
   a test holds something below;
 - change an invariant, here or where `tests/test_invariants.py` enforces it;
