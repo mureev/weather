@@ -193,6 +193,19 @@ class TestTheGateCoversWhatShips:
         for part in ("pip-audit ", "--strict", "-r requirements.lock"):
             assert part in recipe.group(1), f"`make audit` no longer says {part.strip()!r}"
 
+    def test_both_stages_build_from_one_pinned_base(self):
+        """By name and by digest, and the same one in both stages. A tag alone
+        is whatever the registry answers on the day: two builds of one commit
+        could differ, and the Debian under the app moved only when somebody
+        happened to push. Dependabot moves the digest every week; this is what
+        notices a hand edit that drops it, or a stage left on the old one."""
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        bases = re.findall(r"^FROM\s+(\S+)", dockerfile, re.M)
+        assert len(bases) >= 2, f"expected a build stage and a runtime stage: {bases}"
+        loose = [b for b in bases if not re.search(r"@sha256:[0-9a-f]{64}$", b)]
+        assert not loose, f"built from a tag alone, with no digest: {loose}"
+        assert len(set(bases)) == 1, f"the stages build from different bases: {bases}"
+
 
 class TestEverySettingIsDiscoverable:
     """`.env.example` is the only place anyone will look for "what can I

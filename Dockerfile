@@ -6,7 +6,16 @@
 # needs gcc -- at which point the compiler lands in the builder and never
 # reaches the image that faces the internet. Structuring for that in advance
 # costs nothing; retrofitting it during an outage does not.
-FROM python:3.12-slim AS build
+#
+# The base by digest as well as by name (DECISIONS.md §42). The tag says which
+# Python; the digest says which bytes. Without it, `python:3.12-slim` was
+# whatever Docker Hub answered at build time -- two builds of one commit could
+# differ -- and the Debian under the app moved only when somebody pushed, so a
+# quiet month shipped a month-old one. Pinned, a new base is a diff like any
+# other: Dependabot proposes it weekly (.github/dependabot.yml), and CI builds,
+# starts and tests it before anything ships. Both stages name the same one,
+# and tests/test_docs.py holds them to it.
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS build
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -25,7 +34,7 @@ COPY requirements.lock .
 RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 
 
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
 # lxml ships manylinux wheels for both amd64 and arm64, so this builds on a
 # Raspberry Pi as readily as on the VPS. If a future dependency ever forces a
