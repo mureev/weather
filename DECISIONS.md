@@ -755,6 +755,12 @@ library. They started at 32 kB and 80 kB; they are 49,000 and 131,000 bytes
 now, and every raise in between is argued for where it was made (§24, and the
 test's own docstring), which is the only way a budget stays one.
 
+*Amended 2026-10-02: one budget now, the compressed one, at 64 kB. The fourth
+raise had left 43 bytes, so the next change to the sky would have had to stop
+and ask; it still fails on a charting library. The uncompressed budget went:
+it measured comments more than code, and comments are the house style (§24).
+The owner's call, §42.*
+
 Two of these tests were wrong when first written, in the way this file keeps
 recording. The byte budget read `len(response.content)` — and the test client
 decompresses transparently, so it measured the file on disk and reported 82 kB
@@ -2367,7 +2373,8 @@ Tried the same day and taken back: the audit as a gate, with pip-audit and two
 dozen packages in the dev lock; the base image pinned by digest, which turned
 patching into a pull request most Mondays and added nothing `release` did not
 already guarantee; and `persist-credentials: false`, guarding a read-only
-token. Dependabot proposes the actions monthly.
+token. Dependabot proposes the actions monthly. The same review gave the sky
+its room (§18) and dropped the README's test count.
 
 **What would reverse it.** A second maintainer, or deploys nobody reviews,
 would make the gate worth its chores again. If the server never adopts the
@@ -2406,10 +2413,12 @@ Kept because each was invisible until it wasn't.
   3. The test count in the `README` was hand-edited three times and wrong after
      two of them.
 
-  All three now have one source and a test that asserts the *agreement* rather
+  All three got one source and a test that asserts the *agreement* rather
   than either value — alignment in pixels, the composited colour, the number
-  pytest actually collects. When a value has to exist in two languages, the
-  second one reads it back; it never restates it.
+  pytest actually collects. (The third went further on 2026-10-02: the README
+  states no count at all, so there is nothing to agree with, §42.) When a
+  value has to exist in two languages, the second one reads it back; it never
+  restates it.
 - **A gradient in `objectBoundingBox` units vanishes on a flat line.** Twenty-four
   identical hours give the polyline a zero-height bounding box, and the spec
   says not to render the element at all. `userSpaceOnUse` has no such edge, and

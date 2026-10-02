@@ -7,12 +7,13 @@ tidiness one: a `README` that describes a module that no longer exists is worse
 than no `README`, because it will be believed.
 
 So the parts of the docs that *can* be checked mechanically are. Not the prose,
-which no test can judge -- but the inventories and the counts, which are
-exactly the parts that rot silently and which a human reviewer skims.
+which no test can judge -- but the inventories, which are exactly the parts
+that rot silently and which a human reviewer skims.
 
-The count in particular earned its test the hard way: it was hand-edited three
-times in one afternoon and was wrong after two of them. That is the same defect
-as the hourly column width being written down twice, and it gets the same fix.
+The README's test count used to be one of them -- hand-edited three times in
+one afternoon and wrong after two -- and then a test that kept it honest, bumped
+by a third of all commits. Since 2026-10-02 the README states no count at all,
+which is the other way to have one source (DECISIONS.md §42).
 """
 
 from __future__ import annotations
@@ -23,38 +24,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parent.parent
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 DECISIONS = (ROOT / "DECISIONS.md").read_text(encoding="utf-8")
-
-
-def collected_tests() -> int:
-    """The real number, from pytest itself.
-
-    A subprocess rather than a collection hook, so the answer is the same
-    whether the suite was run whole or a single file was run in isolation.
-    """
-    out = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q",
-         "-p", "no:cacheprovider", str(ROOT / "tests")],
-        capture_output=True, text=True, cwd=ROOT, timeout=300)
-    m = re.search(r"(\d+)\s+tests?\s+collected", out.stdout) or \
-        re.search(r"(\d+)/(\d+) tests collected", out.stdout)
-    if not m:
-        pytest.skip(f"could not read a collection count from pytest: {out.stdout[-300:]}")
-    return int(m.group(1))
-
-
-class TestTheCountsAreReal:
-    def test_the_readme_says_how_many_tests_there_are_and_is_right(self):
-        claimed = {int(n) for n in re.findall(r"(\d+)\s+tests\b", README)}
-        assert claimed, "the README no longer states a test count"
-        actual = collected_tests()
-        assert claimed == {actual}, (
-            f"README says {sorted(claimed)} tests, pytest collects {actual}. "
-            f"Run: sed -i 's/{max(claimed)} tests/{actual} tests/g' README.md")
 
 
 class TestTheInventoriesAreComplete:
@@ -132,7 +104,7 @@ class TestTheLocksSayHowTheyWereMade:
     """A lock is reproducible only if the command written at its top is the
     one that wrote it. Whoever regenerates a lock may never open the Makefile,
     so the header is the documentation; `make lock` repeats both commands, so
-    the two have to agree -- the README's test count, one more time."""
+    the two have to agree."""
 
     LOCKS = ("requirements.lock", "requirements-dev.lock")
 

@@ -72,9 +72,7 @@ jobs:
         run: ruff check .
       - name: unit + parser + routing tests
         # No network required or wanted: the fixtures are the ground truth.
-        # test_ui.py is excluded here and has a job of its own, but it is still
-        # *collected* -- test_docs.py asserts the README's test count, and that
-        # number has to mean the same thing in every environment.
+        # test_ui.py has a job of its own.
         #
         # `-p no:randomly --strict-markers` and a zero-skip rule: a skipped test
         # is not a passing test. Four of these sat skipped for want of a fixture

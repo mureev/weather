@@ -24,7 +24,7 @@ requests get the same gate and publish nothing.
 ## What the gate checks, and what it does not
 
 It checks that the code does what its tests say: every parser against real
-captured pages, the invariants, the front end in a browser, the byte budgets.
+captured pages, the invariants, the front end in a browser, the byte budget.
 Then it checks that the image builds, starts locked down -- read-only, no Linux
 capabilities, no privilege to gain -- reports this commit as its build, and
 passes its own `HEALTHCHECK` (`DECISIONS.md` §42). On the server, a new image

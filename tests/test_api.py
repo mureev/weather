@@ -917,70 +917,23 @@ class TestItIsCheapToLoad:
         written here does not apply, and the owner, not this test, decides
         whether the sky is worth its bytes. Both name what to give back first
         if a fifth raise is refused -- the phone drawing, then the sky.
+
+        **Raised a fifth time, to 64 kB, and this one is room rather than a
+        feature** (2026-10-02, the owner's call, DECISIONS.md §42). The fourth
+        left 43 bytes between the shell and the budget, so the next change to
+        the sky would have had to stop and ask. 64 kB still fails on what this
+        test exists for -- a charting library, a web font, a framework -- and
+        leaves the sky room to move. The uncompressed budget went the same day:
+        it measured the comments more than the code, and the comments are the
+        house style (§24).
         """
         total = 0
         for path in (*self.SHELL, "api/weather"):
             r = client_.get(f"/weather/{path}", headers={"Accept-Encoding": "gzip"})
             total += self.wire_bytes(r)
-        assert total < 55_800, (
+        assert total < 64_000, (
             f"a cold load is now {total/1000:.1f} kB compressed; it was 41 kB. "
             f"Something sizeable joined the shell -- check before raising this.")
-
-    def test_the_uncompressed_shell_has_not_ballooned_either(self, client_):
-        """Compression can hide a lot of growth. Watch the source too.
-
-        112_000 rather than the 98_000 it was, and that is a 14% raise asked
-        for in one sitting, so it had better be justified.
-
-        Two things bought it. The sheet is real code -- detents, a drag that
-        defers to the scroll, a dimming view driven off the sheet's position --
-        and it replaced a panel that was three CSS rules. And the rest is
-        comment: the canvas colour, the `.screen` rules and `phone.py` between
-        them carry the account of a bug that took six attempts, three of which
-        shipped announced as fixes.
-
-        The compressed budget above did not move, and that is the one the phone
-        pays -- prose gzips to almost nothing. So the cost of this raise is
-        disk, and the thing it buys is that nobody spends another week on the
-        59 points at the bottom of that display.
-
-        What should still refuse a raise: anything that is neither shipped
-        behaviour nor the record of a mistake. Dead code and restated docs are
-        what this number exists to catch, and it catches them less well now.
-
-        **126_000, and this one is the weather actually moving.** Eighteen
-        conditions used to share seven skies and three effects, so drizzle,
-        a downpour and a thunderstorm were the same picture. They now differ in
-        the two things a glance picks up -- how dense and how fast -- and day
-        and night differ too, which is why the envelope grew a `night` flag:
-        only clear, partly and cloudy carry the hour in their icon, and rain at
-        midnight was being lit for noon.
-
-        The bill is about 5 kB of stylesheet and 1.5 kB of table, and roughly a
-        third of the stylesheet is the account of why the old loop jerked --
-        a pattern repeating every 190px vertically, moved 168px, twitching 22px
-        eleven hundred times a minute. That is the kind of arithmetic nobody
-        reconstructs from the code, and this file has already paid once for a
-        comment that was not written (§26).
-
-        129_000 after one more round: the cloud field went from three gradients
-        shared by both depths to five distinct ones each. That sounds like
-        polish and was not -- with identical geometry the two layers stacked
-        into a single bright blob in the upper third and the rest of a 852pt
-        standalone screen stayed empty, which reads as a spotlight rather than
-        a sky. Reported from the device, as these things are.
-
-        Compressed, the number the phone actually pays, this cost 3.1 kB, and
-        the budget above moved with it. Both are fetched once and then held by
-        the service worker for good, which is the only reason a raise of this
-        size is arguable at all.
-
-        147_500 for the English interface and the install banner (§35, §36),
-        the same night as the compressed raise above and for the same two
-        things: two languages' worth of every string, and a phone drawn in CSS.
-        """
-        raw = sum(len(client_.get(f"/weather/{n}").content) for n in self.SHELL)
-        assert raw < 147_500, f"the shell source is now {raw/1000:.1f} kB"
 
     def test_static_assets_say_how_long_they_may_be_kept(self, client_):
         """Unhashed shell files must revalidate -- a cached copy that never

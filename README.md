@@ -24,14 +24,13 @@ together and switchable with one tap.
 <p align="center"><sub>Rendered by <code>python -m tools.phone --readme</code> at the iPhone's 393×852 view, from the recorded Yandex and Gismeteo pages; Open-Meteo's numbers are the mock's stand-in.</sub></p>
 
 Compressed, the shell — page, script and service worker, with a stand-in
-payload — measures about 49 kB, against a test that fails at 49,000 bytes; a
-real cold load, all three sources answering, is about 54 kB. The process's
-cache is bounded, and that is tested too. The image's 34 MB of dependencies is
+payload — stays under a byte budget that `tests/test_api.py` holds it to. The
+process's cache is bounded, and that is tested too. The image's 34 MB of dependencies is
 a measurement recorded in `DECISIONS.md` §18, not a test.
 
 ```bash
 make            # the everyday commands
-make check      # lint + 666 tests, no network required
+make check      # lint + the whole suite, no network required
 make run        # localhost:8080 against live upstreams
 git push        # to master: tested, published, live in minutes
 make status     # what is live: its build, then its own health verdict
@@ -44,9 +43,8 @@ make status     # what is live: its build, then its own health verdict
 If you are picking this up cold, read these four things and skip the rest until
 you need it:
 
-1. **`make check` must pass before you believe anything.** 666 tests, no
-   network. The parser tests run against real captured HTML, not invented
-   markup.
+1. **`make check` must pass before you believe anything.** No network. The
+   parser tests run against real captured HTML, not invented markup.
 2. **The fixtures in `tests/fixtures/` are ground truth.** When a site
    redesigns, `make fixtures` re-records from production and the test diff tells
    you exactly what moved. That two-minute loop is what this project is built
@@ -454,7 +452,7 @@ app/
     geocode.py       text city search
 static/              index.html, app.js, sw.js, debug.js, icons — no build step
 docs/                the two screenshots at the top of this page
-tests/               666 tests: parsers, degradation, invariants, docs, API, transport, browser
+tests/               parsers, degradation, invariants, docs, API, transport, browser
 tools/               diagnostics (see tools/README.md)
 ```
 

@@ -21,7 +21,7 @@ this is where it ends. Ask the owner first before you:
   (2026-10-02). What has not changed is the reason. It goes beside the pin in
   `requirements.txt` or `requirements-dev.txt`, it is argued in `DECISIONS.md`
   (§39 has the ones so far), and the version arrives through `make lock`;
-- raise a budget — the byte budgets in `tests/test_api.py`, or any other number
+- raise a budget — the byte budget in `tests/test_api.py`, or any other number
   a test holds something below;
 - change an invariant, here or where `tests/test_invariants.py` enforces it;
 - touch `.github/`, which is the deploy gate (next section).
