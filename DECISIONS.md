@@ -2239,7 +2239,8 @@ that will say so.
 
 *Reported 2026-10-02 with two cards from the app switcher: "there is strange
 artifact on top, like dark gradient, only in pwa mode". The Safari card was
-clean.*
+clean. Fixed the same morning and confirmed on the phone, build 4aff50c:
+"worked well".*
 
 ### What it is
 
