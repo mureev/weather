@@ -24,3 +24,10 @@ pillow==12.3.0       # pixel comparisons: the status-bar seam tests, tools/phone
 # HTTPX -- and warns on every run that falls back to httpx. Only the tests talk
 # through it; the app's own upstream fetches use requirements.txt's client.
 httpx2==2.13.1
+
+# tests/test_transport.py: the app's own client over a real socket, against a
+# local TLS server that speaks HTTP/2 (Hypercorn), with a certificate authority
+# minted per run (trustme). The only tests that reach the layer a change of
+# HTTP client changes, so they are the ones that say whether it still works.
+hypercorn==0.18.0
+trustme==1.2.1
