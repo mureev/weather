@@ -603,6 +603,45 @@ class TestSurfaces:
         assert r.headers["location"] == "/weather/"
 
 
+class TestWhatTheServerAsks:
+    """The server keeps a new image only when three questions get the right
+    answer, and it asks them from the owner's infrastructure repository, where
+    nothing in this one can see them. A change that stopped answering one
+    would pass every other test here, ship, and be rolled back by the server
+    on every deploy -- quietly, since the old image goes on serving. So the
+    answers are pinned here, each beside who asks."""
+
+    def test_the_page_title_is_exactly_what_the_deploy_check_greps_for(
+            self, client_):
+        """The deploy check fetches https://mureev.com/weather/ and keeps the
+        new image only if the body contains the literal `<title>Погода</title>`.
+        Translate the title here, decorate it or merely reformat it --
+        `<title>Погода · Weather</title>`, an attribute, a line break -- and
+        every deploy is rolled back. The English interface retitles the
+        page from app.js, in the DOM, after the check has read the body; that
+        is not what this pins. Bytes, because a grep reads bytes."""
+        r = client_.get("/weather/")
+        assert r.status_code == 200
+        head = r.content.split(b"</head>", 1)[0]
+        assert re.findall(rb"<title\b.*?</title>", head, re.S) == \
+            ["<title>Погода</title>".encode()]
+
+    def test_version_answers_with_the_build(self, client_):
+        """The deploy check's second question: `/weather/api/version` must
+        answer 2xx or 3xx. It is also how anyone tells which build is live,
+        and CI asks it for the commit it just built."""
+        r = client_.get("/weather/api/version")
+        assert r.status_code == 200
+        assert set(r.json()) == {"build", "built_at", "shell"}
+
+    def test_healthz_says_only_that_the_process_is_up(self, client_):
+        """The image's own HEALTHCHECK, which the server reads as the third
+        answer. Nothing about the sources: a probe that asked them would
+        restart the container whenever the weather sites have a bad hour."""
+        r = client_.get("/healthz")
+        assert (r.status_code, r.json()) == (200, {"ok": True})
+
+
 class TestTheCanaryReadsWhatTheAppServes:
     """`tools/canary.py` is the one thing that reads the live site on a
     schedule, and a key it asks for that the payload does not carry is a check

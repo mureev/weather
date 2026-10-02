@@ -27,7 +27,13 @@ It checks that the code does what its tests say: every parser against real
 captured pages, the invariants, the front end in a browser, the byte budgets.
 Then it checks that the image builds, starts, and reports this commit as its
 build. On the server, a new image is kept only once it answers through the
-reverse proxy.
+reverse proxy: the page's body must contain exactly `<title>Погода</title>`,
+`/api/version` must answer, and the container must report healthy, which is
+the image's own `HEALTHCHECK` asking `/healthz`. That check lives in the
+infrastructure repository, where nothing here can see it, so
+`tests/test_api.py` pins all three answers (`TestWhatTheServerAsks`). Above all
+the title: translate it, decorate it or merely reformat it, and every deploy
+is rolled back while the old image quietly goes on serving.
 
 It does not check that the numbers are right today. The suite reads committed
 fixtures, so a site that redesigned overnight is invisible to it; that is the
