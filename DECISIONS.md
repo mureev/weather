@@ -1943,6 +1943,23 @@ proxy in front of it that rate-limits per client -- at which point the bucket
 can be raised until it never fires. Not removed: it is also what keeps a
 search box from being a free proxy to the geocoder.
 
+*Amended 2026-10-02: the second half of that condition was wrong, and the
+bucket stays as it is.* The proxy exists now. Since 2026-10-01 nginx limits
+`/weather/api/` per client address: 30 requests a minute with a burst of 20,
+and 300 a minute with a burst of 60 shared by everyone arriving through the
+relay. But a per-client limit bounds each client and never the sum, and the
+sum is what the bucket is for: the upstreams see one address, this server's,
+and Open-Meteo's free tier counts one total. Per-address limits multiply with
+the number of addresses asking, and a single address at 30 a minute may
+already ask for 1,800 new places an hour, ten times the bucket's 180. Nor can
+the app take the per-client half on itself: nginx blanks the client's address
+on the way in (README, *Privacy*), so to the app every request comes from
+nobody in particular. The two answer different questions -- how much one
+client may ask of the app, and how much everyone together may spend of the
+server's address -- and both stay. What would reverse it now is the instance
+going private. Nothing put in front of it could: a proxy counts requests, and
+only the app knows which of them cost an upstream round.
+
 ---
 
 ## 38. `/api/health` is retired, and the forecast is the diagnostic
