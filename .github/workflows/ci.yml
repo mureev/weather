@@ -30,6 +30,12 @@ concurrency:
 # moved to other code by whoever controls the action's repository (it has
 # happened, to tj-actions/changed-files in 2025), and the job holding
 # `packages: write` publishes what the server deploys within minutes.
+#
+# And no checkout keeps its token. By default `actions/checkout` writes the
+# job's GITHUB_TOKEN into `.git/config` for the rest of the job, where every
+# later step -- each action, each installed package -- can read it. Nothing
+# here pushes, so nothing needs it there: `persist-credentials: false` on every
+# checkout (zizmor's `artipacked`, its one finding here, 2026-10-02).
 permissions:
   contents: read
 
@@ -60,6 +66,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -99,6 +107,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -129,6 +139,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - id: built
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
@@ -158,13 +170,26 @@ jobs:
           cache-to: type=gha,mode=max
       - run: docker load -i /tmp/weather.tar
       # A built image is not yet a running app: a missing module, a bad CMD or
-      # a user who cannot read the code all build fine. Start it the way the
-      # server does and ask the two routes that touch no upstream. The build
-      # it reports must be this commit, or the stamp is broken and
-      # `make status` would lie after every deploy.
+      # a user who cannot read the code all build fine. Start it and ask the
+      # two routes that touch no upstream. The build it reports must be this
+      # commit, or the stamp is broken and `make status` would lie after every
+      # deploy.
+      #
+      # Started locked down, the way the server should run it (DECISIONS.md
+      # §42): a read-only filesystem with a scratch /tmp, no Linux
+      # capabilities, and no privilege to be gained through a setuid binary.
+      # The app writes nothing and binds a port above 1024, so none of that
+      # should matter -- and this is where that gets proved, before the server
+      # depends on it. Then the image's own HEALTHCHECK, which the server's
+      # deploy waits for and nothing here had ever run: polled every two
+      # seconds instead of every sixty, the command itself untouched.
       - name: the image starts and answers
         run: |
-          docker run -d --name app -p 127.0.0.1:8080:8080 weather:ci
+          docker run -d --name app -p 127.0.0.1:8080:8080 \
+            --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --health-interval 2s \
+            weather:ci
           for _ in $(seq 1 30); do
             curl -fs -o /dev/null http://127.0.0.1:8080/healthz && break
             sleep 1
@@ -174,6 +199,12 @@ jobs:
           echo
           grep -q "\"$GITHUB_SHA\"" /tmp/version.json || {
             echo "::error::/api/version does not report this commit"; exit 1; }
+          for _ in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' app)" = healthy ] && break
+            sleep 1
+          done
+          docker inspect -f '{{.State.Health.Status}}' app | grep -qx healthy || {
+            echo "::error::the container never reported healthy"; exit 1; }
       - name: container log
         if: failure()
         run: docker logs app || true
@@ -209,6 +240,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -233,8 +266,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
-      packages: write
+      contents: read    # what every job has: a job's own list replaces the default
+      packages: write   # the push to ghcr.io, and the one write in this workflow
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -267,6 +300,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
