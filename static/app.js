@@ -440,6 +440,72 @@ function hourWidth() {
   return w > 0 ? w : 58;
 }
 
+/* ---- rain under the curve ------------------------------------------------
+ * Whether it will rain in the next couple of hours is the question the hours
+ * get opened for most, and it had the smallest voice on the card: a figure in
+ * the 11.5px row under the times, and on Yandex -- whose strip has icons and
+ * no numbers -- two drops inside a 26px cloud. Now it falls from the line:
+ * streaks under the curve where an hour is wet, dots where it snows, both for
+ * sleet. The icons and the sky already draw rain and snow that way, so nothing
+ * new has to be learnt. Density is how hard and opacity is how sure; a dry
+ * hour draws nothing, and a dry day is the card it always was (§43).
+ */
+const WET = {
+  'drizzle': 'r1', 'rain-light': 'r1', 'rain': 'r2', 'rain-heavy': 'r3',
+  'thunder': 'r3', 'hail': 'r3', 'sleet': 'm2',
+  'snow-light': 's1', 'snow': 's2', 'snow-heavy': 's3',
+};
+
+/** What falls in an hour, if anything: a pattern -- rain, snow or both, and
+ *  how hard -- and how sure the source is. The icon has to be enough on its
+ *  own, because on Yandex it is all there is; millimetres outrank it where a
+ *  source gives them, and a probability alone is a maybe, drawn lightest. */
+function wetOf(h) {
+  const mm = h.precip_mm, p = h.precip_prob;
+  let w = WET[h.icon];
+  if (!w && (mm >= 0.1 || p >= 40)) w = h.temp_c > 0 ? 'r1' : 's1';
+  if (w && mm >= 0.1) w = w[0] + (mm < 0.5 ? 1 : mm < 1.5 ? 2 : 3);
+  return w && { pat: w, sure: p != null ? p / 100 : 1 };
+}
+
+let rainSeq = 0;
+function rainUnder(list, pts, W, TOP, H) {
+  const wet = list.map(wetOf);
+  if (!wet.some(Boolean)) return ['', ''];
+  // Its own ids per drawing: the day sheet's curve and the forecast's are in
+  // the document at once, and each clips to its own line.
+  const id = 'rn' + (++rainSeq), width = list.length * W;
+  const L = (a, b, c, d) => `M${a} ${b}L${c} ${d}`;
+  // Snow is paths, not <circle>: the curve's points are the only circles in the
+  // chart, and the test for one point per column counts them.
+  const dot = (x, y, r) => `M${x - r} ${y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+  const pat = (k, w, h, body) =>
+    `<pattern id="${id}${k}" patternUnits="userSpaceOnUse" width="${w}" height="${h}">${body}</pattern>`;
+  const streak = (d, sw) =>
+    `<path d="${d}" style="stroke:var(--rain)" stroke-width="${sw}" stroke-linecap="round"/>`;
+  const flake = (d) => `<path d="${d}" style="fill:var(--snow)"/>`;
+  const defs = pat('r1', 15, 15, streak(L(11.4, 1.8, 9.7, 6.6) + L(3.8, 9.3, 2.1, 14.1), 1.5))
+    + pat('r2', 11, 12, streak(L(8.6, 1.4, 6.8, 6.4) + L(3, 7, 1.3, 11.3), 1.5))
+    + pat('r3', 8, 10, streak(L(6.2, .8, 4.4, 5.8) + L(2.2, 5, .6, 9.4), 1.55))
+    + [[1, 14, 1.3], [2, 10, 1.45], [3, 7.6, 1.55]].map(([n, s, r]) =>
+      pat('s' + n, s, s, flake(dot(s / 4, s / 4, r) + dot(s * .75, s * .75, r)))
+      + pat('m' + n, s, s, streak(L(s * .78, s * .06, s * .78 - 1.7, s * .06 + 4.7), 1.45)
+        + flake(dot(s * .26, s * .72, r)))).join('')
+    // Starts a few pixels under the line, so the stroke stays clean -- and
+    // never less than 12px above the floor. The band under the curve is 8px at
+    // the strip's coldest hour, and rain that comes with a cold front comes
+    // exactly then; there the streaks run on behind the line instead.
+    + `<clipPath id="${id}c"><polygon points="${pts[0][0]},${H} ${pts.map(([x, y]) =>
+      `${x},${Math.min(y + 3.5, H - 12).toFixed(1)}`).join(' ')} ${pts[pts.length - 1][0]},${H}"/></clipPath>
+      <linearGradient id="${id}f" gradientUnits="userSpaceOnUse" x1="0" y1="${TOP}" x2="0" y2="${H}">
+        <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity=".5"/></linearGradient>
+      <mask id="${id}k" maskUnits="userSpaceOnUse" x="0" y="0" width="${width}" height="${H}">
+        <rect width="${width}" height="${H}" fill="url(#${id}f)"/></mask>`;
+  const cols = wet.map((w, i) => w ? `<rect x="${i * W}" width="${W}" height="${H}"
+      fill="url(#${id}${w.pat})" opacity="${(.4 + .6 * w.sure).toFixed(2)}"/>` : '').join('');
+  return [defs, `<g class="rain" clip-path="url(#${id}c)" mask="url(#${id}k)">${cols}</g>`];
+}
+
 function hourlyBlock(hours, nowcast, opts) {
   // `markNow` is false on a day-detail screen for any day but today. Without
   // it the strip labels 14:00 next Thursday "сейчас", because the only test
@@ -472,6 +538,7 @@ function hourlyBlock(hours, nowcast, opts) {
   const pts = list.map((h, i) => [i * W + W / 2, y(h.temp_c)]);
   const line = pts.map((p) => `${p[0]},${p[1].toFixed(1)}`).join(' ');
   const area = `${pts[0][0]},${H} ${line} ${pts[pts.length - 1][0]},${H}`;
+  const [rainDefs, rain] = rainUnder(list, pts, W, TOP, H);
 
   const svg = `<svg class="hcurve" width="${width}" height="${H}"
       viewBox="0 0 ${width} ${H}" aria-hidden="true">
@@ -494,9 +561,9 @@ function hourlyBlock(hours, nowcast, opts) {
                       x1="0" y1="${TOP}" x2="0" y2="${H}">
         <stop offset="0" style="stop-color:var(--accent)" stop-opacity=".22"/>
         <stop offset="1" style="stop-color:var(--accent)" stop-opacity="0"/>
-      </linearGradient>
+      </linearGradient>${rainDefs}
     </defs>
-    <polygon points="${area}" fill="url(#tfill)"/>
+    <polygon points="${area}" fill="url(#tfill)"/>${rain}
     <polyline points="${line}" fill="none" stroke="url(#tgrad)" stroke-width="2.2"
               stroke-linejoin="round" stroke-linecap="round"/>
     ${pts.map((p) => `<circle cx="${p[0]}" cy="${p[1].toFixed(1)}" r="2.4"

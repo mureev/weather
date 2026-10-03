@@ -58,6 +58,7 @@ decision recorded without its reversal condition becomes dogma.
 | 40 | [The sky is the same in both appearances; light mode is the surfaces](#40-the-sky-is-the-same-in-both-appearances-light-mode-is-the-surfaces) | A pale sky put the hero at 1.4–3.1:1; one sky, white on it, and light cards and sheets. |
 | 41 | [The installed app's canvas is the top of the sky](#41-the-installed-apps-canvas-is-the-top-of-the-sky) | iOS tints the blur under a home-screen app's clock with the canvas colour; there it is `--sky1`, dimmed with the scrim, and the page does not bounce. |
 | 42 | [The image is started locked down; known vulnerabilities are an alarm, not a gate](#42-the-image-is-started-locked-down-known-vulnerabilities-are-an-alarm-not-a-gate) | CI runs the image the way the server should and waits for its HEALTHCHECK; a weekly audit reports and never blocks a deploy. |
+| 43 | [Rain falls from the curve](#43-rain-falls-from-the-curve) | Streaks under the line where it rains, dots where it snows: density is how hard, opacity how sure, and a dry day draws nothing. |
 
 ---
 
@@ -2383,6 +2384,72 @@ remembered for ten minutes (§37).
 **What would reverse it.** A second maintainer, or deploys nobody reviews,
 would make the gate worth its chores again. If the server never adopts the
 flags, the locked-down run is decoration and can go.
+
+---
+
+## 43. Rain falls from the curve
+
+*Decided 2026-10-03 by the owner, choosing from six drafts drawn on the real
+card.*
+
+The question the hourly card is opened for, more than any other, is whether it
+will rain in the next couple of hours -- and it answered that more quietly than
+anything else on it. Where a source gives a chance or an amount, it sat in the
+11.5px row under the times. On Yandex, the default tab, whose strip has icons
+and no numbers at all, it was a pair of drops inside a 26px cloud. A yes-or-no
+question was being answered by reading a row of small figures.
+
+The owner's suggestion was the fill: it is drawn there already and it is liked,
+so let it carry the weather too. So rain falls from the line. Under the curve a
+wet hour gets slanted streaks, snow gets dots and sleet gets both -- the marks
+the icons and the sky (§29) already use for them, so nothing new has to be
+learnt. **Density is how hard**: millimetres where a source gives them (under
+0.5 light, under 1.5 moderate, heavier above), and the icon's own word where it
+does not, which on Yandex is always. **Opacity is how sure**: the source's
+probability where it has one, and 40% or more with nothing else to go on is
+drawn as the lightest rain. **A dry hour draws nothing**, and on a dry day the
+card is pixel-identical to the one before this entry.
+
+Six versions were drawn on eight forecasts and compared side by side: today's
+card and five changes to it, on the two real recordings, examples aimed at the
+awkward cases, and light mode. The four that lost:
+
+- **The hour's dot became a drop.** Too small to find at a glance, which was
+  the whole point.
+- **The fill turned blue.** The literal reading of the suggestion, and the
+  curve already says *cold* in blue: a wet hour looked like a cold one, and
+  snow tinted the same way read as fog.
+- **Water rose from the floor, its height the amount.** The most informative
+  where there are millimetres, and a flat ledge on Yandex, where there are
+  none. Its surface line also read as a second temperature until its stroke
+  came off.
+- **Tint and streaks together.** The loudest, and louder than a yes-or-no
+  question needs.
+
+Two things only the drafts could have found:
+
+- **The fill is 8px tall at the strip's coldest hour, and rain that arrives
+  with a cold front arrives exactly then** -- the temperature falls as it comes.
+  Every version drawn inside the fill shrank to a sliver of a few pixels there.
+  So the streaks keep 12px above the floor whatever the line does, and
+  where it dips into that band they run on behind it.
+- **The curve's points are the only `<circle>`s in the chart, and a test counts
+  them.** `test_the_curve_sits_on_the_same_grid_as_the_labels` proves one point
+  per column that way, and the first snow pattern drew its dots as circles: 33
+  points for 24 columns. Snow is paths.
+
+Each drawing gets its own ids, because the forecast's curve and an open day's
+are in the document at once and each must clip to its own line. That has a
+test, as does each rule above; the colours have a light-mode pair held to 3:1
+on a white card. Measured on the cold load, 1.75 kB: 55.8 to 57.5 kB of the
+64 (§18). It is information, it works offline, and it raised no budget.
+
+**What would reverse it.** If the streaks prove too quiet outdoors in daylight,
+the tint goes under them before anything else is tried -- it was drawn and is
+waiting. If Open-Meteo's maybes make the card look permanently wet, the 40%
+rises, not the design. And if the card stops feeling calm -- the owner's test
+is that this app stays fresh and clean -- the streaks go, and the row under the
+times carries the rain alone, as it did.
 
 ---
 

@@ -237,6 +237,7 @@ One line each; the story is behind the reference — a § of `DECISIONS.md`,
 - **When a source drops a data blob, only one symptom looks broken.** §27
 - **iOS tints the blur under an installed app's clock with `html`'s background colour.** §41
 - **`overscroll-behavior` on `<body>` does nothing in WebKit**; it is read off `<html>`. §41
+- **The curve's points are the only `<circle>`s in the chart, and a test counts them**; draw any other dot as a path. §43
 
 ---
 

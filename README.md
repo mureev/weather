@@ -234,7 +234,10 @@ tests check it against Gismeteo's own published sunrise and sunset.
 
 **Hourly is a curve**, not a row of numbers, with the label riding the line —
 "is it getting warmer or colder" is the actual question, and a line answers it
-before you read a figure. **Day rows have range bars** showing where each day's
+before you read a figure. **Rain falls from it**: streaks under the line where
+an hour is wet, dots where it snows, denser the harder it falls, so "will it
+rain in the next two hours" is answered before the row of figures beneath is
+read (`DECISIONS.md` §43). **Day rows have range bars** showing where each day's
 low-to-high sits inside the whole period, so "is Thursday the cold one" needs no
 arithmetic.
 

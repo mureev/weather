@@ -81,6 +81,10 @@
      drifted 4px left per column and stopped 96px short of the last label. */
   --hour-w:58px;
   --hot:#ff9f5a; --cold:#5ec8ff;
+  /* What falls from the hourly curve (§43): the icons' blue for rain, and
+     snow nearly white. Light mode's pair is deeper, so that both still clear
+     3:1 on a white card -- a test holds them to it. */
+  --rain:#5aa2ff; --snow:#e8efff;
   --r:20px;
   /* How wide the content column is allowed to get. Written once because it
      is needed in three places -- the forecast, the sheet's body and its nav
@@ -110,6 +114,7 @@
   :root{ --bg:#eef2fa; --bg2:#e2e9f7; --card:#fff; --card2:#f4f7fd;
          --line:#dce3f1; --fg:#0d1526; --dim:#52617f; --faint:#5f6c88;
          --accent:#2563eb; --cold:#1767b8;
+         --rain:#2f74e0; --snow:#7489b4;
          /* Opaque: white at 86% over navy is grey (#dcdde2), and the facts
             grid's white cells read as tiles laid on it. */
          --glass:var(--card) }

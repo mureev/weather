@@ -62,6 +62,15 @@ FX_TABLE = set(re.findall(
     r"^\s*'([a-z-]+)':\s*\[", (ROOT / "static" / "app.js").read_text(
         encoding="utf-8").split("const FX_OF")[1].split("};")[0], re.M))
 
+# The conditions the sky rains or snows for: any whose layers include a `p`
+# (precipitation) one. Read from the sky's table rather than from the curve's,
+# so the test for rain under the curve checks the curve against the sky -- a
+# new wet condition added to one and not the other fails, in either direction.
+FALLING = {k for k, layers in re.findall(
+    r"'([a-z-]+)':\s*\[([^\]]*)\]", (ROOT / "static" / "app.js").read_text(
+        encoding="utf-8").split("const FX_OF")[1].split("};")[0])
+    if "'p " in layers}
+
 # Imported lazily rather than with `importorskip` at module scope, so these
 # tests are always *collected* even where they cannot run. Collection count is
 # a number the docs assert against, and a suite that changes size depending on
@@ -404,6 +413,161 @@ class TestRendersAtAll:
             f"({FIXTURE_DAY}) are naming different days in the city's zone -- "
             f"check that FIXTURE_NOW is a UTC instant, not a local one.")
         assert first.get_attribute("data-day") == FIXTURE_DAY.isoformat()
+
+
+def _draw(page, hours):
+    """An hourly card drawn from hand-made hours, in place of the forecast."""
+    page.evaluate("(hs) => { document.getElementById('content').innerHTML ="
+                  " hourlyBlock(hs, null); }", hours)
+
+
+def _hour(time, temp_c, icon, mm=None, prob=None):
+    return {"time": time, "temp_c": temp_c, "icon": icon,
+            "precip_mm": mm, "precip_prob": prob}
+
+
+# Each streaked column, read off the drawing: the pattern it is filled with --
+# its tile's area, and whether it draws rain, snow or both -- and its opacity.
+_WET_COLUMNS = """() => [...document.querySelectorAll('#content .hcurve .rain rect')]
+  .map(r => { const p = document.getElementById(
+                r.getAttribute('fill').match(/#([^)]+)/)[1]);
+              return {x: +r.getAttribute('x'), op: +r.getAttribute('opacity'),
+                      tile: p.width.baseVal.value * p.height.baseVal.value,
+                      rain: p.innerHTML.includes('--rain'),
+                      snow: p.innerHTML.includes('--snow')}; })"""
+
+
+class TestRainFallsFromTheCurve:
+    """Whether it will rain in the next couple of hours is what the hours get
+    opened for, and it used to be the quietest thing on the card: a figure in
+    the 11.5px row under the times, and on Yandex, whose strip has icons and no
+    numbers, two drops inside a 26px cloud. Now it falls from the line --
+    streaks where it rains, dots where it snows -- with density for how hard
+    and opacity for how sure (DECISIONS.md §43)."""
+
+    def test_the_hours_that_rain_are_the_hours_that_carry_rain(self, page):
+        """Checked on all three recordings, because each says "wet" its own
+        way: Yandex with icons alone, Gismeteo in millimetres, Open-Meteo with
+        a probability. A streak is matched to the column under it by where it
+        is drawn, not by its index, so one that slides off its hour fails too.
+        """
+        for src in ("yandex", "gismeteo", "openmeteo"):
+            tab = page.locator(f'.src[data-src="{src}"]')
+            if tab.is_disabled():
+                continue
+            tab.click()
+            hours = page.evaluate(
+                "(s) => JSON.parse(localStorage.getItem('yw.payload'))"
+                ".sources[s].hourly", src)
+            shown = [h for h in hours[:24] if h.get("temp_c") is not None]
+            want = {i for i, h in enumerate(shown)
+                    if h.get("icon") in FALLING
+                    or (h.get("precip_mm") or 0) >= 0.1
+                    or (h.get("precip_prob") or 0) >= 40}
+            got = page.evaluate("""() => {
+              const mid = (e) => { const b = e.getBoundingClientRect();
+                                   return b.x + b.width / 2; };
+              const cols = [...document.querySelectorAll('#content .hour')].map(mid);
+              return [...document.querySelectorAll('#content .hcurve .rain rect')]
+                .map(r => cols.findIndex(c => Math.abs(c - mid(r)) < 1)); }""")
+            assert want, f"{src}'s recording has no wet hour; this checked nothing"
+            assert -1 not in got, f"{src}: a streak sits between two columns"
+            assert sorted(got) == sorted(want), (
+                f"{src}: rain drawn under columns {sorted(got)}, "
+                f"but the wet hours are {sorted(want)}")
+
+    def test_a_dry_day_is_the_card_it_always_was(self, page):
+        """The owner's condition for having this at all: nothing changes when
+        nothing falls. Open-Meteo puts 10-35% on hours that stay dry, and a
+        trace of 0.05 mm is not rain anyone would dress for."""
+        _draw(page, [_hour("12:00", 16, "clear", 0, 10),
+                     _hour("13:00", 17, "partly", 0.05, 35),
+                     _hour("14:00", 18, "cloudy", 0, 30),
+                     _hour("15:00", 18, "overcast", None, None)])
+        drawn = page.evaluate(
+            "document.querySelectorAll('#content .hcurve .rain,"
+            " #content .hcurve pattern, #content .hcurve clipPath').length")
+        assert drawn == 0, "a dry day grew rain markup"
+
+    def test_snow_is_dots_sleet_is_both_and_rain_is_streaks(self, page):
+        """The icons draw rain as slanted strokes and snow as dots, and so
+        does the sky. Snow drawn as rain says the wrong thing about what to
+        wear, and an hour with no icon but millimetres below freezing is snow.
+        """
+        _draw(page, [_hour("09:00", -3, "snow"), _hour("10:00", 0, "sleet"),
+                     _hour("11:00", 2, "rain"), _hour("12:00", -4, "overcast", 0.6)])
+        cols = page.evaluate(_WET_COLUMNS)
+        assert [(c["rain"], c["snow"]) for c in cols] == [
+            (False, True), (True, True), (True, False), (False, True)]
+
+    def test_harder_is_denser_and_less_sure_is_fainter(self, page):
+        """Millimetres where the source gives them, the icon's word where it
+        does not -- Yandex never does -- and its probability, where it has one,
+        as opacity. The numbers in the row underneath become a shape before
+        they are read."""
+        _draw(page, [_hour("10:00", 12, "rain", 0.2, 90),
+                     _hour("11:00", 12, "rain", 1.0, 90),
+                     _hour("12:00", 12, "rain", 3.0, 90),
+                     _hour("13:00", 12, "rain", 3.0, 45),
+                     _hour("14:00", 12, "rain-light"),
+                     _hour("15:00", 12, "rain-heavy")])
+        light, moderate, heavy, maybe, icon_light, icon_heavy = page.evaluate(
+            _WET_COLUMNS)
+        assert light["tile"] > moderate["tile"] > heavy["tile"]
+        assert maybe["tile"] == heavy["tile"] and maybe["op"] < heavy["op"]
+        assert icon_light["tile"] > icon_heavy["tile"]
+        assert icon_light["op"] == icon_heavy["op"] == 1, \
+            "an icon is a forecast, not a maybe"
+
+    def test_rain_at_the_coldest_hour_still_has_room_to_fall(self, page):
+        """The band under the curve is 8px tall at the strip's coldest hour,
+        and rain that comes with a cold front comes exactly then -- the
+        temperature falls as it arrives. A draft drew that hour as a 3.5px
+        sliver; the streaks keep 12px above the floor whatever the line does.
+        """
+        _draw(page, [_hour("13:00", 17, "partly"), _hour("14:00", 17, "cloudy"),
+                     _hour("15:00", 15, "rain-light", 0.4),
+                     _hour("16:00", 12, "rain-heavy", 2.8),
+                     _hour("17:00", 11, "rain", 1.2),
+                     _hour("18:00", 10, "rain-light", 0.3)])
+        w = page.evaluate("hourWidth()")      # read back, not restated
+        h = float(page.locator("#content .hcurve").get_attribute("height"))
+        pts = [tuple(map(float, p.split(","))) for p in page.locator(
+            "#content .hcurve clipPath polygon").get_attribute("points").split()]
+        coldest = next(y for x, y in pts if abs(x - (5 * w + w / 2)) < 0.5 and y < h)
+        assert h - coldest >= 12, f"{h - coldest:.1f}px of rain at the coldest hour"
+
+    def test_each_curve_clips_to_its_own_line(self, page):
+        """The forecast and an open day each draw a curve, and both are in the
+        document at once. With shared ids, the day's rain would be clipped to
+        the forecast's line -- or vanish with it."""
+        page.evaluate("(hs) => { document.getElementById('content').innerHTML ="
+                      " hourlyBlock(hs, null) + hourlyBlock(hs.slice().reverse(),"
+                      " null); }",
+                      [_hour("10:00", 9, "rain"), _hour("11:00", 15, "clear"),
+                       _hour("12:00", 11, "snow-light", 0.2)])
+        homes = page.evaluate("""() => [...document.querySelectorAll('.hcurve .rain')]
+          .map(g => { const id = g.getAttribute('clip-path').match(/#([^)]+)/)[1];
+                      return document.getElementById(id).closest('svg')
+                             === g.closest('svg'); })""")
+        assert homes == [True, True]
+
+    def test_what_falls_reads_on_the_card_in_both_schemes(self, page, light_page):
+        """Non-text contrast, 3:1 against the card (WCAG 1.4.11). The snow
+        that reads on a navy card is near-white, and near-white on the light
+        scheme's white card would be 1.1:1 -- which is why light mode has a
+        pair of its own."""
+        for pg in (page, light_page):
+            got = pg.evaluate("""() => { const d = document.createElement('i');
+              document.body.append(d);
+              const read = (v) => { d.style.color = `var(${v})`;
+                                    return getComputedStyle(d).color; };
+              const out = {rain: read('--rain'), snow: read('--snow'),
+                           card: read('--card')};
+              d.remove(); return out; }""")
+            for mark in ("rain", "snow"):
+                ratio = _contrast(got[mark], got["card"])
+                assert ratio >= 3, f"{mark} is {ratio:.2f}:1 on {got['card']}"
 
 
 class TestPrivacy:
