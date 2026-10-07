@@ -232,6 +232,12 @@ information whatsoever, so the sun is computed from the coordinates and the
 clock rather than read or guessed — see `DECISIONS.md` §13, and note that the
 tests check it against Gismeteo's own published sunrise and sunset.
 
+**The app is drawn from its icon.** The home-screen icon is the forecast's own
+partly-cloudy glyph on the clear day's sky, with a warm glow behind its sun. So
+every weather glyph wears the icon's colours, the hero's sun or moon gives off the
+icon's light, and a clear day is the icon's gradient; a test holds the PNG and
+the stylesheet to each other (`DECISIONS.md` §44).
+
 **Hourly is a curve**, not a row of numbers, with the label riding the line —
 "is it getting warmer or colder" is the actual question, and a line answers it
 before you read a figure. **Rain falls from it**: streaks under the line where

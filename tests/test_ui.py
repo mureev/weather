@@ -1597,6 +1597,120 @@ class TestSky:
             "the notch and the overscroll bounce will render black"
 
 
+class TestTheHeroIsLitLikeTheIcon:
+    """The home-screen icon is this glyph on this sky with a warm glow behind
+    its sun, and the hero is now the same picture (DECISIONS.md §44): warm
+    behind a sun, cool behind a moon, and nothing where the glyph has neither.
+
+    Which glyphs have one is read off the symbols -- a sun is a circle in
+    `i-clear`'s colour, a moon a path in `i-clear-night`'s -- rather than
+    listed here: the stylesheet lists them, by name, and a second list in this
+    file would agree with it by construction and prove nothing. The bolt under
+    a thundercloud is the sun's yellow too; it is a path, and lightning is not
+    lit.
+
+    And then the pixels, because a style is not a picture (§14): a glow that
+    computes perfectly and is painted under the sky, or over the sun, passes
+    every assertion about its style.
+    """
+
+    # The sky's own motion and its 1.2s change of colour are stopped, so that
+    # two shots a moment apart differ by the glow and nothing else.
+    STILL = "html,.sky{transition:none!important} #fx{visibility:hidden!important}"
+
+    LOOK = """(key) => {
+      const d = state.data, v = d.sources[pickSource(d)];
+      v.current.icon = key; d.night = key.endsWith('-night'); render(d);
+      const sym = (k) => document.getElementById('i-' + k);
+      const sunC = sym('clear').querySelector('circle').getAttribute('fill');
+      const moonC = sym('clear-night').querySelector('path').getAttribute('fill');
+      const sun = [...sym(key).querySelectorAll('circle')]
+        .find(c => c.getAttribute('fill') === sunC);
+      const moon = [...sym(key).querySelectorAll('path')]
+        .find(p => p.getAttribute('fill') === moonC);
+      let box = null;
+      if (moon) {     // a crescent's extent, in the symbol's own units
+        const t = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        t.setAttribute('viewBox', '0 0 32 32');
+        t.style.cssText = 'position:absolute;width:32px;height:32px';
+        t.appendChild(moon.cloneNode());
+        document.body.appendChild(t);
+        const b = t.firstChild.getBBox();
+        box = [b.x, b.y, b.x + b.width, b.y + b.height];
+        t.remove();
+      }
+      const ic = document.querySelector('.hero .ic');
+      const g = getComputedStyle(ic, '::before'), r = ic.getBoundingClientRect();
+      return {lit: g.content !== 'none', bg: g.backgroundImage, size: ic.offsetWidth,
+              box: [r.left, r.top],
+              at: [parseFloat(g.left) + parseFloat(g.width) / 2,
+                   parseFloat(g.top) + parseFloat(g.height) / 2],
+              sun: sun && ['cx', 'cy', 'r'].map(a => +sun.getAttribute(a)),
+              moon: box}; }"""
+
+    @staticmethod
+    def _px(page, x, y, *styles):
+        """One pixel of the viewport, with `styles` applied for the shot."""
+        Image = pytest.importorskip("PIL.Image", reason="pillow not installed")
+        tags = [page.add_style_tag(content=c) for c in styles]
+        shot = page.screenshot(clip={"x": int(x), "y": int(y), "width": 1, "height": 1})
+        for t in tags:
+            t.evaluate("e => e.remove()")
+        return Image.open(io.BytesIO(shot)).convert("RGB").getpixel((0, 0))
+
+    # And the question mark, which is what a condition nobody recognised draws.
+    # The first version keyed the glow off the sky, whose fallback for such a
+    # condition is a cloudy night -- so the question mark was moonlit.
+    @pytest.mark.parametrize("key", [*TestSky.EVERY_ICON, "unknown"])
+    def test_the_glyph_is_lit_by_its_own_sun_or_moon(self, page, key):
+        page.add_style_tag(content=self.STILL)
+        got = page.evaluate(self.LOOK, key)
+        source = got["sun"] or got["moon"]
+        # Painted, and painted where it says: the middle of the glow with the
+        # glyph out of the way, lit and unlit. An unlit glyph is sampled at
+        # the middle of its box, where a glow would have to be.
+        bx, by = got["box"]
+        mx, my = (bx + got["at"][0], by + got["at"][1]) if got["lit"] \
+            else (bx + got["size"] / 2, by + got["size"] / 2)
+        bare = ".hero .ic svg{visibility:hidden!important}"
+        off = ".hero .ic::before{display:none!important}"
+        step = max(abs(a - b) for a, b in zip(
+            self._px(page, mx, my, bare), self._px(page, mx, my, bare, off),
+            strict=True))
+        assert (step >= 20) if source else (step <= 1), (
+            f"{key}: the glow moves the sky behind the glyph by {step} levels "
+            f"-- {'it is styled but not painted' if source else 'something is lit'}")
+        assert got["lit"] == bool(source), (
+            f"{key}: the hero is {'lit' if got['lit'] else 'dark'} but its glyph "
+            f"{'has' if source else 'has no'} sun or moon -- the stylesheet's "
+            f"list of lit glyphs has drifted from the glyphs")
+        if not source:
+            return
+        r, _, b = _rgba(got["bg"])[:3]
+        assert (r > b) == bool(got["sun"]), (
+            f"{key}: a {'sun' if got['sun'] else 'moon'} lit "
+            f"{'warm' if r > b else 'cool'} ({got['bg'][:60]}...)")
+        # Where the light comes from, in the symbol's 32 units.
+        x, y = (v * 32 / got["size"] for v in got["at"])
+        if got["sun"]:
+            cx, cy, rad = got["sun"]
+            dist = ((x - cx) ** 2 + (y - cy) ** 2) ** .5
+            assert dist <= rad, (
+                f"{key}: the glow is centred {dist:.1f} units from the sun, "
+                f"whose radius is {rad} -- it lights the cloud, not the sun")
+            # Under the sun, not over it: the middle of the disc is the same
+            # colour with the glow and without.
+            sx, sy = (bx + cx * got["size"] / 32, by + cy * got["size"] / 32)
+            assert self._px(page, sx, sy) == self._px(page, sx, sy, off), (
+                f"{key}: the glow tints the sun itself -- it is painted over "
+                f"the glyph instead of behind it")
+        else:
+            x0, y0, x1, y1 = got["moon"]
+            assert x0 <= x <= x1 and y0 <= y <= y1, (
+                f"{key}: the glow is centred at ({x:.1f}, {y:.1f}), off the "
+                f"moon at {[round(v, 1) for v in got['moon']]}")
+
+
 def _srgb(text: str) -> tuple[float, float, float] | None:
     """A computed colour as 0-255 channels, from either spelling Chromium uses:
     `rgb()` for a plain colour, `color(srgb r g b)` for a `color-mix()`."""
@@ -1884,6 +1998,28 @@ class TestItIsLegibleInDaylight:
         light_page.wait_for_selector(".screen.open")
         colour = _colours(light_page, [".card h2"])[".card h2"]
         assert _luma(colour) < 170, f"card text is {colour} on a white card"
+
+    def test_a_glyph_on_a_white_card_still_has_a_body(self, light_page):
+        """The glyphs wear the icon's colours, which were chosen for a navy sky
+        (§44): its cloud is #dfe7f7, 1.2:1 on white -- a hairline outline with
+        nothing inside it, and in the ten days the glyph is the only thing
+        that says what the weather is. The light scheme dims every glyph on a
+        card one step. Read off the pixels, since the filter that does it is
+        exactly the kind of rule a tidy-up removes."""
+        Image = pytest.importorskip("PIL.Image", reason="pillow not installed")
+        el = light_page.locator(".day svg.wi").first
+        card = light_page.evaluate(
+            "getComputedStyle(document.querySelector('.card')).backgroundColor")
+        paper = tuple(int(v) for v in _rgba(card)[:3])
+        shot = Image.open(io.BytesIO(el.screenshot())).convert("RGB")
+        # The commonest colour that is not the card: the body of the cloud, or
+        # of the sun on a clear day.
+        body = next(c for _, c in sorted(shot.getcolors(1 << 16), reverse=True)
+                    if max(abs(a - b) for a, b in zip(c, paper, strict=True)) > 8)
+        got = _contrast(f"rgb{body}", card)
+        assert got >= 1.6, (
+            f"the glyph's body is rgb{body} on the card's {card}: {got:.2f}:1 "
+            f"-- an outline with nothing in it")
 
     # What sits on the sky, what sits at its foot, and the quietest text on
     # the cards over it -- the cards are glass, so the sky reaches them too.

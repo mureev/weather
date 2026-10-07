@@ -1099,6 +1099,74 @@ class TestTheLaunchIsOneContinuousColour:
         assert 'class="sr"' in html and "Загружаем" in html
 
 
+class TestTheIconAndTheAppAreOneDrawing:
+    """The home-screen icon is the forecast's own `i-partly` glyph on the clear
+    day's sky, rendered large and downscaled; then the app was redrawn from the
+    icon -- the glyphs took its cloud, the clear day its gradient, and the
+    install banner's drawing of it its glow (DECISIONS.md §44).
+
+    A PNG and a stylesheet cannot read each other, so as with the launch
+    colour above, this asserts they agree and says which one would have to
+    move. Recolour the glyph and the icon must be rendered again; render the
+    icon in another sky and the clear day goes with it.
+    """
+
+    ICONS = ("icon-512.png", "icon-192.png", "apple-touch-icon.png",
+             "icon-maskable.png")
+
+    @staticmethod
+    def _hex(rgb) -> str:
+        return "#" + "".join(f"{v:02x}" for v in rgb)
+
+    def _icons(self, client_):
+        Image = pytest.importorskip("PIL.Image", reason="pillow not installed")
+        import io
+        for name in self.ICONS:
+            r = client_.get(f"/weather/icons/{name}")
+            assert r.status_code == 200, name
+            yield name, Image.open(io.BytesIO(r.content)).convert("RGB")
+
+    def test_the_icon_wears_the_glyphs_two_colours(self, client_):
+        """The two flat areas of the icon -- the cloud, then the sun -- are its
+        two commonest colours at every size, since a downscaled flat area keeps
+        its colour inside the edge. They are the symbol's two fills."""
+        html = client_.get("/weather/index.html").text
+        glyph = re.search(r'<symbol id="i-partly".*?</symbol>', html).group(0)
+        want = set(re.findall(r'fill="(#[0-9a-f]{6})"', glyph))
+        assert len(want) == 2, f"i-partly is no longer a sun and a cloud: {want}"
+        for name, im in self._icons(client_):
+            top = sorted(im.getcolors(1 << 24), reverse=True)[:2]
+            got = {self._hex(c) for _, c in top}
+            assert got == want, (
+                f"{name} is drawn in {sorted(got)} and the glyph in "
+                f"{sorted(want)}: the icon and the forecast's glyph have parted")
+
+    def test_a_clear_day_is_the_icons_sky(self, client_):
+        """Down the icon's right edge, the side farthest from its glow, the
+        pixels are the gradient itself: its first colour in the top corner,
+        and 62% of the way down the colour the clear day's middle stop is
+        meant to be -- the point the icon's gradient passes on its way to the
+        launch colour. A row is one pixel of a gradient that spans the tile,
+        so that one is allowed a level either way for rounding. The banner's
+        drawing of the icon starts where both do."""
+        html = client_.get("/weather/index.html").text
+        sky1, sky2 = re.search(
+            r':root\[data-sky="clear-day"\]\s*\{--sky1:(#[0-9a-f]{6});'
+            r'--sky2:(#[0-9a-f]{6})', html).groups()
+        for name, im in self._icons(client_):
+            corner = self._hex(im.getpixel((im.width - 1, 0)))
+            assert corner == sky1, (
+                f"{name} begins at {corner}, the clear day at {sky1}")
+            mid = im.getpixel((im.width - 1, round(.62 * (im.height - 1))))
+            want = tuple(int(sky2[i:i + 2], 16) for i in (1, 3, 5))
+            assert all(abs(a - b) <= 1 for a, b in zip(mid, want, strict=True)), (
+                f"{name} is {self._hex(mid)} 62% of the way down, and the clear "
+                f"day's middle stop {sky2}: the icon's gradient has moved")
+        banner = re.search(r"\.a2hs \.g b\{[^}]*\}", html).group(0)
+        assert f"linear-gradient({sky1}," in banner, \
+            "the banner draws the icon on a sky the icon no longer has"
+
+
 class TestTwoLanguages:
     """The English interface, from the server's side: names spelled for
     English readers, and nothing about the reader's language sent upstream."""

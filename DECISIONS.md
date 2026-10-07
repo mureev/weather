@@ -59,6 +59,7 @@ decision recorded without its reversal condition becomes dogma.
 | 41 | [The installed app's canvas is the top of the sky](#41-the-installed-apps-canvas-is-the-top-of-the-sky) | iOS tints the blur under a home-screen app's clock with the canvas colour; there it is `--sky1`, dimmed with the scrim, and the page does not bounce. |
 | 42 | [The image is started locked down; known vulnerabilities are an alarm, not a gate](#42-the-image-is-started-locked-down-known-vulnerabilities-are-an-alarm-not-a-gate) | CI runs the image the way the server should and waits for its HEALTHCHECK; a weekly audit reports and never blocks a deploy. |
 | 43 | [Rain falls from the curve](#43-rain-falls-from-the-curve) | Streaks under the line where it rains, dots where it snows: density is how hard, opacity how sure, and a dry day draws nothing. |
+| 44 | [The app is drawn from its icon](#44-the-app-is-drawn-from-its-icon) | The glyphs take the icon's colours, the hero its glow, the clear day its gradient; a test holds the PNG and the stylesheet to each other. |
 
 ---
 
@@ -2217,7 +2218,9 @@ the day screen once shipped a near-black title on a blue bar.
   canvas to see below a sheet (`debug.js` checks the two only when there is).
 - Nothing on the sky takes a palette colour (§11): the place, the hero, the
   strip and the footer are white at fixed alphas, chosen on the brightest sky
-  -- `cloudy-day` under its haze -- with a margin over 4.5:1. That fixed the
+  -- `cloudy-day` under its haze -- with a margin over 4.5:1. *(Since §44 the
+  brightest sky is the clear day, the icon's, and it sets the worst margin in
+  both schemes: 4.90:1 dark, 5.06:1 light.)* That fixed the
   dark scheme too: its hero lines were `--dim` and `--faint`, 3.3 to 4.3:1 on
   the two day skies.
 - Light cards are opaque. White at 86% over navy is grey (#dcdde2), and the
@@ -2450,6 +2453,142 @@ waiting. If Open-Meteo's maybes make the card look permanently wet, the 40%
 rises, not the design. And if the card stops feeling calm -- the owner's test
 is that this app stays fresh and clean -- the streaks go, and the row under the
 times carries the rain alone, as it did.
+
+---
+
+## 44. The app is drawn from its icon
+
+*Decided 2026-10-07 by the owner, five days after the icon was redrawn
+(6389e92): "icon is really good now" -- so apply it to the rest.*
+
+The redrawn icon is the forecast's own `i-partly` glyph on a sky gradient, with
+a warm glow behind its sun. Laid beside the screen it opens, it was a better
+picture of the app than the app was, and in three ways that can be measured
+rather than argued:
+
+- its cloud is **#dfe7f7**, whiter and less lavender than any cloud on the
+  screen, where the brightest was #c9d4ec;
+- its sky starts at **#2a5ea8**, brighter and bluer than the app's clearest,
+  #1d4b8f;
+- and it has **a light in it**, where the app had one only under a clear sky,
+  in a corner of it, behind everything.
+
+So the app takes all three from the icon, rather than the icon being drawn
+back down to the app.
+
+**The glyphs wear the icon's colours.** The same eighteen shapes: the icon was
+rendered from them, so they needed its colours rather than redrawing. The
+fair-weather cloud is the icon's #dfe7f7 exactly, and the heavier weathers step
+down from it in lightness at the same hue, so a downpour's cloud is still
+darker than a drizzle's:
+
+| fill | was | is |
+|---|---|---|
+| partly cloudy's cloud -- the icon's own | #c9d4ec | #dfe7f7 |
+| cloudy; drizzle, light rain, light snow; overcast's front | #c2cee8 | #d7e0f2 |
+| rain, snow, sleet, hail | #b3c0dc | #c7d2e7 |
+| heavy rain, heavy snow | #93a2c4 | #a9b6d0 |
+| thunder | #8b99b8 | #9caac5 |
+| a cloud after dark | #aebbd8 | #bec9e1 |
+| overcast's back cloud; fog's lines | #9fadc9 | #b3bed4 |
+| fog's cloud | #b9c5dd | #ced8eb |
+| hail's stones | #cfe3ff | #d9eaff |
+| the moon | #cfd9f5 | #e8f0ff |
+
+The sun and the bolt were already the icon's yellow, and the drops and the
+snow keep their colours. So does the question mark drawn for a condition nobody
+recognised, #93a2c4, now a step below the darkest cloud: it is the one glyph
+that is not weather, and it should not look like any.
+
+On white those vanish -- the icon's cloud is 1.2:1 there -- so the light scheme
+dims every glyph on a card or a sheet one step and gives it back its colour,
+`brightness(.86) saturate(1.6)`: a light-rain cloud is #b5c1da at 1.8:1, the
+sun an amber, the snow a grey. Dimming alone was drawn first and turned the
+clouds to concrete, #b9c1d0 at a chroma of 0.023. §40's hairline of shadow
+stays.
+
+**The hero is lit the way the icon is.** Behind the hero's glyph, a warm glow
+where it has a sun and a cool one where it has a moon, and nothing behind
+anything else. The colours are the ones the sky's own sun and moon glows are
+made of (§29), which is what the icon's is made of too; the shape is fitted to
+the icon's pixels rather than chosen: 0.35 at the sun, falling in a straight
+line to nothing 18 of the glyph's 32 units away, with less than half a level
+left over anywhere on the tile. A glow twice that size was drawn as well, and
+it lit the sky around the glyph rather than the sun in it -- a step towards
+what the sky's old cloud layer became on the phone, "a spotlight left on"
+(`FX_OF`). It is centred on the body giving the light: the middle of the glyph
+when the sky is clear, up and to the left where a cloud hides most of the sun,
+the whole moon behind a crescent. The icon has no moon to measure, so the
+moon's glow is the sun's at 0.62 -- the ratio of the sky's own moon glow to its
+sun glow, 0.26 to 0.42 -- which of the three strengths drawn, 0.62, 0.8 and 1,
+is the one with a reason behind it and the quietest. Static, since the icon
+does not breathe and the sky behind it already does.
+
+It is keyed off the glyph, by a `data-i` the hero now carries, and not off the
+sky. The first version used `data-sky`, which names exactly the lit glyphs for
+every condition the parsers know -- and for one they do not, the sky falls back
+to a cloudy night and the glyph to a question mark, which came out moonlit.
+
+**The clear day is the icon's sky**: #2a5ea8 at the top and, at the 62% stop,
+#18315e, the point the icon's gradient passes on its way to the launch colour.
+Below that the two part: the icon ends at the launch colour, #0d1630, and the
+app runs on to the foot every sky shares. The other six move the same way and
+less far -- bluer more than lighter, since overcast, rain and snow have no
+night forms and are what the app shows at midnight too:
+
+| sky | was | is |
+|---|---|---|
+| clear day | #1d4b8f → #12294d | #2a5ea8 → #18315e |
+| cloudy day | #2a4a72 → #16233d | #31578b → #192c4b |
+| overcast | #232c40 → #111827 | #25324a → #141c2c |
+| rain | #1a2740 → #0d1524 | #192d4d → #0c172c |
+| snow | #26314c → #131b2c | #2b3857 → #161f32 |
+| clear night | #0b1435 | #0c1741 |
+| cloudy night | #141c33 | #15213d |
+
+The default and the foot of every sky do not move: #0d1630 is the launch colour
+(§19) and #0a1020 the sheets' (§26).
+
+**What the brighter sky cost, and what paid it back.** §40's test scores every
+pixel behind every line of text on the sky, and it stayed green throughout; the
+margins it reported did not. Two fell to almost nothing on the clear day: the
+selected source's temperature on its pill, 5.08 to 4.61:1, and the quietest
+heading on a card scrolled up into the sky -- whose glass lets 14% of it
+through -- 4.83 to 4.66:1. The first is one shade lighter, #a6d0ff from
+#9cc6ff, and the footer's Refresh with it; the second's `--faint` is four
+levels lighter, #8794b7 from #8390b3. The worst margin on any sky is now 4.90:1
+in the dark scheme and 5.06:1 in the light, against 4.83 and 5.01 before.
+
+**And one drawing of the icon was left.** The install banner (§35) draws the
+app's icon on a phone. It has the glow now, so the drawing of the icon is the
+icon.
+
+**What holds it.** A PNG and a stylesheet cannot read each other, so, as with
+the launch colour, a test holds them to agreeing: the icon's two commonest
+colours, at every size, are `i-partly`'s two fills, and down its right edge,
+the side farthest from the glow, its top and its 62% point are the clear day's
+two stops, the first of which the banner draws as well. Recolour the glyph and
+the icon must be rendered again, and the test says so.
+
+The glow's test reads which glyphs have a sun or a moon off the symbols
+themselves -- a sun is a circle in `i-clear`'s colour, a moon a path in
+`i-clear-night`'s -- so it is not a second copy of the stylesheet's list, and
+asserts for all eighteen and the question mark that the glow is there or not,
+warm or cool, and on the body; then, off the pixels, that it is painted at all
+and painted under the sun rather than over it, since a style is not a picture
+(§14). A light-mode test reads a cloud back off the pixels too. Each was seen
+to fail against its own sabotage.
+
+Cold load 57.5 to 58.6 kB of the 64 (§18), most of it the comments that say
+the above. Like the sky's motion (§29) the glow is not information, and it is
+the first thing to give back if a byte is ever wanted for something that is.
+
+**What would reverse it.** If the brighter skies are loud on the phone at night,
+the grey ones come down first -- overcast, rain and snow, which are the ones
+shown in the dark -- then the nights; the clear day stays the icon's. If the
+glow reads on the device as a lamp rather than the sun, it goes, and the glyphs
+keep the icon's colours. And if the icon is ever redrawn, the glyphs follow it
+rather than the other way round: the test will name which colour moved.
 
 ---
 

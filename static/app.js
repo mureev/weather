@@ -704,8 +704,10 @@ function render(d) {
 
   setSky(c.icon, !!d.night);
 
+  // `data-i` names the glyph for the stylesheet, which lights a sun or a moon
+  // the way the home-screen icon is lit (§44).
   const hero = `<div class="hero">
-    <div class="ic">${icon(c.icon)}</div>
+    <div class="ic" data-i="${esc(c.icon || '')}">${icon(c.icon)}</div>
     <div class="t">${fmtT(c.temp_c)}</div>
     <div class="cond">${esc(cond(c))}</div>
     ${range ? `<div class="sub">${range}</div>` : ''}

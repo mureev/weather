@@ -68,7 +68,10 @@
      is a light surface and `--sky3` does not move (§40). */
   --sky3:#0a1020; --bg:var(--sky3);
   --bg2:#141d33; --card:#161f38; --card2:#1b2542;
-  --line:#26314f; --fg:#eef3ff; --dim:#8f9dbe; --faint:#8390b3;
+  /* `--faint` is four levels lighter than it was (#8390b3) since the clear day
+     became the icon's brighter sky: a card's glass lets 14% of it through,
+     and the quietest heading on a card scrolled up into it fell to 4.66:1. */
+  --line:#26314f; --fg:#eef3ff; --dim:#8f9dbe; --faint:#8794b7;
   --accent:#71a9ff; --warn:#ffb454; --bad:#ff6b6b;
   /* A card is glass; the banner is a card with a picture under its glass. */
   --glass:color-mix(in srgb,var(--card) 86%,transparent);
@@ -125,10 +128,13 @@
   .screen .src b{color:var(--fg)}
   .screen .src.sel{background:var(--card);color:var(--fg)}
   .screen .src.sel b{color:var(--accent)}
-  /* The clouds are drawn for a navy sky, and on white they all but vanish:
-     #c2cee8 is 1.5:1. A hairline of shadow gives each one an edge without
-     redrawing eighteen symbols in a second palette. */
-  .card svg.wi,.dayhero svg{filter:drop-shadow(0 0 .6px #1a2c5499)}
+  /* The clouds are the icon's, drawn for a navy sky (§44), and on white they
+     all but vanish: #dfe7f7 is 1.2:1. Dimmed and given back their colour,
+     every glyph keeps its palette one step deeper -- that cloud #bcc7dd at
+     1.7:1, the sun an amber, the snow a grey -- and a hairline of shadow gives
+     each an edge, without a second set of eighteen symbols. */
+  .card svg.wi,.dayhero svg{
+    filter:brightness(.86) saturate(1.6) drop-shadow(0 0 .6px #1a2c5499)}
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
@@ -260,14 +266,17 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--fain
      height:calc(100dvh + 4px);
      background:var(--skygrad);
      transition:background 1.2s ease}
+/* The clear day is the app icon's own gradient -- #2a5ea8, and at 62% the
+   point that gradient passes on its way to the launch colour -- and the other
+   six are that sky in other weather: greyer, darker, or after dark (§44). */
 :root{--sky1:#0d1630;--sky2:#0a1020}
-:root[data-sky="clear-night"] {--sky1:#0b1435;--sky2:#0a1020}
-:root[data-sky="clear-day"]   {--sky1:#1d4b8f;--sky2:#12294d}
-:root[data-sky="cloudy-night"]{--sky1:#141c33;--sky2:#0a1020}
-:root[data-sky="cloudy-day"]  {--sky1:#2a4a72;--sky2:#16233d}
-:root[data-sky="overcast"]    {--sky1:#232c40;--sky2:#111827}
-:root[data-sky="rain"]        {--sky1:#1a2740;--sky2:#0d1524}
-:root[data-sky="snow"]        {--sky1:#26314c;--sky2:#131b2c}
+:root[data-sky="clear-night"] {--sky1:#0c1741;--sky2:#0a1020}
+:root[data-sky="clear-day"]   {--sky1:#2a5ea8;--sky2:#18315e}
+:root[data-sky="cloudy-night"]{--sky1:#15213d;--sky2:#0a1020}
+:root[data-sky="cloudy-day"]  {--sky1:#31578b;--sky2:#192c4b}
+:root[data-sky="overcast"]    {--sky1:#25324a;--sky2:#141c2c}
+:root[data-sky="rain"]        {--sky1:#192d4d;--sky2:#0c172c}
+:root[data-sky="snow"]        {--sky1:#2b3857;--sky2:#161f32}
 /* **One sky for both appearances** (DECISIONS.md §40). Light mode had its own,
    near-white by mid-screen, where the hero and the strip sit: 1.4 to 3.1:1.
    So **nothing on the sky takes a palette colour** -- the palette follows the
@@ -747,8 +756,31 @@ html.locked{overflow:hidden;overscroll-behavior:none}
 
 /* ---- hero: no card, on the sky ------------------------------------------ */
 .hero{text-align:center;padding:2px 0 20px;color:#fff}
-.hero .ic{width:88px;height:88px;margin:2px auto -8px}
+.hero .ic{width:88px;height:88px;margin:2px auto -8px;position:relative}
 .hero .ic svg{display:block;width:100%;height:100%}
+/* The icon's light (§44). The home-screen icon is this glyph on this sky with
+   a warm glow behind its sun; here the same glow sits behind the same sun, and
+   a cool one behind the moon. Fitted to the icon's pixels, not chosen: .35 at
+   the sun, falling in a straight line to nothing 18 of the glyph's 32 units
+   away, so 112% of the box. Twice that was drawn too, and it lit the sky
+   around the glyph rather than the sun in it. The icon has no moon to measure;
+   the moon's is the sun's at .62, which is how much fainter the sky's own moon
+   glow is than its sun glow (.26 to .42).
+
+   Keyed off the glyph (`data-i`), not the sky: the sky's fallback for a
+   condition nobody recognised is a cloudy night, and a question mark is not
+   lit. Centred on the body that gives the light -- the middle of the glyph
+   when it is clear, up and to the left where a cloud hides most of it, the
+   whole moon behind a crescent. Static, unlike the sky behind it, since the
+   icon does not breathe; and under everything, no target for a finger. */
+.hero .ic::before{content:none;position:absolute;z-index:-1;pointer-events:none;
+  width:112%;height:112%;left:-6%;top:-6%;
+  background:radial-gradient(closest-side,rgb(var(--lit) / .35),rgb(var(--lit) / 0))}
+.hero .ic:is([data-i^=clear],[data-i^=partly],[data-i^=cloudy])::before{
+  content:'';--lit:255 214 150}
+.hero .ic[data-i$=-night]::before{--lit:206 224 255;opacity:.62}
+.hero .ic:is([data-i^=partly],[data-i^=cloudy])::before{left:-20%;top:-18.5%}
+.hero .ic[data-i=clear-night]::before{left:-11.5%;top:.5%}
 .hero .t{font-size:96px;font-weight:180;letter-spacing:-.055em;line-height:1;
          font-variant-numeric:tabular-nums;margin-left:-.06em}
 .hero .cond{font-size:21px;font-weight:480;margin:4px 0 0;color:rgba(255,255,255,.82)}
@@ -780,7 +812,9 @@ html.locked{overflow:hidden;overscroll-behavior:none}
        color:rgba(255,255,255,.72);
        font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;
        text-overflow:ellipsis}
-.src.sel b{color:#9cc6ff}
+/* One shade lighter since the clear day became the icon's sky (§44): the old
+   #9cc6ff read 4.6:1 on the pill there, a margin of nothing. */
+.src.sel b{color:#a6d0ff}
 
 /* ---- the summary line, at the head of the hourly card ------------------- */
 .nowcast{display:flex;gap:10px;align-items:flex-start;font-size:15px;
@@ -877,7 +911,7 @@ html.locked{overflow:hidden;overscroll-behavior:none}
 .foot .sep{opacity:.45}
 .foot .line button{padding:11px 8px;margin:-11px -8px}
 /* On the sky, so not `--accent`: light mode's is a blue for white surfaces. */
-#btn-refresh{color:#9cc6ff}
+#btn-refresh{color:#a6d0ff}
 #stamp:empty+.sep{display:none}
 .badge{padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:600;
        border:1px solid}
@@ -949,7 +983,10 @@ html.locked{overflow:hidden;overscroll-behavior:none}
 .a2hs .g{position:absolute;top:8.6cqw;left:1.7cqw;right:1.7cqw;display:grid;
   grid-template-columns:repeat(4,1fr);gap:2.6cqw 1.4cqw}
 .a2hs .g>*{aspect-ratio:1;border-radius:27%;background:#ffffff47}
-.a2hs .g b{display:grid;place-items:center;background:linear-gradient(#2a5ea8,#0d1630)}
+/* The icon as it is, warm glow and all, behind the glyph's sun (§44). */
+.a2hs .g b{display:grid;place-items:center;
+  background:radial-gradient(48% 48% at 38% 39%,#ffd69659,#ffd69600),
+             linear-gradient(#2a5ea8,#0d1630)}
 .a2hs .g svg{width:86%;height:86%}
 .a2hs .tx{margin-left:calc(36.5cqw + 14px);padding:24px 16px 16px 0}
 /* Clears the × from the first line only, which is all it reaches. */
@@ -981,26 +1018,26 @@ html.locked{overflow:hidden;overscroll-behavior:none}
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
  <defs>
   <symbol id="i-clear" viewBox="0 0 32 32"><circle cx="16" cy="16" r="6.5" fill="#ffc94d"/><g stroke="#ffc94d" stroke-width="2.2" stroke-linecap="round"><path d="M16 3v3.5M16 25.5V29M3 16h3.5M25.5 16H29M6.8 6.8l2.5 2.5M22.7 22.7l2.5 2.5M25.2 6.8l-2.5 2.5M9.3 22.7l-2.5 2.5"/></g></symbol>
-  <symbol id="i-clear-night" viewBox="0 0 32 32"><path d="M23.5 20.4A9.2 9.2 0 0 1 12.1 8.7a9.6 9.6 0 1 0 11.4 11.7z" fill="#cfd9f5"/></symbol>
-  <symbol id="i-partly" viewBox="0 0 32 32"><circle cx="11.5" cy="12" r="5" fill="#ffc94d"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#c9d4ec"/></symbol>
-  <symbol id="i-partly-night" viewBox="0 0 32 32"><path d="M17.8 13.6a6 6 0 0 1-7.4-7.6 6.3 6.3 0 1 0 7.4 7.6z" fill="#cfd9f5"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#aebbd8"/></symbol>
-  <symbol id="i-cloudy" viewBox="0 0 32 32"><circle cx="10.5" cy="11" r="4.2" fill="#ffc94d"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#c2cee8"/></symbol>
+  <symbol id="i-clear-night" viewBox="0 0 32 32"><path d="M23.5 20.4A9.2 9.2 0 0 1 12.1 8.7a9.6 9.6 0 1 0 11.4 11.7z" fill="#e8f0ff"/></symbol>
+  <symbol id="i-partly" viewBox="0 0 32 32"><circle cx="11.5" cy="12" r="5" fill="#ffc94d"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#dfe7f7"/></symbol>
+  <symbol id="i-partly-night" viewBox="0 0 32 32"><path d="M17.8 13.6a6 6 0 0 1-7.4-7.6 6.3 6.3 0 1 0 7.4 7.6z" fill="#e8f0ff"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#bec9e1"/></symbol>
+  <symbol id="i-cloudy" viewBox="0 0 32 32"><circle cx="10.5" cy="11" r="4.2" fill="#ffc94d"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#d7e0f2"/></symbol>
   <!-- Broken cloud after dark. Without it the night rows of the day screen
        drew a sun at three in the morning, because `cloudy` is «облачно с
        прояснениями» and its glyph is the sun peering through the gap. -->
-  <symbol id="i-cloudy-night" viewBox="0 0 32 32"><path d="M16.4 12.8a5.6 5.6 0 0 1-6.9-7.1 5.9 5.9 0 1 0 6.9 7.1z" fill="#cfd9f5"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#aebbd8"/></symbol>
-  <symbol id="i-overcast" viewBox="0 0 32 32"><path d="M22 14.5a6.5 6.5 0 0 0-12.4-1.8A5 5 0 0 0 10 22.6h12a4 4 0 0 0 0-8.1z" fill="#9fadc9"/><path d="M24 25H11a4.6 4.6 0 0 1 .3-9.2A6.6 6.6 0 0 1 24 17a4 4 0 0 1 0 8z" fill="#c2cee8"/></symbol>
-  <symbol id="i-fog" viewBox="0 0 32 32"><path d="M23 20H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 11a4.6 4.6 0 0 1-1.6 9z" fill="#b9c5dd"/><g stroke="#9fadc9" stroke-width="2.1" stroke-linecap="round"><path d="M7 24h18M9 28h14"/></g></symbol>
-  <symbol id="i-drizzle" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#c2cee8"/><g stroke="#6ea8ff" stroke-width="2" stroke-linecap="round"><path d="M13 23v2M18 23v2M23 23v2"/></g></symbol>
-  <symbol id="i-rain-light" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#c2cee8"/><g stroke="#6ea8ff" stroke-width="2.1" stroke-linecap="round"><path d="M14 22.5l-1.5 4M21 22.5l-1.5 4"/></g></symbol>
-  <symbol id="i-rain" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#b3c0dc"/><g stroke="#4f92ff" stroke-width="2.2" stroke-linecap="round"><path d="M12.5 22l-1.8 5M18 22l-1.8 5M23.5 22l-1.8 5"/></g></symbol>
-  <symbol id="i-rain-heavy" viewBox="0 0 32 32"><path d="M23 18H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 9a4.6 4.6 0 0 1-1.6 9z" fill="#93a2c4"/><g stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round"><path d="M11.5 21l-2.2 7M16.5 21l-2.2 7M21.5 21l-2.2 7M26 21l-2.2 7"/></g></symbol>
-  <symbol id="i-snow-light" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#c2cee8"/><g fill="#eaf0ff"><circle cx="13.5" cy="24.5" r="1.7"/><circle cx="20.5" cy="24.5" r="1.7"/></g></symbol>
-  <symbol id="i-snow" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#b3c0dc"/><g fill="#fff"><circle cx="12.5" cy="24" r="1.8"/><circle cx="18" cy="26" r="1.8"/><circle cx="23.5" cy="24" r="1.8"/></g></symbol>
-  <symbol id="i-snow-heavy" viewBox="0 0 32 32"><path d="M23 18H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 9a4.6 4.6 0 0 1-1.6 9z" fill="#93a2c4"/><g fill="#fff"><circle cx="11.5" cy="23" r="1.9"/><circle cx="16.5" cy="26" r="1.9"/><circle cx="21.5" cy="23" r="1.9"/><circle cx="26" cy="26" r="1.9"/></g></symbol>
-  <symbol id="i-sleet" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#b3c0dc"/><path d="M13 22.5l-1.8 5" stroke="#4f92ff" stroke-width="2.2" stroke-linecap="round"/><circle cx="20" cy="25" r="1.9" fill="#fff"/></symbol>
-  <symbol id="i-thunder" viewBox="0 0 32 32"><path d="M23 18H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 9a4.6 4.6 0 0 1-1.6 9z" fill="#8b99b8"/><path d="M17.5 19l-5 8h4l-1.5 6 6.5-9h-4z" fill="#ffc94d"/></symbol>
-  <symbol id="i-hail" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#b3c0dc"/><g fill="#cfe3ff"><circle cx="13" cy="24.5" r="2"/><circle cx="19" cy="26" r="2"/><circle cx="24" cy="24.5" r="2"/></g></symbol>
+  <symbol id="i-cloudy-night" viewBox="0 0 32 32"><path d="M16.4 12.8a5.6 5.6 0 0 1-6.9-7.1 5.9 5.9 0 1 0 6.9 7.1z" fill="#e8f0ff"/><path d="M23 27H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 18a4.6 4.6 0 0 1-1.6 9z" fill="#bec9e1"/></symbol>
+  <symbol id="i-overcast" viewBox="0 0 32 32"><path d="M22 14.5a6.5 6.5 0 0 0-12.4-1.8A5 5 0 0 0 10 22.6h12a4 4 0 0 0 0-8.1z" fill="#b3bed4"/><path d="M24 25H11a4.6 4.6 0 0 1 .3-9.2A6.6 6.6 0 0 1 24 17a4 4 0 0 1 0 8z" fill="#d7e0f2"/></symbol>
+  <symbol id="i-fog" viewBox="0 0 32 32"><path d="M23 20H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 11a4.6 4.6 0 0 1-1.6 9z" fill="#ced8eb"/><g stroke="#b3bed4" stroke-width="2.1" stroke-linecap="round"><path d="M7 24h18M9 28h14"/></g></symbol>
+  <symbol id="i-drizzle" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#d7e0f2"/><g stroke="#6ea8ff" stroke-width="2" stroke-linecap="round"><path d="M13 23v2M18 23v2M23 23v2"/></g></symbol>
+  <symbol id="i-rain-light" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#d7e0f2"/><g stroke="#6ea8ff" stroke-width="2.1" stroke-linecap="round"><path d="M14 22.5l-1.5 4M21 22.5l-1.5 4"/></g></symbol>
+  <symbol id="i-rain" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#c7d2e7"/><g stroke="#4f92ff" stroke-width="2.2" stroke-linecap="round"><path d="M12.5 22l-1.8 5M18 22l-1.8 5M23.5 22l-1.8 5"/></g></symbol>
+  <symbol id="i-rain-heavy" viewBox="0 0 32 32"><path d="M23 18H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 9a4.6 4.6 0 0 1-1.6 9z" fill="#a9b6d0"/><g stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round"><path d="M11.5 21l-2.2 7M16.5 21l-2.2 7M21.5 21l-2.2 7M26 21l-2.2 7"/></g></symbol>
+  <symbol id="i-snow-light" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#d7e0f2"/><g fill="#eaf0ff"><circle cx="13.5" cy="24.5" r="1.7"/><circle cx="20.5" cy="24.5" r="1.7"/></g></symbol>
+  <symbol id="i-snow" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#c7d2e7"/><g fill="#fff"><circle cx="12.5" cy="24" r="1.8"/><circle cx="18" cy="26" r="1.8"/><circle cx="23.5" cy="24" r="1.8"/></g></symbol>
+  <symbol id="i-snow-heavy" viewBox="0 0 32 32"><path d="M23 18H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 9a4.6 4.6 0 0 1-1.6 9z" fill="#a9b6d0"/><g fill="#fff"><circle cx="11.5" cy="23" r="1.9"/><circle cx="16.5" cy="26" r="1.9"/><circle cx="21.5" cy="23" r="1.9"/><circle cx="26" cy="26" r="1.9"/></g></symbol>
+  <symbol id="i-sleet" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#c7d2e7"/><path d="M13 22.5l-1.8 5" stroke="#4f92ff" stroke-width="2.2" stroke-linecap="round"/><circle cx="20" cy="25" r="1.9" fill="#fff"/></symbol>
+  <symbol id="i-thunder" viewBox="0 0 32 32"><path d="M23 18H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 9a4.6 4.6 0 0 1-1.6 9z" fill="#9caac5"/><path d="M17.5 19l-5 8h4l-1.5 6 6.5-9h-4z" fill="#ffc94d"/></symbol>
+  <symbol id="i-hail" viewBox="0 0 32 32"><path d="M23 19H12a5.4 5.4 0 0 1-.5-10.8A7 7 0 0 1 24.6 10a4.6 4.6 0 0 1-1.6 9z" fill="#c7d2e7"/><g fill="#d9eaff"><circle cx="13" cy="24.5" r="2"/><circle cx="19" cy="26" r="2"/><circle cx="24" cy="24.5" r="2"/></g></symbol>
   <symbol id="i-unknown" viewBox="0 0 32 32"><circle cx="16" cy="16" r="9" fill="none" stroke="#93a2c4" stroke-width="2"/><path d="M16 21v.01M13.5 13.5a2.5 2.5 0 1 1 3 2.4V18" fill="none" stroke="#93a2c4" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-umbrella" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 1 9 9H3a9 9 0 0 1 9-9zM12 12v7a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
  </defs>
