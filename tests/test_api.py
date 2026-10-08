@@ -415,7 +415,12 @@ class TestDegradation:
         with it (and /api/health, while there was one)."""
         raw = (request.path.parent / "fixtures" / "current.html").read_text(
             encoding="utf-8", errors="replace")
-        odd = raw.replace("07:00: +9°", "24:00: +9°", 1)
+        # The first hour label in the strip, whatever the recording's weather
+        # made it. This was the literal «07:00: +9°» until a re-recording at
+        # +7° turned the forgery into a no-op and the assert below caught it.
+        label = re.search(r"(?<!\d)\d\d:\d\d(?=: [+\u2212-]?\d+°)", raw)
+        assert label, "the strip no longer labels its hours «HH:MM: +N°»"
+        odd = raw[:label.start()] + "24:00" + raw[label.end():]
         assert odd != raw
 
         async def fetch(_c, _u):

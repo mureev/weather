@@ -2,10 +2,11 @@
 
 The previous build of this project never ran against the live page -- its
 container had no outbound HTTP to Yandex -- so its selectors were hypotheses
-and its fixtures were reconstructed markup. These fixtures were captured from
-`yandex.ru/pogoda/ru/yoshkar-ola` on 31 July 2026 from a real browser-shaped
-request. That makes these tests the difference between "the logic is verified"
-and "the parser is correct against reality".
+and its fixtures were reconstructed markup. These fixtures are captured from
+`yandex.ru/pogoda/ru/yoshkar-ola` with a real browser-shaped request -- first on
+31 July 2026, and again whenever the page moves. That makes these tests the
+difference between "the logic is verified" and "the parser is correct against
+reality".
 
 Re-record them any time the app looks off::
 
@@ -79,6 +80,11 @@ def _headline_temp(html: str) -> float:
     whole stream the parser exists to refuse. `extract.py` has had a dedicated
     test against that field since the beginning; the test's own scaffolding did
     not. Ask what a value *is*, including in the tools that check the tools.
+
+    (This also used to refuse a recording where the two cities read the same,
+    because the dedicated test was then comparing 8 with 8. It is forged now --
+    `test_never_reads_the_requester_location_fact` -- so a morning when
+    Yoshkar-Ola and Riga agree is just a morning.)
     """
     m = re.search(r'\\?"fact\\?":\s*\{\\?"temperature\\?":(-?\d+(?:\.\d+)?)', html)
     if not m:
@@ -86,18 +92,27 @@ def _headline_temp(html: str) -> float:
             "no `fact` block in the raw fixture -- if Yandex renamed it, find "
             "the city's own reading again rather than relaxing this to the "
             "first temperature on the page")
-    ours = float(m.group(1))
-    theirs = re.search(r'userLocationLaasFact\\?":\s*\{\\?"temperature\\?":'
-                       r'(-?\d+(?:\.\d+)?)', html)
-    if theirs and float(theirs.group(1)) == ours:
-        # Not fatal on its own -- two cities can share a temperature -- but on
-        # this fixture they differ, and if they ever stop differing the guard
-        # below is asleep. Recapture rather than assert against a coincidence.
+    return float(m.group(1))
+
+
+# Yoshkar-Ola keeps Moscow time, and Russia has had no summer time since 2014.
+MSK = dt.timezone(dt.timedelta(hours=3))
+
+
+def _page_clock(html: str) -> dt.datetime:
+    """When the page says it is, in the city: the nowcast's own step.
+
+    `nowcastStep` sits beside `fact` in the stream -- `{"genTime":...,
+    "time":...}`, epoch seconds, the ten-minute step the observation is
+    reported for. Read with the same escaped-or-not pattern as above, and for
+    the same reason.
+    """
+    m = re.search(r'\\?"nowcastStep\\?":\s*\{[^{}]*?\\?"time\\?":(\d+)', html)
+    if not m:
         raise AssertionError(
-            f"the city's reading and the requester's are both {ours}: this "
-            f"fixture cannot tell a correct parser from one reading the wrong "
-            f"city. Recapture it.")
-    return ours
+            "the fixture no longer says when it was made (`nowcastStep`) -- "
+            "find the page's own clock again rather than reading ours")
+    return dt.datetime.fromtimestamp(int(m.group(1)), tz=MSK)
 
 
 # The eight long forms every source is normalised to. A two-letter
@@ -409,9 +424,25 @@ class TestHourly:
     def test_values(self, parsed):
         h = parsed.hourly[0]
         assert re.fullmatch(r"[0-2]\d:[0-5]\d", h.time), h.time
-        assert h.temp_c == NOW_C, \
-            "the strip does not start at the observed hour"
         assert h.condition and h.condition[0].isupper()
+
+    def test_the_strip_starts_at_the_pages_own_hour(self, parsed):
+        """Not at midnight, and not at an hour that has gone.
+
+        This was `hourly[0].temp_c == NOW_C`, which is a statement about the
+        weather: that the forecast for this hour came true. All August it did.
+        On 8 October the page observed +8° at 07:20 while its 07:00 said +7°,
+        and the assertion failed against a parser that was right. What it
+        meant is a question about time, so it is asked of a clock -- the one
+        the page states -- with an hour's slack either way for the ten-minute
+        step rounding past the hour the strip opened on.
+        """
+        made = _page_clock(HTML)
+        hh, mm = map(int, parsed.hourly[0].time.split(":"))
+        gap = (made.hour * 60 + made.minute - hh * 60 - mm + 720) % 1440 - 720
+        assert abs(gap) <= 60, (
+            f"the strip opens at {parsed.hourly[0].time}, and the page was made "
+            f"at {made:%H:%M}")
 
     def test_not_degenerate(self, parsed):
         temps = [h.temp_c for h in parsed.hourly]
@@ -454,12 +485,33 @@ class TestFlightStream:
         """The stream also carries `userLocationLaasFact` -- the weather where
         Yandex thinks *we* are. On a foreign-hosted server that is a different
         city, and reading it would reproduce the Columbus failure from inside
-        our own parser."""
+        our own parser.
+
+        Forged, because the real one is only evidence when the two cities
+        disagree. On the October recording both read +8°, and the assertion
+        that used to be the whole test -- the parser's temperature is the
+        city's -- held for the right parser and the wrong one alike. Here the
+        requester's reading is moved to a number the city's cannot be, and it
+        stays where Yandex put it: first in the stream, ahead of `fact`, which
+        is exactly where a reader of the first temperature finds it.
+        """
         html = (request.path.parent / "fixtures" / "current.html").read_text(
             encoding="utf-8", errors="replace")
         s = X.flight(html)
-        assert "userLocationLaasFact" in s          # it really is in there
+        theirs = re.search(r'"userLocationLaasFact"\s*:\s*\{[^{}]*\}', s)
+        assert theirs, "the stream no longer carries the requester's weather"
+        assert theirs.start() < s.find('"fact"'), (
+            "the requester's reading no longer comes first, so a parser taking "
+            "the first temperature would read the city's by luck -- move the "
+            "forged copy ahead of `fact` rather than deleting this")
+        forged = NOW_C + 11.5
+        blob = re.sub(r'("temperature(?:InCelsius)?"\s*:\s*)-?\d+(?:\.\d+)?',
+                      rf"\g<1>{forged}", theirs.group(0))
+        assert blob != theirs.group(0)
+        s = s[:theirs.start()] + blob + s[theirs.end():]
+
         got = X._current_from_flight(s)
         assert got is not None
         cur, _ = got
-        assert cur.temp_c == NOW_C                  # the city's, not ours
+        assert cur.temp_c == NOW_C, (               # the city's, not ours
+            f"read {cur.temp_c}, the requester's forged reading was {forged}")

@@ -3,7 +3,8 @@
 `python -m tools.phone` -> screenshots/phone-*.png
 `PHONE_LANG=en python -m tools.phone` -> the same, in English
 `python -m tools.phone --readme` -> also docs/forecast.png and docs/day.png,
-    the two pictures at the top of the README: English, on Yandex's morning
+    the two pictures at the top of the README, in English
+`PHONE_AT=2026-10-08T10:00:00+00:00 python -m tools.phone` -> at another instant
 
 Six attempts at one bug were spent looking at a desktop window and reasoning
 about a phone, so this renders at the device's real geometry instead.
@@ -61,14 +62,14 @@ def _fixture_now() -> dt.datetime:
 
 
 FIXTURE_NOW = _fixture_now()
-# The README's shots open on the Yandex tab, and the Yandex set was recorded
-# the morning *after* the Gismeteo one this pins to (AGENTS.md, "Where this
-# was left"). Shot at 21:15 on the 14th, that tab's list began «Завтра», no
-# hour said «сейчас», and today's range was missing. `PHONE_AT` shoots at
-# another instant: `PHONE_AT=2026-08-15T04:05:00+00:00` is Yandex's morning.
+# `PHONE_AT` shoots at another instant. The README's shots used to need one:
+# from 15 August the Yandex set was recorded the morning *after* the Gismeteo
+# one this pins to, and shot at 21:15 on the 14th that tab's list began
+# «Завтра», no hour said «сейчас», and today's range was missing. Since
+# 8 October 2026 the two are one recording, two seconds apart, so the stamp
+# above is Yandex's morning as well and the README takes it as it is.
 README = "--readme" in sys.argv
 if README:
-    os.environ.setdefault("PHONE_AT", "2026-08-15T04:05:00+00:00")
     os.environ.setdefault("PHONE_LANG", "en")
 if os.environ.get("PHONE_AT"):
     FIXTURE_NOW = dt.datetime.fromisoformat(os.environ["PHONE_AT"])

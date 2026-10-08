@@ -256,7 +256,7 @@ def browser():
 # Both matter, and the second one is the subtle half: a capture at 21:30 UTC is
 # already the next morning in Yoshkar-Ola, so a `YW_TODAY` taken from the UTC
 # date would put the two ends a day apart again for every recording made after
-# nine in the evening. The last one was made at 20:27, with thirty-three
+# nine in the evening. The August one was made at 20:27, with thirty-three
 # minutes to spare.
 def _fixture_now() -> dt.datetime:
     p = ROOT / "tests" / "fixtures" / "mf-current.html"
@@ -450,7 +450,16 @@ class TestRainFallsFromTheCurve:
         way: Yandex with icons alone, Gismeteo in millimetres, Open-Meteo with
         a probability. A streak is matched to the column under it by where it
         is drawn, not by its index, so one that slides off its hour fails too.
+
+        A recording is not required to be wet. It used to be, per source, and
+        the October one caught Yandex on a dry morning: the test refused to
+        run, as if the weather were a defect in the fixture. A dry recording is
+        checked the other way -- nothing drawn, which is the promise below on
+        real markup -- and the icon-only path keeps its own hand-made hours in
+        `test_snow_is_dots_sleet_is_both_and_rain_is_streaks`. What would check
+        nothing at all is every recording dry, and that is still refused.
         """
+        wet = []
         for src in ("yandex", "gismeteo", "openmeteo"):
             tab = page.locator(f'.src[data-src="{src}"]')
             if tab.is_disabled():
@@ -470,11 +479,13 @@ class TestRainFallsFromTheCurve:
               const cols = [...document.querySelectorAll('#content .hour')].map(mid);
               return [...document.querySelectorAll('#content .hcurve .rain rect')]
                 .map(r => cols.findIndex(c => Math.abs(c - mid(r)) < 1)); }""")
-            assert want, f"{src}'s recording has no wet hour; this checked nothing"
+            if want:
+                wet.append(src)
             assert -1 not in got, f"{src}: a streak sits between two columns"
             assert sorted(got) == sorted(want), (
                 f"{src}: rain drawn under columns {sorted(got)}, "
                 f"but the wet hours are {sorted(want)}")
+        assert wet, "no recording has a wet hour; the streaks matched nothing"
 
     def test_a_dry_day_is_the_card_it_always_was(self, page):
         """The owner's condition for having this at all: nothing changes when

@@ -1,6 +1,6 @@
 """Run the real app against the recorded fixture, with no network at all.
 
-    python -m tests.mock_server                 # healthy, summer
+    python -m tests.mock_server                 # healthy, the recorded day
     YW_MOCK=winter   python -m tests.mock_server   # negative temperatures
     YW_MOCK=degraded python -m tests.mock_server   # scraper broken, OM fallback
     YW_MOCK=down     python -m tests.mock_server   # nothing works
@@ -151,6 +151,27 @@ if os.environ.get("YW_TODAY"):
     _service.local_now = _pinned_now
 _HOURS = 24 * 10
 
+# The stand-in's temperature follows the recording, as its dates do (`_DAY0`)
+# and for the same reason. It was 15.4°, which suited the August evening the
+# fixtures were pinned to; beside the October morning it stood seven degrees
+# above both real readings in the README's first picture -- which says "this
+# app disagrees with itself" rather than "this tab is a stand-in". The 0.6 is
+# `test_api.OM_NOW`'s gap: near the others, never equal to them, so switching
+# to this tab still shows a change. (DECISIONS.md §45)
+_FACT = re.search(r'\\?"fact\\?":\s*\{\\?"temperature\\?":(-?\d+(?:\.\d+)?)', RAW)
+_BASE = round(float(_FACT.group(1)) - 0.6, 1) if _FACT else 15.4
+
+# And its clock is the pinned instant, when there is one, on the fifteen-minute
+# step the API reports in. A literal 22:00 matched the August fixtures' 21:15;
+# against a morning it opened this tab's hours at ten at night, because the
+# strip is aligned to the observation (`service.align_to_now`).
+_OM_NOW = (dt.datetime.fromisoformat(os.environ["YW_NOW"])
+           .astimezone(dt.timezone(dt.timedelta(hours=3)))
+           if os.environ.get("YW_NOW") else None)
+_OM_TIME = (f"{_DAY0.isoformat()}T22:00" if _OM_NOW is None else
+            _OM_NOW.replace(minute=_OM_NOW.minute // 15 * 15)
+            .strftime("%Y-%m-%dT%H:%M"))
+
 
 def _diurnal(base: float, i: int) -> float:
     """Warmest at 15:00, coldest at 03:00, drifting a little over the period."""
@@ -161,7 +182,7 @@ def _diurnal(base: float, i: int) -> float:
 async def _om(_client, place):
     if MODE == "down":
         return None
-    base = -14.0 if MODE == "winter" else 15.4
+    base = -14.0 if MODE == "winter" else _BASE
     code = 71 if MODE == "winter" else 3
     midnight = dt.datetime.combine(_DAY0, dt.time())
     stamps = [(midnight + dt.timedelta(hours=i)).isoformat(timespec="minutes")
@@ -172,7 +193,7 @@ async def _om(_client, place):
         # which instant any of them names.
         "utc_offset_seconds": 10800,
         "timezone": "Europe/Moscow",
-        "current": {"time": f"{_DAY0.isoformat()}T22:00",
+        "current": {"time": _OM_TIME,
                     "temperature_2m": base,
                     "apparent_temperature": base - 1,
                     "relative_humidity_2m": 88, "surface_pressure": 993.0,

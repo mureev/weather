@@ -60,6 +60,7 @@ decision recorded without its reversal condition becomes dogma.
 | 42 | [The image is started locked down; known vulnerabilities are an alarm, not a gate](#42-the-image-is-started-locked-down-known-vulnerabilities-are-an-alarm-not-a-gate) | CI runs the image the way the server should and waits for its HEALTHCHECK; a weekly audit reports and never blocks a deploy. |
 | 43 | [Rain falls from the curve](#43-rain-falls-from-the-curve) | Streaks under the line where it rains, dots where it snows: density is how hard, opacity how sure, and a dry day draws nothing. |
 | 44 | [The app is drawn from its icon](#44-the-app-is-drawn-from-its-icon) | The glyphs take the icon's colours, the hero its glow, the clear day its gradient; a test holds the PNG and the stylesheet to each other. |
+| 45 | [A test may not need the weather to be anything](#45-a-test-may-not-need-the-weather-to-be-anything) | The fixtures are one recording again and nothing is known red; the tests that needed the sky to cooperate now forge their case or ask the page's clock. |
 
 ---
 
@@ -2589,6 +2590,90 @@ shown in the dark -- then the nights; the clear day stays the icon's. If the
 glow reads on the device as a lamp rather than the sun, it goes, and the glyphs
 keep the icon's colours. And if the icon is ever redrawn, the glyphs follow it
 rather than the other way round: the test will name which colour moved.
+
+---
+
+## 45. A test may not need the weather to be anything
+
+*Decided 2026-10-08, re-recording the fixtures the morning Meteofor was back.*
+
+Since its outage on 15 August (§32) the suite had carried one known failure:
+Yandex re-recorded that day, Gismeteo not, and `test_the_sources_overlap`
+marked `xfail(strict=True)` until both could be taken together. On 8 October
+they were -- Yandex and the four Meteofor pages, from the VPS, inside two
+seconds, at 07:26 in the city -- and strict did what it was there for: XPASS,
+red, marker off. Nothing in a parser had moved. The two browser tests that had
+been skipping while the sources disagreed ran again, and passed.
+
+Five other tests failed, and not one of them had found a bug. Four were
+questions about the weather that had always happened to be answered yes:
+
+- **"The strip starts at the observed hour"** was `hourly[0].temp_c == NOW_C`:
+  true all August, because the forecast for this hour usually matches what is
+  observed in it. At 07:20 the page observed +8° and its 07:00 said +7°.
+- **The requester's weather.** `_headline_temp` refused a recording where
+  Yoshkar-Ola and the city Yandex places our server in read the same, because
+  the test that keeps the parser off `userLocationLaasFact` would then be
+  comparing 8 with 8. That morning both were +8°.
+- **«24:00» was forged** by replacing the literal «07:00: +9°», which the new
+  page does not contain. The test's own `assert odd != raw` caught it, which
+  is what that line is for.
+- **The rain test** demanded a wet hour from every source's recording, and
+  Yandex's morning was dry.
+
+The fifth is a different animal. The Gismeteo column check read the wind row as
+a flat list of numbers and came up one short, because the evening was calm and
+Meteofor marks calm as «Штиль» with a dash and no number at all. The parser was
+right -- it counts containers, the lesson of the pressure row in *Traps* -- and
+the helper written to check it was the one reading flat. The weather did not
+break that test. It exposed it.
+
+**The rule.** A test may require things of the *page*: that it states its
+date, carries `fact`, labels its hours. It may not require things of the *sky*.
+Where a test needs a case -- two cities that disagree, a label to break -- it
+makes the case instead of waiting for a recording that contains one: the
+requester's reading is now forged to a number the city's cannot be, left where
+Yandex puts it, ahead of `fact`, which is where a reader of the first
+temperature would find it. Where the property is about time, it asks a clock
+rather than a temperature: the strip must open within an hour of the page's own
+nowcast step. And where only the weather can supply a case, a recording without
+it is checked the other way -- a dry source must draw no rain -- and the test
+refuses only when no recording has it at all.
+
+A refusal ("this fixture cannot tell the two apart; recapture it") felt like
+the honest kind of guard, and it is the same trap one level up. It turns a
+coincidence into a chore, and the chore needs network access a session here
+does not have; this one could reach neither site. **A refusal is fair when the
+person recording can satisfy it by choosing *when* to record** -- the Gismeteo
+column test still refuses a capture made in the strip's first three hours, where
+column zero and «now» are the same column. Nobody can choose the weather.
+
+The mock had the same habit. Its Open-Meteo stand-in was 15.4° observed at
+22:00, which suited the August evening the fixtures were pinned to; in October
+it put a source seven degrees above the other two in the README's first
+picture, which says "this app disagrees with itself" rather than "this tab is a
+stand-in". It follows the recording now, as its dates already did: the `fact`
+temperature less the 0.6 that `test_api.py` uses, and the pinned instant when
+there is one.
+`--readme` no longer moves the clock either -- it did because Yandex had been
+recorded the morning after Gismeteo.
+
+One fixture is still from August: Yandex's per-day page, which was not part of
+this recording and need not be for any test. The tests read it with its own
+date, and the mock restamps it to whichever day is opened -- so in screenshots
+the day sheet's hourly card is an August day (+18..+29°, sunset 19:48) under an
+October heading. That is the fixture, not the app. `make fixtures-day` replaces
+it; `tests/test_yandex_day.py` and the two restamps of «2026-08-07» then need
+the new page's date, and the former its values, which are typed in: the
+older form of the same mistake ("a test that hardcodes fixture values tests the
+weather", `AGENTS.md`), worth deriving the day they next have to change.
+
+**What would reverse it.** A forgery that stops resembling the page. If Yandex
+moves the requester's reading after `fact`, the test says so, and the forged
+copy moves with it. If a forgery ever needs so much surgery that it no longer
+looks like anything a site sends, keep a second recording that has the case --
+as `gm-current.html` is kept for the state blob (§27) -- rather than go back to
+waiting for the sky.
 
 ---
 

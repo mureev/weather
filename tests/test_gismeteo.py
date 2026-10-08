@@ -823,9 +823,9 @@ def _strip_stamps(html: str) -> list[int]:
             re.findall(r'timestamp="(\d+)"', html[i: j if j > 0 else len(html)])]
 
 
-def _strip_values(html: str, row: str) -> list[float]:
-    """One captioned row of that widget, as numbers, sharing no code with the
-    parser -- no lxml, no XPath, no `_ROWS` table.
+def _strip_values(html: str, row: str) -> list[float | None]:
+    """One captioned row of that widget, a number or None per column, sharing
+    no code with the parser -- no lxml, no XPath, no `_ROWS` table.
 
     The same second-opinion trick as `_row_pairs` above, and for the same
     reason: a test that pastes in the numbers a fixture happened to contain
@@ -833,9 +833,18 @@ def _strip_values(html: str, row: str) -> list[float]:
     readily as a correct one. Two readings by different means that agree are
     evidence. One reading checked against itself is a tautology.
 
-    Rows come in two shapes on this page -- typed elements (`<speed-value
-    value="3">`) and bare text in a cell (`<div class="row-item item-9"> 92
-    </div>`) -- so both are tried, typed first.
+    Cells come in two shapes on this page -- `row-item` for the plain rows and
+    `.value` inside a chart -- and their numbers in two more: typed elements
+    (`<speed-value value="3">`) and bare text (`<div class="row-item item-9">
+    92 </div>`). Typed is tried first, then text, then the cell is a None.
+
+    **Split into cells before reading anything.** This used to collect every
+    typed number in the row, flat, which is the reading `_cells` in the parser
+    warns against by name -- and it held until 8 October 2026, when the
+    recording had a calm evening: «Штиль» in the tooltip, a dash in the cell,
+    no `<speed-value>` at all. Seven numbers for eight columns. The parser,
+    which counts containers, was right; the helper written to check it was the
+    one reading the wrong column after the gap.
     """
     start = html.find(f'data-row="{row}"')
     if start < 0:
@@ -843,11 +852,14 @@ def _strip_values(html: str, row: str) -> list[float]:
     end = html.find("data-row=", start + 1)
     block = html[start: end if end > 0 else len(html)]
     block = block[block.find("</p>") + 4:]                 # past the caption
-    typed = re.findall(r'<[a-z-]+-value value="(-?[\d.]+)"', block)
-    if typed:
-        return [float(v) for v in typed]
-    return [float(v.replace(",", ".")) for v in
-            re.findall(r'row-item[^>]*>\s*(-?\d+(?:[.,]\d+)?)\s*<', block)]
+    out: list[float | None] = []
+    for cell in re.split(r"""<div class=["'](?:row-item|value)(?=[\s"'])""",
+                         block)[1:]:
+        typed = re.search(r'<[a-z-]+-value value="(-?[\d.]+)"', cell)
+        bare = re.match(r'[^>]*>\s*(-?\d+(?:[.,]\d+)?)\s*<', cell)
+        out.append(float(typed.group(1)) if typed else
+                   float(bare.group(1).replace(",", ".")) if bare else None)
+    return out
 
 
 class TestWhatTheStateBlobTookWithIt:

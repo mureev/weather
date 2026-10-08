@@ -41,35 +41,24 @@ same CI and deploys nothing.
 
 ## Where this was left
 
-**One test is a known failure, and it is marked as one rather than skipped.**
+**Nothing is known red.** The fixtures are one recording again -- Yandex and
+the four Meteofor pages, from the VPS, two seconds apart on the morning of
+8 October 2026 -- and the `xfail(strict=True)` that had stood for the gap since
+Meteofor's 15 August outage (§32) came off when it turned into XPASS, which is
+what strict is for. `KNOWN` in `tests/test_invariants.py` is empty. A new
+entry there is a decision, and it goes in the diff with its reason.
 
-```
-XFAIL tests/test_invariants.py::TestTheFixturesAreOneRecording::test_the_sources_overlap
-  - the Yandex and Gismeteo fixtures are two recordings with no date in common ...
-```
+Re-recording failed five tests and found no bug. Four needed the weather to be
+something -- a forecast that came true, two cities at different temperatures, a
+wet hour -- and one checker read a row flat. §45 has them and the rule they
+left: **a test may require things of the page, never of the sky.** When a fresh
+recording fails a test, ask whether the parser moved or the weather did before
+changing either.
 
-Meteofor had an outage on 15 August 2026 -- every page answering 200 with
-`widget-no-data` where the forecast belongs (§32) -- so the Yandex fixtures were
-re-recorded that day and the Gismeteo ones could not be. Two browser tests that
-depend on both describing the same day skip themselves and point at this one.
-
-It is `xfail(strict=True)` because a plain failure now blocks every deploy, and
-a skip is invisible. Strict is the half that keeps it honest: the day the
-fixtures agree, the test passes, the unexpected pass fails the suite, and the
-marker has to come off.
-
-**The fix is one command, once the source is back:**
-
-```bash
-make fixtures-gm && make fixtures && make check
-```
-
-The suite then fails on purpose, with `XPASS(strict)`, until the marker is
-deleted. That failure is the sign the fix worked.
-
-Check first that it is back -- `fixtures-gm` refuses to record a placeholder and
-will tell you if it is still down. If everything else is green and that line
-says XFAIL, nothing is broken; do not go looking.
+One thing you will see and should not chase: in screenshots, the day sheet's
+hourly card is an August day under an October heading. That is Yandex's per-day
+page, still the August recording, restamped by the mock; `make fixtures-day`
+replaces it (§45 says what then needs its date).
 
 ---
 
@@ -227,6 +216,7 @@ One line each; the story is behind the reference — a § of `DECISIONS.md`,
 - **`overflow-x: auto` turns the other axis's `visible` into `auto`**; state both. `tests/test_ui.py`
 - **A line box is taller than its font size**: 11.5px text, a 16.7px line, a 15px row. `static/index.html`
 - **A test that hardcodes fixture values tests the weather**; cross-check another way. `_row_pairs`, `tests/test_gismeteo.py`
+- **A test that needs the recording's weather tests the weather too**; forge the case, or ask the page's clock. §45
 - **A missing icon does not look missing**: the wrong one is drawn instead. `tests/test_invariants.py`
 - **Look at it**: two tabs named one date differently, with 400-odd tests green. §23
 - **A stub whose signature drifts fails like a broken upstream.** *Traps*

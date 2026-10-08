@@ -393,17 +393,11 @@ class TestTheFixturesAreOneRecording:
             encoding="utf-8", errors="replace")
         return sorted(set(re.findall(r"20\d\d-[01]\d-[0-3]\d", raw)))
 
-    # Known red, and marked so rather than skipped: a skip is silent, and since
-    # the CI gate began meaning what it says, a plain failure here blocks every
-    # deploy. Meteofor's outage of 15 August 2026 (DECISIONS.md §32) meant
-    # Yandex could be re-recorded and Gismeteo could not. `strict` is the half
-    # that matters: the day both are re-recorded together and agree, this
-    # passes, the unexpected pass fails the suite, and the marker comes off.
-    @pytest.mark.xfail(strict=True, reason=(
-        "the Yandex and Gismeteo fixtures are two recordings with no date in "
-        "common (Gismeteo could not be re-recorded during its 15 August 2026 "
-        "outage). Strict: this fails loudly the day the fixtures are "
-        "re-recorded and agree -- then delete this marker."))
+    # From 15 August to 8 October 2026 this was the suite's one known failure,
+    # `xfail(strict=True)`: Meteofor's outage (DECISIONS.md §32) meant Yandex
+    # could be re-recorded and Gismeteo could not. Strict did what it was for.
+    # The recording that fixed it -- all five pages within two seconds of each
+    # other -- turned it into XPASS, the suite went red, and the marker came off.
     def test_the_sources_overlap(self):
         ya = self._days("current.html")
         gm = self._days("mf-10days.html")
@@ -428,7 +422,7 @@ class TestAKnownFailureIsDeclaredNotHidden:
     is a decision someone can see in a diff.
     """
 
-    KNOWN: ClassVar = {"test_the_sources_overlap"}
+    KNOWN: ClassVar = set()     # none, since 8 October 2026
 
     def test_every_xfail_is_strict_and_known(self):
         problems = []
