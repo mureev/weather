@@ -41,24 +41,22 @@ same CI and deploys nothing.
 
 ## Where this was left
 
-**Nothing is known red.** The fixtures are one recording again -- Yandex and
-the four Meteofor pages, from the VPS, two seconds apart on the morning of
-8 October 2026 -- and the `xfail(strict=True)` that had stood for the gap since
-Meteofor's 15 August outage (§32) came off when it turned into XPASS, which is
-what strict is for. `KNOWN` in `tests/test_invariants.py` is empty. A new
+**Nothing is known red.** On 15 November 2026 Yandex changed its page under
+the app: the flight stream became one 600 kB push that the old regex could not
+read, and the current-conditions block was renamed `FactWithoutCharacter`.
+The Yandex tab was grey in production until the fix (§46). Every fixture was
+re-recorded that afternoon -- Yandex, the four Meteofor pages and, at last,
+the per-day page -- and `KNOWN` in `tests/test_invariants.py` is empty. A new
 entry there is a decision, and it goes in the diff with its reason.
 
-Re-recording failed five tests and found no bug. Four needed the weather to be
-something -- a forecast that came true, two cities at different temperatures, a
-wet hour -- and one checker read a row flat. §45 has them and the rule they
-left: **a test may require things of the page, never of the sky.** When a fresh
-recording fails a test, ask whether the parser moved or the weather did before
-changing either.
+Both re-recordings so far failed tests that found no bug: they needed the
+weather to be something. §45 has the rule they left -- **a test may require
+things of the page, never of the sky** -- and §46 the second batch. When a
+fresh recording fails a test, ask whether the parser moved or the weather did
+before changing either.
 
-One thing you will see and should not chase: in screenshots, the day sheet's
-hourly card is an August day under an October heading. That is Yandex's per-day
-page, still the August recording, restamped by the mock; `make fixtures-day`
-replaces it (§45 says what then needs its date).
+`latlon.html` is deliberately still the October recording: it is the suite's
+copy of the old `AppFact` markup (§46).
 
 ---
 

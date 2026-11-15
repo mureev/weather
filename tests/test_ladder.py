@@ -40,7 +40,9 @@ from lxml import html as LH
 from app import extract as X
 from app.models import ParseError, Tier
 
-FLIGHT = re.compile(r"self\.__next_f\.push\(\[1,.*?\]\)", re.S)
+# The whole push, its string literal read escapes and all: since 2026-11-15
+# the stream comes as one push whose text contains `\"])` (§46).
+FLIGHT = re.compile(r'self\.__next_f\.push\(\[1,\s*"(?:[^"\\]|\\.)*"\]\)', re.S)
 A11Y = re.compile(r'class="([^"]*\bvisuallyHidden\b[^"]*)"')
 
 

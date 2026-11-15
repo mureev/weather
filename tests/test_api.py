@@ -55,12 +55,13 @@ def client_(request, monkeypatch):
         m = re.search(r"/day-(\d+)", url)
         if not m:
             return raw
-        # The recorded page describes 7 August 2026. The parser rejects a page
-        # about a different day than the one requested -- correctly -- so the
-        # stub restamps it, otherwise every test here would exercise that
-        # rejection instead of the feature.
+        # The recorded page describes one day, read off its own stamps. The
+        # parser rejects a page about a different day than the one requested
+        # -- correctly -- so the stub restamps it, otherwise every test here
+        # would exercise that rejection instead of the feature.
+        page_day = re.search(r'dateTime="(\d{4}-\d\d-\d\d)T', day_page).group(1)
         want = RECORDED + dt.timedelta(days=int(m.group(1)))
-        return day_page.replace("2026-08-07T", f"{want.isoformat()}T")
+        return day_page.replace(f"{page_day}T", f"{want.isoformat()}T")
 
     async def fake_om(_client, _place):
         # Close enough to agree with the fixture's +16°, so the referee stays

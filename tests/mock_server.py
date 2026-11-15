@@ -230,6 +230,9 @@ async def _om(_client, place):
 # request but one, and the mock would exercise the failure path instead of the
 # feature.
 YA_DAY = (_GM / "ya-day5.html").read_text(encoding="utf-8", errors="replace")
+# The day that page describes, off its own stamps rather than typed in: it
+# changes with every `make fixtures-day`.
+YA_DAY_DATE = re.search(r'dateTime="(\d{4}-\d\d-\d\d)T', YA_DAY).group(1)
 
 
 async def _ya_day(_client, url):
@@ -245,7 +248,7 @@ async def _ya_day(_client, url):
     # day than the one requested, so the detail silently never arrives.
     # `YW_TODAY` lets the browser suite pin both ends to the same day.
     want = TODAY + dt.timedelta(days=int(m.group(1)))
-    return YA_DAY.replace("2026-08-07T", f"{want.isoformat()}T")
+    return YA_DAY.replace(f"{YA_DAY_DATE}T", f"{want.isoformat()}T")
 
 
 async def _route_yandex(client, url):

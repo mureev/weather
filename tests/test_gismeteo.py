@@ -63,8 +63,9 @@ def _row_pairs(html: str, row: str) -> list[tuple[float | None, float | None]]:
     out: list[tuple[float | None, float | None]] = []
     for cell in re.split(r"""<div class=['"]value['"]""", block)[1:]:
         lo, hi = side(cell, "mint"), side(cell, "maxt")
-        if lo is None and hi is None:
-            continue
+        # An empty column is still a column: since November the feels-like
+        # row publishes four days and leaves six cells empty, and skipping them
+        # would compare day 5 against nothing (the parser says None, rightly).
         out.append((lo, hi))
     return out
 
@@ -527,12 +528,31 @@ class TestThePartsOfDayGrid:
                          "humidity_pct", "pressure_mmhg", "wind_gust_ms"):
                 assert getattr(p, name) is not None, f"{p.name}.{name} is empty"
 
-    def test_a_calm_part_says_so_instead_of_inventing_a_zero(self, mf):
+    def test_a_calm_part_says_so_instead_of_inventing_a_zero(self):
         """Gismeteo prints «штиль» and no number at all when there is no wind.
         The speed must stay `None` -- a 0 would be a value we made up, and this
-        codebase drops rather than fills."""
+        codebase drops rather than fills.
+
+        The first column is made calm here, in the markup the August recording
+        showed for one: the November recording was windy all three days, and
+        a test may not need the weather to be anything (§45).
+        """
+        def read(n):
+            return (FIXTURES / n).read_text(encoding="utf-8", errors="replace")
+
+        html = read("mf-3days.html")
+        d = html.index('data-row="wind-direction"')
+        html = html[:d] + re.sub(r'(<div class="direction">)[^<]*(</div>)',
+                                 r"\1штиль\2", html[d:], count=1)
+        w = html.index('data-row="wind-speed"')
+        html = html[:w] + re.sub(r'<speed-value value="[^"]*"[^>]*></speed-value>',
+                                 '<span class="item-nodata">&ndash;</span>',
+                                 html[w:], count=1)
+        mf = G.parse(read("mf-current.html"), days_html=read("mf-10days.html"),
+                     hourly_html=read("mf-hourly.html"), parts_html=html,
+                     today=dt.date(2026, 8, 1))
         calm = [p for d in mf.daily for p in d.parts if p.wind_dir == "штиль"]
-        assert calm, "no calm part in the fixture -- has the page changed?"
+        assert calm, "the forged calm column did not reach a part"
         assert all(p.wind_ms is None for p in calm)
 
     def test_parts_are_matched_to_days_by_date_not_by_position(self):

@@ -1,13 +1,19 @@
-"""Yandex's per-day page, against real HTML captured 2 August 2026.
+"""Yandex's per-day page, against real captured HTML.
 
 The page is `…/details/auto/10-day-weather/day-5`, and the fixture is the one
-that page returned — which described **7 August**, five days after the capture.
-That gap is the whole reason the parser checks the date instead of trusting the
-URL, and it is why the fixture is worth keeping exactly as recorded rather than
-tidied to "today".
+that page returned — which describes a day five days after the capture (first
+recorded 2 August 2026 and describing 7 August; re-recorded 15 November,
+describing the 20th). That gap is the whole reason the parser checks the date
+instead of trusting the URL, and it is why the fixture is worth keeping exactly
+as recorded rather than tidied to "today".
+
+Every expectation here is read off the page by a plain regex over its text,
+never typed in: a typed value is a test of one day's weather (§45).
 """
 
 import datetime as dt
+import pathlib
+import re
 from itertools import pairwise
 
 import pytest
@@ -16,8 +22,32 @@ from app import cities
 from app.models import ParseError
 from app.sources import yandex_day as YD
 
-# What the recorded page is actually about, not when it was fetched.
-PAGE_DAY = dt.date(2026, 8, 7)
+RAW = (pathlib.Path(__file__).resolve().parent / "fixtures" / "ya-day5.html"
+       ).read_text(encoding="utf-8", errors="replace")
+
+# What the recorded page is actually about, not when it was fetched: its first
+# column's own stamp.
+PAGE_DAY = dt.date.fromisoformat(
+    re.search(r'dateTime="(\d{4}-\d\d-\d\d)T', RAW).group(1))
+
+
+def _num(s: str) -> float:
+    return float(s.replace(",", ".").replace("−", "-"))
+
+
+# The first column, in the page's screen-reader prose: «: +4°, небольшой дождь,
+# Ощущается как -1.» and «, 5,3 Метров в секунду, до 11 Метров в секунду,
+# южный.» -- the parser's sentences, read by a different route.
+_TEMP = re.search(r":\s*([+−-]?\d+)°,\s*([^,<]+),\s*Ощущается как\s*([−-]?\d+)", RAW)
+_WIND = re.search(r",\s*(\d+(?:,\d+)?) Метров в секунду,(?:\s*до (\d+(?:,\d+)?) "
+                  r"Метров в секунду,)?\s*([а-я-]+)\.", RAW)
+
+
+def _card(label: str) -> str:
+    """A value from the astronomy card: «Восход» then its value span."""
+    m = re.search(rf">{label}</span>.*?__value[^>]*>([^<]+)<", RAW, re.S)
+    assert m, f"the page no longer labels {label!r}"
+    return m.group(1)
 
 
 @pytest.fixture(scope="module")
@@ -93,11 +123,14 @@ class TestTheColumns:
 
     def test_the_values_are_the_ones_on_the_page(self, day):
         first = day.hours[0]
-        assert first.time.startswith("2026-08-07T00:00")
-        assert (first.temp_c, first.feels_like_c) == (18.0, 18.0)
-        assert first.condition == "Облачно с прояснениями"
-        assert (first.wind_ms, first.wind_gust_ms) == (1.8, 3.0)
-        assert first.wind_dir == "южный"
+        assert first.time.startswith(f"{PAGE_DAY.isoformat()}T00:00")
+        assert _TEMP and _WIND, "the page's prose no longer reads as it did"
+        assert (first.temp_c, first.feels_like_c) == (
+            _num(_TEMP.group(1)), _num(_TEMP.group(3)))
+        assert first.condition.lower() == _TEMP.group(2).strip().lower()
+        gust = _num(_WIND.group(2)) if _WIND.group(2) else None
+        assert (first.wind_ms, first.wind_gust_ms) == (_num(_WIND.group(1)), gust)
+        assert first.wind_dir == _WIND.group(3)
 
     def test_feels_like_survives_having_no_degree_sign(self, day):
         """«Ощущается как 18.» — a bare number, unlike every other temperature
@@ -113,8 +146,11 @@ class TestTheColumns:
 
     def test_the_decimal_comma_is_not_read_as_a_separator(self, day):
         """«1,8 Метров в секунду» is 1.8 m/s, not 1. The main parser has the
-        same scar."""
-        assert day.hours[0].wind_ms == 1.8
+        same scar. Any column the page writes with a comma will do."""
+        commas = [_num(m) for m in re.findall(
+            r"(\d+,\d+) Метров в секунду", RAW)]
+        assert commas, "no decimal comma on this page to check"
+        assert commas[0] in [h.wind_ms for h in day.hours]
 
     def test_precipitation_probability_where_the_page_states_one(self, day):
         probs = [h.precip_prob for h in day.hours]
@@ -124,7 +160,8 @@ class TestTheColumns:
 
 class TestTheAstronomy:
     def test_read_by_label_not_by_position(self, day):
-        assert day.sunrise == "04:00"
-        assert day.sunset == "19:48"
-        assert day.daylight == "15 ч 48 мин"
+        assert day.sunrise == _card("Восход")
+        assert day.sunset == _card("Закат")
+        assert day.daylight == _card("Световой день")
+        assert day.sunrise != day.sunset
 

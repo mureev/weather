@@ -2677,6 +2677,91 @@ waiting for the sky.
 
 ---
 
+## 46. The flight stream is read as JSON strings, and the fact block by both its names
+
+*Decided 2026-11-15, the afternoon the Yandex tab went grey.*
+
+On 15 November production showed Yandex as «недоступен» all day while the other
+two tabs were well. Nothing was down: the page answered 200, for the right
+city, from the VPS and from a laptop alike. Yandex had changed two things on
+the same page, and each one alone would have been survived; together they took
+out both rungs that read the current conditions.
+
+- **Tier 1, the flight stream.** The stream used to come in dozens of
+  `self.__next_f.push([1, "..."])` calls of a few kB each. It now comes in
+  one, of 600 kB. `_PUSH` matched a chunk as `".*?"` -- the shortest run up to
+  the first `"])` -- and the new single chunk contains `\"])`: an escaped
+  quote inside the string, then a bracket. The match ended there, mid-string,
+  `json.loads` refused it, `flight()` skipped it as it skips any chunk that
+  does not decode, and tier 1 found no `fact`. The regex now matches a JSON
+  string literal for what it is, escapes and all
+  (`"(?:[^"\\]|\\.)*"`). It was a latent bug from the first day; small
+  pushes merely never happened to contain the sequence.
+- **Tiers 2 and 3, the visible block.** The current-conditions block's CSS
+  module was renamed from `AppFact` to `FactWithoutCharacter`, with its parts
+  (`_temperature`, `_feels`, `_warning`, `_details`) and their markup
+  otherwise as they were. `extract.FACT_BLOCKS` names both, and every DOM
+  lookup for the block goes through `fact_xpath`. The old name stays: a
+  rename like this is the kind Yandex shows to some requests before others,
+  and looking for an absent class costs nothing.
+
+The ladder did what it is for in one sense -- the forecast never showed a
+wrong number, it showed none -- and failed in another: the canary is weekly,
+so a source can be grey for days before anything says so. That is the
+monitoring to-do in the infrastructure repository, not a change here.
+
+**The fixtures.** All of them re-recorded on 15 November from a laptop
+(`make fixtures-ya`, `fixtures-gm`, `fixtures-day`): Yandex and the four
+Meteofor pages within minutes of each other, and the per-day page, retiring the August one
+§45 described. `tools/trim_fixtures.py` learned the same two lessons: its copy
+of `_PUSH` is the new one, and a push over 32 kB is cut to the stream's rows
+(RSC rows end in a newline) that hold something read, rather than kept whole,
+which for one 600 kB push would have kept the page. `current.html` keeps one
+row each for `fact` (with `nowcastStep` beside it), the location and the
+first `slug`/`lat`/`lon`: about 3 kB of stream where the October recording
+kept 8 kB (`test_decodes` asked for more than 5 kB; it asks for 1 kB now).
+
+`latlon.html` was not re-recorded and still carries `AppFact`. That is now
+worth something: it is the suite's copy of the old markup, and the identity
+tests that read it prove the old name is still read.
+
+Re-recording failed more tests than the two bugs explain, and again the
+weather broke none of them (§45):
+
+- `userLocationLaasFact` is not in the new stream. The test that keeps the
+  parser off it lays a forged one ahead of `fact` when the page carries none.
+- The calm-part test needed a calm part; the November three days were windy.
+  It now makes the first column calm, in the markup the August page used.
+- The Meteofor feels-like row publishes four days and leaves six columns
+  empty. The test's reader skipped empty columns, so it had four pairs where
+  the parser rightly had ten with six `None`s; an empty column is a column.
+- The per-day page's tests typed its August values (18°, 1,8 м/с, sunrise
+  04:00) and its date. They read them off the page's own prose and stamps now,
+  as §45 asked for the day they next had to change, and the two restamps of
+  «2026-08-07» in the mock and `test_api.py` read the page's date too.
+
+And one front-end fix found on the way: Gismeteo's calm «now» is «штиль» with no
+speed, and the Details grid gated its wind cell on the speed, so a calm reading
+lost the cell. `factsBlock` now shows «штиль», as `partsBlock` already did.
+
+And one layout fix the new recording exposed. Its Gismeteo «now» says cloudy
+while the hour covering it says overcast, which the coherence check flags
+(rightly: two families), so the mock's health is degraded and the footer shows
+its badge. The refresh button's 44pt tap box reaches 11px above its line and
+the footer's gap is 9px, so the box overlapped the badge by two pixels -- a
+tap on the badge's bottom edge refreshed, and the contrast test, which scores
+the text against every pixel in its box, found the badge's amber there and
+failed on every sky. The line now sits 3px lower when a badge is shown. It
+was there for every degraded morning in production; the October recording
+was simply a healthy one.
+
+**What would reverse it.** Nothing about the regex: it is what the format is.
+`FACT_BLOCKS` loses `AppFact` the day `latlon.html` is re-recorded without it
+and nothing has served it for a season. `_BIG_PUSH` goes if Yandex returns to
+small pushes and the cut ever makes trimming refuse a page.
+
+---
+
 ## Traps that cost real time
 
 Kept because each was invisible until it wasn't.

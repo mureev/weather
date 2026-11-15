@@ -21,6 +21,7 @@ what this whole project is designed around.
 """
 
 import datetime as dt
+import json
 import pathlib
 import re
 from itertools import pairwise
@@ -475,11 +476,32 @@ class TestFlightStream:
         html = (request.path.parent / "fixtures" / "current.html").read_text(
             encoding="utf-8", errors="replace")
         s = X.flight(html)
-        # Several pushes' worth, decoded and joined. The fixture keeps only
-        # the pushes holding a value something reads (tools/trim_fixtures.py);
-        # the whole stream of the recorded page decoded to ~480 kB.
-        assert len(s) > 5_000
+        # Decoded and joined. The fixture keeps only the rows holding a value
+        # something reads (tools/trim_fixtures.py); the whole stream of the
+        # recorded page decoded to ~540 kB, and what is kept to ~3 kB.
+        assert len(s) > 1_000
         assert '"fact"' in s
+
+    def test_a_push_is_read_to_its_closing_quote(self):
+        """One push whose text holds `"])` -- an escaped quote, then the
+        bracket -- is still one push.
+
+        Until 2026-11-15 Yandex sent the stream as dozens of small pushes and a
+        regex that stopped at the first `"])` happened to stop at the right
+        one. That morning it began sending one push of 600 kB, its text had
+        that sequence in it, the match ended mid-string, the chunk failed to
+        decode and was skipped, and tier 1 read nothing (`DECISIONS.md` §46).
+        Forged, because the trimmed fixture keeps only what something reads.
+        """
+        text = ('q:["a"])\n'                          # the trap, decoded
+                '7:{"fact":{"temperature":-7,"feelsLike":-12}}\n')
+        literal = json.dumps(text)
+        assert '\\"])' in literal                    # it survives encoding
+        html = f"<script>self.__next_f.push([1,{literal}])</script>"
+        s = X.flight(html)
+        assert s == text
+        got = X._current_from_flight(s)
+        assert got is not None and got[0].temp_c == -7.0
 
     def test_never_reads_the_requester_location_fact(self, request):
         """The stream also carries `userLocationLaasFact` -- the weather where
@@ -498,17 +520,25 @@ class TestFlightStream:
         html = (request.path.parent / "fixtures" / "current.html").read_text(
             encoding="utf-8", errors="replace")
         s = X.flight(html)
-        theirs = re.search(r'"userLocationLaasFact"\s*:\s*\{[^{}]*\}', s)
-        assert theirs, "the stream no longer carries the requester's weather"
-        assert theirs.start() < s.find('"fact"'), (
-            "the requester's reading no longer comes first, so a parser taking "
-            "the first temperature would read the city's by luck -- move the "
-            "forged copy ahead of `fact` rather than deleting this")
         forged = NOW_C + 11.5
-        blob = re.sub(r'("temperature(?:InCelsius)?"\s*:\s*)-?\d+(?:\.\d+)?',
-                      rf"\g<1>{forged}", theirs.group(0))
-        assert blob != theirs.group(0)
-        s = s[:theirs.start()] + blob + s[theirs.end():]
+        theirs = re.search(r'"userLocationLaasFact"\s*:\s*\{[^{}]*\}', s)
+        if theirs is None:
+            # The November recording carries none: Yandex sends it only to
+            # some requesters. The trap is the same whether or not today's
+            # page lays it, so lay it -- ahead of `fact`, where Yandex put it.
+            at = s.find('"fact"')
+            assert at >= 0
+            s = (s[:at] + f'"userLocationLaasFact":{{"temperature":{forged},'
+                 f'"temperatureInCelsius":{forged}}},' + s[at:])
+        else:
+            assert theirs.start() < s.find('"fact"'), (
+                "the requester's reading no longer comes first, so a parser "
+                "taking the first temperature would read the city's by luck -- "
+                "move the forged copy ahead of `fact` rather than deleting this")
+            blob = re.sub(r'("temperature(?:InCelsius)?"\s*:\s*)-?\d+(?:\.\d+)?',
+                          rf"\g<1>{forged}", theirs.group(0))
+            assert blob != theirs.group(0)
+            s = s[:theirs.start()] + blob + s[theirs.end():]
 
         got = X._current_from_flight(s)
         assert got is not None

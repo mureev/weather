@@ -104,10 +104,11 @@ KEEP: dict[str, tuple[str, ...]] = {
     "yandex": (
         *_HEAD,
         "//h1",                                               # extract.identity
-        '//*[contains(@class,"AppFact_temperature")]',        # extract._current_from_dom
-        '//*[contains(@class,"AppFact_feels")]',
-        '//*[contains(@class,"AppFact_warning")]',            # ... and extract._nowcast
-        '//*[contains(@class,"AppFact_details")]',
+        # extract._current_from_dom (and _nowcast, the warning): the block was
+        # `AppFact` until 2026-11-15 and is `FactWithoutCharacter` since.
+        *(f'//*[contains(@class,"{blk}_{part}")]'
+          for blk in ("AppFact", "FactWithoutCharacter")
+          for part in ("temperature", "feels", "warning", "details")),
         '//*[contains(@class,"AppForecastDay_dayCard")]',     # extract._days
         '//*[contains(@class,"AppForecastDay_container")]',
         '//*[contains(@class,"AppHourlyItem_container")]',    # extract._hours
@@ -144,7 +145,12 @@ _JUNK_XPATH = ("|".join(f".//{t}" for t in sorted(_JUNK))
 # The flight stream exactly as `extract.flight` reads it -- run over the whole
 # page, not script by script, so a push that never closes swallows what
 # follows here just as it does there.
-_PUSH = re.compile(r'self\.__next_f\.push\(\[1,\s*(".*?")\]\)', re.S)
+_PUSH = re.compile(r'self\.__next_f\.push\(\[1,\s*("(?:[^"\\]|\\.)*")\]\)', re.S)
+# A push bigger than this is cut to its rows that hold something read, rather
+# than kept whole. Until 2026-11-15 the stream came in dozens of pushes of a
+# few kB each and keeping a push whole kept little; since then it is one push
+# of 600 kB, which kept whole would be the page again (DECISIONS.md §46).
+_BIG_PUSH = 32_000
 # What `extract.identity` and `extract._current_from_flight` look up in it,
 # and the decoy the tests prove is never read.
 _FLIGHT_KEYS = re.compile(
@@ -279,7 +285,8 @@ def kind_of(doc: Any, raw: str) -> str:
     """Which page this is. Not by file name: a recording is checked as it lands."""
     if doc.xpath('//*[contains(@class,"AppDetailedForecastBlock_block__")]'):
         return "yandex-day"
-    if doc.xpath('//*[contains(@class,"AppForecastDay_") or contains(@class,"AppFact_")]'):
+    if doc.xpath('//*[contains(@class,"AppForecastDay_") or contains(@class,"AppFact_")'
+                 ' or contains(@class,"FactWithoutCharacter_")]'):
         return "yandex"
     if doc.xpath('//*[contains(@class,"widget-row")]') or _STATE.search(raw):
         return "gismeteo"
@@ -314,8 +321,11 @@ def _balanced(s: str, start: int) -> str | None:
     return None
 
 
-def _flight_pushes(raw: str, scripts: list[_Node]) -> set[_Node]:
-    """The push scripts holding any part of a value something reads.
+def _flight_pushes(raw: str, scripts: list[_Node]
+                   ) -> tuple[set[_Node], dict[_Node, str]]:
+    """The push scripts holding any part of a value something reads: kept
+    whole, or -- a push over `_BIG_PUSH` alone in its script -- rewritten to
+    the stream's rows (RSC rows end in a newline) that hold one.
 
     A push that does not decode is skipped by `extract.flight`, so it is
     dropped here; on the pages recorded so far those were the two analytics
@@ -341,10 +351,26 @@ def _flight_pushes(raw: str, scripts: list[_Node]) -> set[_Node]:
     if first:
         spans.append(first.span())
     keep: set[_Node] = set()
-    for (a, b), (start, end, _) in zip(bounds, chunks, strict=True):
-        if any(a < y and x < b for x, y in spans):
-            keep |= {n for n in scripts if n.start < end and start < n.end}
-    return keep
+    rewrite: dict[_Node, str] = {}
+    for (a, b), (start, end, text) in zip(bounds, chunks, strict=True):
+        hits = [(x, y) for x, y in spans if a < y and x < b]
+        if not hits:
+            continue
+        nodes = {n for n in scripts if n.start < end and start < n.end}
+        node = next(iter(nodes)) if len(nodes) == 1 else None
+        if (len(text) <= _BIG_PUSH or node is None
+                or raw[node.open_end:node.close].strip() != raw[start:end]):
+            keep |= nodes
+            continue
+        rows, at = [], a
+        for row in text.splitlines(keepends=True):
+            if any(at < y and x < at + len(row) for x, y in hits):
+                rows.append(row)
+            at += len(row)
+        # `<` escaped as the page escapes it, so no row can close the script.
+        lit = json.dumps("".join(rows), ensure_ascii=False).replace("<", "\\u003c")
+        rewrite[node] = f"self.__next_f.push([1,{lit}])"
+    return keep, rewrite
 
 
 def _members(obj: str) -> list[str]:
@@ -424,7 +450,8 @@ def trim(raw: str) -> tuple[str, str]:
     scripts = [n for n in tree.elements if n.tag == "script"]
     rewrite: dict[_Node, str] = {}
     if kind == "yandex":
-        keep |= _flight_pushes(raw, scripts)
+        pushes, rewrite = _flight_pushes(raw, scripts)
+        keep |= pushes
     elif kind == "gismeteo":
         rewrite = _state(raw, scripts)
     if not keep - {node_of[e] for xp in _HEAD for e in doc.xpath(xp)}:
@@ -519,7 +546,7 @@ def _try(fn: Any, *a: Any, **kw: Any) -> Any:
 
 
 # The ladder, verbatim from tests/test_ladder.py.
-_NO_FLIGHT = re.compile(r"self\.__next_f\.push\(\[1,.*?\]\)", re.S)
+_NO_FLIGHT = re.compile(r'self\.__next_f\.push\(\[1,\s*"(?:[^"\\]|\\.)*"\]\)', re.S)
 _NO_A11Y = re.compile(r'class="([^"]*\bvisuallyHidden\b[^"]*)"')
 
 

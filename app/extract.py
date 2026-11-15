@@ -69,7 +69,14 @@ log = logging.getLogger(__name__)
 
 # --- the flight stream -----------------------------------------------------
 
-_PUSH = re.compile(r'self\.__next_f\.push\(\[1,\s*(".*?")\]\)', re.S)
+# The chunk is a JSON string literal, so it is matched as one: escapes and
+# all. The first version said `".*?"` -- the shortest run up to the first
+# `"])` -- which held while Yandex sent the stream in dozens of small pushes
+# and broke on 2026-11-15, when it began sending one 600 kB push whose text
+# contains `\"])` (an escaped quote, then the bracket). The match ended there,
+# mid-string, the chunk failed to decode and was skipped, and tier 1 found
+# nothing at all (`DECISIONS.md` §46).
+_PUSH = re.compile(r'self\.__next_f\.push\(\[1,\s*("(?:[^"\\]|\\.)*")\]\)', re.S)
 
 
 def flight(html_text: str) -> str:
@@ -385,6 +392,26 @@ def _current_from_flight(stream: str) -> tuple[Current, list[str]] | None:
     return cur, got
 
 
+# The current-conditions block's CSS-module prefix. `AppFact` until
+# 2026-11-15, when Yandex renamed the block `FactWithoutCharacter` and kept
+# every part under it (`_temperature`, `_feels`, `_warning`, `_details`) and
+# its markup as it was. Both stay: a rename is the kind of change Yandex rolls
+# out to some requests before others, and an old prefix costs nothing to keep
+# looking for (`DECISIONS.md` §46).
+FACT_BLOCKS = ("AppFact", "FactWithoutCharacter")
+
+
+def fact_xpath(part: str) -> str:
+    """Every element whose class names `part` of the current-conditions block,
+    under any of its names."""
+    cond = " or ".join(f'contains(@class,"{b}_{part}")' for b in FACT_BLOCKS)
+    return f"//*[{cond}]"
+
+
+def fact_nodes(doc: Any, part: str) -> list[Any]:
+    return doc.xpath(fact_xpath(part))
+
+
 def _current_from_dom(doc: Any) -> tuple[Current, list[str]]:
     """Tier 2/3 for current conditions.
 
@@ -395,20 +422,19 @@ def _current_from_dom(doc: Any) -> tuple[Current, list[str]]:
     cur = Current()
     got: list[str] = []
 
-    temp_nodes = doc.xpath('//*[contains(@class,"AppFact_temperature")]')
-    for n in temp_nodes:
+    for n in fact_nodes(doc, "temperature"):
         v = R.temperature(n.text_content())
         if v is not None:
             cur.temp_c, _ = v, got.append("temp_c")
             break
 
-    for n in doc.xpath('//*[contains(@class,"AppFact_feels")]'):
+    for n in fact_nodes(doc, "feels"):
         v = R.temperature(n.text_content())
         if v is not None:
             cur.feels_like_c, _ = v, got.append("feels_like_c")
             break
 
-    for n in doc.xpath('//*[contains(@class,"AppFact_warning")]'):
+    for n in fact_nodes(doc, "warning"):
         c = R.condition(n.text_content())
         if c:
             cur.condition, _ = c, got.append("condition")
@@ -416,7 +442,7 @@ def _current_from_dom(doc: Any) -> tuple[Current, list[str]]:
 
     # `AppFact_details` is a row of bare values -- "1 м/с, З", "745", "90%",
     # "15°" -- with nothing but their content to say which is which.
-    for n in doc.xpath('//*[contains(@class,"AppFact_details")]'):
+    for n in fact_nodes(doc, "details"):
         txt = R.clean(n.text_content())
         if len(txt) > 40:
             continue
@@ -443,7 +469,7 @@ def _nowcast(doc: Any) -> str | None:
     "дождь начнётся через 25 минут". No free-tier equivalent exists anywhere
     else, which is a large part of why this project scrapes at all."""
     best: str | None = None
-    for n in doc.xpath('//*[contains(@class,"AppFact_warning")]'):
+    for n in fact_nodes(doc, "warning"):
         t = R.clean(n.text_content())
         if not t or len(t) > 120:
             continue

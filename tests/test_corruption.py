@@ -55,7 +55,8 @@ class TestHostileResponses:
         # fixture is trimmed to what the parsers read now
         # (tools/trim_fixtures.py), and the forecast starts a kilobyte in.
         with pytest.raises(ParseError):
-            X.parse(raw[:raw.index("AppFact_")], today=TODAY)
+            X.parse(raw[:re.search(r"(?:AppFact|FactWithoutCharacter)_", raw).start()],
+                    today=TODAY)
 
 
 class TestWrongPlace:
