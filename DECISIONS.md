@@ -2591,6 +2591,11 @@ glow reads on the device as a lamp rather than the sun, it goes, and the glyphs
 keep the icon's colours. And if the icon is ever redrawn, the glyphs follow it
 rather than the other way round: the test will name which colour moved.
 
+**Seen on the phone (2026-11-15).** The owner's verdict: the night skies and
+their stars are right as they are; the glow is "okay", so it stays. Neither
+reversal above is taken. The rain streaks of §43 are still waiting for a rainy
+day outdoors.
+
 ---
 
 ## 45. A test may not need the weather to be anything
