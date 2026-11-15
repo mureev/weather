@@ -910,6 +910,8 @@ html.locked{overflow:hidden;overscroll-behavior:none}
 .foot .line{display:flex;align-items:center;gap:9px;white-space:nowrap}
 .foot .sep{opacity:.45}
 .foot .line button{padding:11px 8px;margin:-11px -8px}
+/* The tap box reaches 11px up and the gap is 9: clear of a shown badge (§46). */
+.badge:not(.ok)+.line{margin-top:3px}
 /* On the sky, so not `--accent`: light mode's is a blue for white surfaces. */
 #btn-refresh{color:#a6d0ff}
 #stamp:empty+.sep{display:none}

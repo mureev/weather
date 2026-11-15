@@ -660,9 +660,12 @@ function factsBlock(c, today) {
       <div class="v">${raw ? v : esc(v)}</div></div>`); };
 
   // The direction rides along as a smaller suffix so the cell never wraps.
+  // A calm «now» has no speed at all -- Gismeteo writes «штиль» and a dash --
+  // and gating the cell on the speed dropped the one reading that says
+  // something, as `partsBlock` once did for the parts of a day.
   add(t('wind'), c.wind_ms != null
     ? `${num(c.wind_ms)} ${t('ms')}${c.wind_dir ? `<small>, ${esc(shortDir(c.wind_dir))}</small>` : ''}`
-    : null, true);
+    : c.wind_dir === 'штиль' ? esc(shortDir('штиль')) : null, true);
   add(t('humidity'), c.humidity_pct != null ? Math.round(c.humidity_pct) + '%' : null);
   add(t('pressure'), c.pressure_mmhg != null
     ? Math.round(c.pressure_mmhg) + ' ' + t('mmHg') : null);

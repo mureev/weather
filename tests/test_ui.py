@@ -2719,6 +2719,19 @@ class TestItWorksWithoutAFingerOrALargeScreen:
         ctx.close()
         assert over and not any(over.values()), f"sideways scroll at 320pt: {over}"
 
+    def test_a_calm_now_keeps_its_wind_cell(self, page):
+        """Gismeteo's calm «now» is «штиль» with no speed, and the Details
+        grid gated its wind cell on the speed, so the calm reading vanished."""
+        html = page.evaluate("""factsBlock({wind_ms: null, wind_dir: 'штиль',
+            humidity_pct: 70, pressure_mmhg: 750},
+            {sunrise: '07:30', sunset: '15:40'})""")
+        cells = re.findall(r'class="k">([^<]*)</div>\s*<div class="v">([^<]*)', html)
+        assert ("Ветер", "штиль") in cells, cells
+        windy = page.evaluate("""factsBlock({wind_ms: null, wind_dir: 'южный',
+            humidity_pct: 70, pressure_mmhg: 750},
+            {sunrise: '07:30', sunset: '15:40'})""")
+        assert "Ветер" not in windy, "a direction without a speed is not calm"
+
     def test_near_zero_is_zero_and_a_few_days_take_the_plural(self, page):
         assert page.evaluate("[fmtT(-0.4), fmtT(0.3), fmtT(-0.6)]") == \
             ["0°", "0°", "−1°"]
